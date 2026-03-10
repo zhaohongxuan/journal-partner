@@ -10,6 +10,7 @@ import {
 import {
   EditorState,
   Extension,
+  Prec,
   RangeSetBuilder,
   StateEffect,
   Transaction,
@@ -20,6 +21,7 @@ import {
   EditorView,
   ViewPlugin,
   ViewUpdate,
+  keymap,
 } from '@codemirror/view';
 
 // ── Types & defaults ────────────────────────────────────────────────────────
@@ -37,6 +39,8 @@ interface JournalPartnerSettings {
   timestampBgColor: string;
   /** When true, editing a timestamp in the editor is blocked */
   readonlyTimestamps: boolean;
+  /** When true, pressing Enter inside the journal section auto-inserts a timestamp on the new line */
+  autoTimestamp: boolean;
 }
 
 const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -46,6 +50,7 @@ const DEFAULT_SETTINGS: JournalPartnerSettings = {
   timestampColor: '#7c3aed',
   timestampBgColor: '#ede9fe',
   readonlyTimestamps: true,
+  autoTimestamp: true,
 };
 
 type Rng = { from: number; to: number };
@@ -128,6 +133,16 @@ function getTimestampRanges(
   }
 
   return result;
+}
+
+/** Generate a timestamp string for the current local time in HH:MM format. */
+function generateTimestamp(): string {
+  const now = new Date();
+  return (
+    String(now.getHours()).padStart(2, '0') +
+    ':' +
+    String(now.getMinutes()).padStart(2, '0')
+  );
 }
 
 /** Build a CM6 DecorationSet that marks every timestamp in the target section. */
@@ -227,7 +242,59 @@ export default class JournalPartnerPlugin extends Plugin {
       },
     );
 
-    return [viewPlugin, readonlyFilter];
+    return [viewPlugin, readonlyFilter, this.createEnterKeymap()];
+  }
+
+  /**
+   * Returns a high-priority keymap extension that intercepts Enter inside the
+   * target section and prepends a fresh timestamp to the newly created line.
+   */
+  private createEnterKeymap(): Extension {
+    const plugin = this;
+
+    return Prec.high(
+      keymap.of([
+        {
+          key: 'Enter',
+          run(view: EditorView): boolean {
+            if (!plugin.settings.autoTimestamp) return false;
+
+            const state = view.state;
+            const doc = state.doc.toString();
+            const section = findSection(
+              doc,
+              plugin.settings.targetHeading,
+              plugin.settings.headingLevel,
+            );
+            if (!section) return false;
+
+            const cursor = state.selection.main;
+            // Only act when the cursor head is inside the journal section
+            if (cursor.head < section.from || cursor.head >= section.to) {
+              return false;
+            }
+
+            // Detect the list marker used on the current line (-, *, +)
+            const line = state.doc.lineAt(cursor.head);
+            const markerMatch = line.text.match(/^([-*+]\s+)/);
+            const listMarker = markerMatch ? markerMatch[1] : '';
+
+            const ts = generateTimestamp();
+            const insertion = '\n' + listMarker + ts + ' ';
+
+            view.dispatch(
+              state.update({
+                changes: { from: cursor.from, to: cursor.to, insert: insertion },
+                selection: { anchor: cursor.from + insertion.length },
+                scrollIntoView: true,
+              }),
+            );
+
+            return true;
+          },
+        },
+      ]),
+    );
   }
 
   // ── Reading-view post processor ────────────────────────────────────────────
@@ -410,6 +477,20 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.readonlyTimestamps)
           .onChange(async value => {
             this.plugin.settings.readonlyTimestamps = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('回车自动插入时间戳')
+      .setDesc(
+        '在 Journal 区块内按下回车时，自动在新行开头插入当前时间（HH:MM）',
+      )
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.autoTimestamp)
+          .onChange(async value => {
+            this.plugin.settings.autoTimestamp = value;
             await this.plugin.saveSettings();
           }),
       );
