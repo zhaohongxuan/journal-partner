@@ -1,0 +1,42 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "npm install",
+			"type": "shell",
+			"command": "npm install",
+			"group": "build"
+		},
+		{
+			"label": "Build Journal Partner",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Install to Obsidian",
+			"type": "shell",
+			"command": "mkdir -p \"/Users/xuan/Library/Mobile Documents/iCloud~md~obsidian/Documents/xuan/.obsidian/plugins/journal-partner\" && cp /Users/xuan/VSCodeProjects/Journal-partner/main.js \"/Users/xuan/Library/Mobile Documents/iCloud~md~obsidian/Documents/xuan/.obsidian/plugins/journal-partner/\" && cp /Users/xuan/VSCodeProjects/Journal-partner/manifest.json \"/Users/xuan/Library/Mobile Documents/iCloud~md~obsidian/Documents/xuan/.obsidian/plugins/journal-partner/\" && cp /Users/xuan/VSCodeProjects/Journal-partner/styles.css \"/Users/xuan/Library/Mobile Documents/iCloud~md~obsidian/Documents/xuan/.obsidian/plugins/journal-partner/\" && echo 'Done' && ls \"/Users/xuan/Library/Mobile Documents/iCloud~md~obsidian/Documents/xuan/.obsidian/plugins/journal-partner/\""
+		},
+		{
+			"label": "git status check",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && git status 2>&1"
+		},
+		{
+			"label": "check gh cli",
+			"type": "shell",
+			"command": "which gh && gh auth status 2>&1"
+		},
+		{
+			"label": "gh auth login",
+			"type": "shell",
+			"command": "gh auth login -h github.com -w"
+		},
+		{
+			"label": "git init and commit",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && git init && git add . && git commit -m 'feat: initial release of Journal Partner plugin' && echo '--- git init done ---'"
+		}
+	]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "journal-partner",
+  "name": "Journal Partner",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "高亮 Journal 区域的时间戳，支持自定义颜色与作用范围，防止意外修改",
+  "author": "Xuan",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}

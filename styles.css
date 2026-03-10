@@ -1,0 +1,77 @@
+/* ── Journal Partner ─────────────────────────────────────────────────────── */
+
+/*
+  Timestamp badge – rendered both in the editor (CM6 mark decoration)
+  and in reading view (post-processed <span>).
+
+  Colors are driven by CSS custom properties so they update instantly
+  when the user changes them in Settings, without requiring a reload.
+*/
+.jp-timestamp {
+  display: inline-block;
+
+  color: var(--jp-ts-color, #7c3aed);
+  background: var(--jp-ts-bg, #ede9fe);
+
+  /* Monospace keeps time digits aligned */
+  font-family: var(
+    --font-monospace,
+    ui-monospace,
+    "Cascadia Code",
+    "Fira Code",
+    monospace
+  );
+  font-size: 0.76em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.7;
+
+  /* Pill shape */
+  padding: 2px 9px;
+  border-radius: 99px;
+
+  /* Spacing before the journal text */
+  margin-right: 6px;
+
+  vertical-align: middle;
+  white-space: nowrap;
+
+  /* Subtle depth */
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.07),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+
+  /* Smooth color transitions when settings change */
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+/* ── Dark theme ──────────────────────────────────────────────────────────── */
+.theme-dark .jp-timestamp {
+  box-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* ── Reading view ─────────────────────────────────────────────────────────── */
+
+/* Non-interactive cursor in the rendered view */
+.markdown-reading-view .jp-timestamp {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Very subtle hover feedback */
+.markdown-reading-view .jp-timestamp:hover {
+  opacity: 0.82;
+  transition: opacity 0.15s ease;
+}
+
+/* ── Editor (source / live-preview) ─────────────────────────────────────── */
+
+/* Keep the native text cursor so the user can click around */
+.cm-editor .jp-timestamp {
+  cursor: text;
+}
