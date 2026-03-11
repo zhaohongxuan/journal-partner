@@ -23,6 +23,7 @@ import {
   ViewUpdate,
   keymap,
 } from '@codemirror/view';
+import { GitHubImageHosting } from './github-image';
 
 // ── Types & defaults ────────────────────────────────────────────────────────
 
@@ -43,6 +44,18 @@ interface JournalPartnerSettings {
   autoTimestamp: boolean;
   /** When true, render checkboxes as circles instead of squares */
   circularCheckboxes: boolean;
+  /** GitHub image hosting enabled */
+  enableImageHosting: boolean;
+  /** GitHub personal access token */
+  gitHubToken: string;
+  /** GitHub repository owner */
+  gitHubOwner: string;
+  /** GitHub repository name */
+  gitHubRepo: string;
+  /** Path in repo to store images */
+  imagePath: string;
+  /** GitHub branch to upload to */
+  gitHubBranch: string;
 }
 
 const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -54,6 +67,12 @@ const DEFAULT_SETTINGS: JournalPartnerSettings = {
   readonlyTimestamps: true,
   autoTimestamp: true,
   circularCheckboxes: false,
+  enableImageHosting: false,
+  gitHubToken: '',
+  gitHubOwner: '',
+  gitHubRepo: '',
+  imagePath: 'assets/images',
+  gitHubBranch: 'main',
 };
 
 type Rng = { from: number; to: number };
@@ -179,6 +198,10 @@ export default class JournalPartnerPlugin extends Plugin {
     this.registerEditorExtension(this.createEditorExtensions());
     this.registerMarkdownPostProcessor(this.postProcessor.bind(this));
     this.addSettingTab(new JournalPartnerSettingTab(this.app, this));
+
+    // Register GitHub image hosting
+    const imageHosting = new GitHubImageHosting(this, this.app);
+    imageHosting.register();
   }
 
   // ── Editor extension (source + live-preview) ───────────────────────────────
@@ -518,6 +541,86 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.circularCheckboxes)
           .onChange(async value => {
             this.plugin.settings.circularCheckboxes = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    // ── GitHub Image Hosting ───────────────────────────────────────────────
+    containerEl.createEl('h3', { text: '🖼️ GitHub 图床' });
+
+    new Setting(containerEl)
+      .setName('启用 GitHub 图床')
+      .setDesc('粘贴图片时自动上传到 GitHub')
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.enableImageHosting)
+          .onChange(async value => {
+            this.plugin.settings.enableImageHosting = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('GitHub Token')
+      .setDesc('Personal Access Token（需要 repo 权限）')
+      .addText(text =>
+        text
+          .setPlaceholder('ghp_xxxxxxxxxxxxx')
+          .setValue(this.plugin.settings.gitHubToken)
+          .onChange(async value => {
+            this.plugin.settings.gitHubToken = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('GitHub 用户名')
+      .setDesc('仓库所有者的 GitHub 用户名')
+      .addText(text =>
+        text
+          .setPlaceholder('username')
+          .setValue(this.plugin.settings.gitHubOwner)
+          .onChange(async value => {
+            this.plugin.settings.gitHubOwner = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('仓库名称')
+      .setDesc('用于存储图片的 GitHub 仓库')
+      .addText(text =>
+        text
+          .setPlaceholder('my-vault')
+          .setValue(this.plugin.settings.gitHubRepo)
+          .onChange(async value => {
+            this.plugin.settings.gitHubRepo = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('图片存储目录')
+      .setDesc('仓库中存储图片的目录路径')
+      .addText(text =>
+        text
+          .setPlaceholder('assets/images')
+          .setValue(this.plugin.settings.imagePath)
+          .onChange(async value => {
+            this.plugin.settings.imagePath = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('目标分支')
+      .setDesc('上传到的 GitHub 分支')
+      .addText(text =>
+        text
+          .setPlaceholder('main')
+          .setValue(this.plugin.settings.gitHubBranch)
+          .onChange(async value => {
+            this.plugin.settings.gitHubBranch = value;
             await this.plugin.saveSettings();
           }),
       );

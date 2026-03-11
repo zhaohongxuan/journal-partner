@@ -67,6 +67,31 @@
 			"label": "git commit & push",
 			"type": "shell",
 			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && git add -A && git commit -m 'fix: improve circular checkbox CSS selectors and add deploy script' && git push && echo '✅ 代码已推送'"
+		},
+		{
+			"label": "restore main.ts",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && git checkout main.ts && git status | head -5"
+		},
+		{
+			"label": "build & check errors",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && npm run build 2>&1 | tail -20"
+		},
+		{
+			"label": "full build",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && npm run build"
+		},
+		{
+			"label": "deploy",
+			"type": "shell",
+			"command": "npm run deploy"
+		},
+		{
+			"label": "git commit & push",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && git add -A && git commit -m 'feat: add GitHub image hosting for automatic image upload on paste' && git push"
 		}
 	]
 }
