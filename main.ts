@@ -296,8 +296,12 @@ export default class JournalPartnerPlugin extends Plugin {
             if (!section) return false;
 
             const cursor = state.selection.main;
-            // Only act when the cursor head is inside the journal section
-            if (cursor.head < section.from || cursor.head >= section.to) {
+            // Only act when the cursor head is inside the journal section.
+            // Use > (not >=) because when the journal section is the last
+            // section in the document, section.to === doc.length, and the
+            // cursor is legitimately at doc.length when at the very end of
+            // the file — the most common journaling position.
+            if (cursor.head < section.from || cursor.head > section.to) {
               return false;
             }
 
@@ -562,16 +566,28 @@ class JournalPartnerSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('GitHub Token')
-      .setDesc('Personal Access Token（需要 repo 权限）')
-      .addText(text =>
+      .setDesc((() => {
+        const frag = document.createDocumentFragment();
+        frag.appendText('Personal Access Token（需要 Contents 的 Read & Write 权限）。');
+        frag.appendChild(document.createElement('br'));
+        const link = document.createElement('a');
+        link.href = 'https://github.com/settings/personal-access-tokens/new';
+        link.textContent = '→ 点击这里生成 Fine-grained Token';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        frag.appendChild(link);
+        return frag;
+      })())
+      .addText(text => {
         text
           .setPlaceholder('ghp_xxxxxxxxxxxxx')
           .setValue(this.plugin.settings.gitHubToken)
           .onChange(async value => {
             this.plugin.settings.gitHubToken = value;
             await this.plugin.saveSettings();
-          }),
-      );
+          });
+        text.inputEl.type = 'password';
+      });
 
     new Setting(containerEl)
       .setName('GitHub 用户名')

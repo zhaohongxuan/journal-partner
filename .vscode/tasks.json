@@ -92,6 +92,41 @@
 			"label": "git commit & push",
 			"type": "shell",
 			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && git add -A && git commit -m 'feat: add GitHub image hosting for automatic image upload on paste' && git push"
+		},
+		{
+			"label": "Build & Deploy",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && npm run build && cp main.js styles.css \"/Users/xuan/Library/Mobile Documents/iCloud~md~obsidian/Documents/xuan/.obsidian/plugins/journal-partner/\" && echo '✅ 完成'"
+		},
+		{
+			"label": "Build",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && npm run build 2>&1 | tail -20"
+		},
+		{
+			"label": "Deploy",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && npm run deploy"
+		},
+		{
+			"label": "Deploy",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && npm run deploy"
+		},
+		{
+			"label": "Deploy",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && npm run deploy"
+		},
+		{
+			"label": "Deploy",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && npm run deploy"
+		},
+		{
+			"label": "git commit & push",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && git add -A && git commit -m 'feat: add GitHub image hosting functionality with improved UI' && git push && echo '✅ 代码已推送'"
 		}
 	]
 }
