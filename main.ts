@@ -41,6 +41,8 @@ interface JournalPartnerSettings {
   readonlyTimestamps: boolean;
   /** When true, pressing Enter inside the journal section auto-inserts a timestamp on the new line */
   autoTimestamp: boolean;
+  /** When true, render checkboxes as circles instead of squares */
+  circularCheckboxes: boolean;
 }
 
 const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -51,6 +53,7 @@ const DEFAULT_SETTINGS: JournalPartnerSettings = {
   timestampBgColor: '#ede9fe',
   readonlyTimestamps: true,
   autoTimestamp: true,
+  circularCheckboxes: false,
 };
 
 type Rng = { from: number; to: number };
@@ -363,6 +366,16 @@ export default class JournalPartnerPlugin extends Plugin {
     root.style.setProperty('--jp-ts-bg', this.settings.timestampBgColor);
   }
 
+  /** Apply or remove circular checkbox styling based on settings. */
+  private updateCheckboxStyle() {
+    const el = document.documentElement;
+    if (this.settings.circularCheckboxes) {
+      el.classList.add('jp-circular-checkboxes');
+    } else {
+      el.classList.remove('jp-circular-checkboxes');
+    }
+  }
+
   async loadSettings() {
     this.settings = Object.assign(
       {},
@@ -374,6 +387,7 @@ export default class JournalPartnerPlugin extends Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
     this.applyCSSVariables();
+    this.updateCheckboxStyle();
     this.refreshEditors();
   }
 
@@ -491,6 +505,18 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.autoTimestamp)
           .onChange(async value => {
             this.plugin.settings.autoTimestamp = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('圆形复选框')
+      .setDesc('在日记区域内将 checkbox 渲染为圆形而非方形')
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.circularCheckboxes)
+          .onChange(async value => {
+            this.plugin.settings.circularCheckboxes = value;
             await this.plugin.saveSettings();
           }),
       );

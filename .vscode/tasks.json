@@ -37,6 +37,21 @@
 			"label": "git init and commit",
 			"type": "shell",
 			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && git init && git add . && git commit -m 'feat: initial release of Journal Partner plugin' && echo '--- git init done ---'"
+		},
+		{
+			"label": "Build with changes",
+			"type": "shell",
+			"command": "npm run build"
+		},
+		{
+			"label": "Sync to Obsidian",
+			"type": "shell",
+			"command": "cp /Users/xuan/VSCodeProjects/Journal-partner/{main.js,styles.css} \"/Users/xuan/Library/Mobile Documents/iCloud~md~obsidian/Documents/xuan/.obsidian/plugins/journal-partner/\" && echo '✅ 已同步到 Obsidian'"
+		},
+		{
+			"label": "git push",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && git add -A && git commit -m 'feat: add circular checkbox toggle setting' && git push"
 		}
 	]
 }

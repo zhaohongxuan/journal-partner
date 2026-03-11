@@ -75,3 +75,27 @@
 .cm-editor .jp-timestamp {
   cursor: text;
 }
+
+/* ── Circular checkboxes (when enabled in settings) ─────────────────── */
+
+.jp-circular-checkboxes .task-list-item input[type="checkbox"] {
+  border-radius: 50%;
+}
+
+/* Obsidian's CodeMirror 6 task checkbox styling */
+.jp-circular-checkboxes .cm-taskCheckbox {
+  border-radius: 50%;
+  width: 1.2em;
+  height: 1.2em;
+}
+
+/* Reading view circular checkboxes */
+.jp-circular-checkboxes .markdown-reading-view .task-list-item input[type="checkbox"] {
+  border-radius: 50%;
+}
+
+/* Dark theme adjustments */
+.theme-dark.jp-circular-checkboxes .task-list-item input[type="checkbox"],
+.theme-dark.jp-circular-checkboxes .cm-taskCheckbox {
+  border-radius: 50%;
+}
