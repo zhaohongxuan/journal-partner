@@ -52,6 +52,21 @@
 			"label": "git push",
 			"type": "shell",
 			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && git add -A && git commit -m 'feat: add circular checkbox toggle setting' && git push"
+		},
+		{
+			"label": "Build & Sync",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && npm run build && cp {main.js,styles.css} \"/Users/xuan/Library/Mobile Documents/iCloud~md~obsidian/Documents/xuan/.obsidian/plugins/journal-partner/\" && echo '✅ 构建并同步完成'"
+		},
+		{
+			"label": "Set script permissions",
+			"type": "shell",
+			"command": "chmod +x /Users/xuan/VSCodeProjects/Journal-partner/build-sync.sh && ls -la /Users/xuan/VSCodeProjects/Journal-partner/build-sync.sh"
+		},
+		{
+			"label": "git commit & push",
+			"type": "shell",
+			"command": "cd /Users/xuan/VSCodeProjects/Journal-partner && git add -A && git commit -m 'fix: improve circular checkbox CSS selectors and add deploy script' && git push && echo '✅ 代码已推送'"
 		}
 	]
 }

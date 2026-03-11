@@ -175,6 +175,7 @@ export default class JournalPartnerPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
     this.applyCSSVariables();
+    this.updateCheckboxStyle();
     this.registerEditorExtension(this.createEditorExtensions());
     this.registerMarkdownPostProcessor(this.postProcessor.bind(this));
     this.addSettingTab(new JournalPartnerSettingTab(this.app, this));

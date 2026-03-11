@@ -78,24 +78,32 @@
 
 /* ── Circular checkboxes (when enabled in settings) ─────────────────── */
 
+/* Universal checkbox selector - catches all checkbox types */
+.jp-circular-checkboxes input[type="checkbox"],
+.jp-circular-checkboxes .cm-taskCheckbox,
 .jp-circular-checkboxes .task-list-item input[type="checkbox"] {
-  border-radius: 50%;
+  border-radius: 50% !important;
 }
 
-/* Obsidian's CodeMirror 6 task checkbox styling */
-.jp-circular-checkboxes .cm-taskCheckbox {
-  border-radius: 50%;
-  width: 1.2em;
-  height: 1.2em;
+/* Specific CodeMirror 6 task checkbox styling */
+.jp-circular-checkboxes .cm-content .cm-taskCheckbox {
+  border-radius: 50% !important;
+}
+
+/* Editor view task checkboxes */
+.jp-circular-checkboxes .cm-editor .task-list-item input[type="checkbox"] {
+  border-radius: 50% !important;
 }
 
 /* Reading view circular checkboxes */
-.jp-circular-checkboxes .markdown-reading-view .task-list-item input[type="checkbox"] {
-  border-radius: 50%;
+.jp-circular-checkboxes .markdown-reading-view .task-list-item input[type="checkbox"],
+.jp-circular-checkboxes .markdown-preview-view .task-list-item input[type="checkbox"] {
+  border-radius: 50% !important;
 }
 
 /* Dark theme adjustments */
-.theme-dark.jp-circular-checkboxes .task-list-item input[type="checkbox"],
-.theme-dark.jp-circular-checkboxes .cm-taskCheckbox {
-  border-radius: 50%;
+.theme-dark.jp-circular-checkboxes input[type="checkbox"],
+.theme-dark.jp-circular-checkboxes .cm-taskCheckbox,
+.theme-dark.jp-circular-checkboxes .task-list-item input[type="checkbox"] {
+  border-radius: 50% !important;
 }
