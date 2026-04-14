@@ -16,6 +16,7 @@ echo "📤 Syncing to Obsidian..."
 mkdir -p "$PLUGIN_DIR"
 cp main.js "$PLUGIN_DIR/"
 cp styles.css "$PLUGIN_DIR/"
+cp manifest.json "$PLUGIN_DIR/"
 
 echo ""
 echo "✅ Build & Sync complete!"
