@@ -35,8 +35,8 @@ interface JournalPartnerSettings {
   timestampPattern: string;
   /** Foreground color of the timestamp badge */
   timestampColor: string;
-  /** Background color of the timestamp badge */
-  timestampBgColor: string;
+  /** Background opacity of the timestamp badge (0-100) */
+  timestampBgOpacity: number;
   /** When true, use Obsidian's accent color for timestamp badge */
   useAccentColor: boolean;
   /** When true, editing a timestamp in the editor is blocked */
@@ -52,7 +52,7 @@ const DEFAULT_SETTINGS: JournalPartnerSettings = {
   headingLevel: 2,
   timestampPattern: '\\d{2}:\\d{2}',
   timestampColor: '',
-  timestampBgColor: '',
+  timestampBgOpacity: 20,
   useAccentColor: true,
   readonlyTimestamps: true,
   autoTimestamp: true,
@@ -391,17 +391,18 @@ export default class JournalPartnerPlugin extends Plugin {
    * Derive a light background color from the accent color.
    * Creates a pastel version of the accent for the badge background.
    */
-  private deriveAccentBgColor(accentColor: string): string {
+  private deriveAccentBgColor(accentColor: string, opacity: number): string {
     // Convert hex to RGB, then create a light version
     const hex = accentColor.replace('#', '');
     const r = parseInt(hex.substring(0, 2), 16);
     const g = parseInt(hex.substring(2, 4), 16);
     const b = parseInt(hex.substring(4, 6), 16);
 
-    // Lighten: blend with white (85% white, 15% accent)
-    const lightR = Math.round(r * 0.15 + 255 * 0.85);
-    const lightG = Math.round(g * 0.15 + 255 * 0.85);
-    const lightB = Math.round(b * 0.15 + 255 * 0.85);
+    // Lighten: blend accent with white based on opacity (0-100)
+    const ratio = opacity / 100;
+    const lightR = Math.round(r * ratio + 255 * (1 - ratio));
+    const lightG = Math.round(g * ratio + 255 * (1 - ratio));
+    const lightB = Math.round(b * ratio + 255 * (1 - ratio));
 
     return `rgb(${lightR}, ${lightG}, ${lightB})`;
   }
@@ -412,21 +413,19 @@ export default class JournalPartnerPlugin extends Plugin {
 
     if (this.settings.useAccentColor) {
       const accentColor = this.getObsidianAccentColor();
-      const bgColor = this.deriveAccentBgColor(accentColor);
+      const bgColor = this.deriveAccentBgColor(accentColor, this.settings.timestampBgOpacity);
       root.style.setProperty('--jp-ts-color', accentColor);
       root.style.setProperty('--jp-ts-bg', bgColor);
     } else {
       root.style.setProperty('--jp-ts-color', this.settings.timestampColor || '#7c3aed');
-      root.style.setProperty('--jp-ts-bg', this.settings.timestampBgColor || '#ede9fe');
+      root.style.setProperty('--jp-ts-bg', this.deriveAccentBgColor(this.settings.timestampColor || '#7c3aed', this.settings.timestampBgOpacity));
     }
   }
 
   /** Reset colors to Obsidian accent color and enable accent mode. */
   async resetToAccentColor() {
     const accentColor = this.getObsidianAccentColor();
-    const bgColor = this.deriveAccentBgColor(accentColor);
     this.settings.timestampColor = accentColor;
-    this.settings.timestampBgColor = bgColor;
     this.settings.useAccentColor = true;
     await this.saveSettings();
   }
@@ -536,20 +535,6 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('恢复默认强调色')
-      .setDesc('一键将颜色恢复到 Obsidian 当前主题的强调色')
-      .addButton(btn =>
-        btn
-          .setButtonText('🎯 恢复强调色')
-          .setCta()
-          .onClick(async () => {
-            await this.plugin.resetToAccentColor();
-            // Refresh the settings UI to reflect new values
-            this.display();
-          }),
-      );
-
-    new Setting(containerEl)
       .setName('文字颜色')
       .setDesc('时间戳徽标的前景色（关闭「使用强调色」时生效）')
       .addColorPicker(cp =>
@@ -560,20 +545,74 @@ class JournalPartnerSettingTab extends PluginSettingTab {
             this.plugin.settings.useAccentColor = false;
             await this.plugin.saveSettings();
           }),
+      )
+      .addExtraButton(btn =>
+        btn
+          .setIcon('reset')
+          .setTooltip('恢复强调色')
+          .onClick(async () => {
+            await this.plugin.resetToAccentColor();
+            this.display();
+          }),
       );
 
     new Setting(containerEl)
-      .setName('背景颜色')
-      .setDesc('时间戳徽标的背景色（关闭「使用强调色」时生效）')
-      .addColorPicker(cp =>
-        cp
-          .setValue(this.plugin.settings.timestampBgColor || '#ede9fe')
+      .setName('背景透明度')
+      .setDesc('时间戳徽标的背景色透明度（值越大颜色越深）')
+      .addSlider(slider =>
+        slider
+          .setValue(this.plugin.settings.timestampBgOpacity)
+          .setLimits(5, 80, 5)
+          .setDynamicTooltip()
           .onChange(async value => {
-            this.plugin.settings.timestampBgColor = value;
-            this.plugin.settings.useAccentColor = false;
+            this.plugin.settings.timestampBgOpacity = value;
             await this.plugin.saveSettings();
           }),
       );
+
+    // Preview badge
+    const previewEl = containerEl.createDiv({ cls: 'jp-settings-preview' });
+    previewEl.style.cssText =
+      'margin-top: 24px; padding: 16px; border-radius: 8px;' +
+      'background: var(--background-secondary); display: flex; align-items: center; gap: 10px;';
+    previewEl.createEl('span', { text: '预览：' }).style.color =
+      'var(--text-muted)';
+
+    const timestampSpan = previewEl.createEl('span', {
+      cls: 'jp-timestamp',
+      text: '07:31',
+    });
+
+    // Update preview badge colors based on settings
+    const updatePreview = () => {
+      const color = this.plugin.settings.useAccentColor
+        ? (getComputedStyle(document.documentElement)
+            .getPropertyValue('--interactive-accent')
+            .trim() || '#7c3aed')
+        : (this.plugin.settings.timestampColor || '#7c3aed');
+      const hex = color.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      const opacity = this.plugin.settings.timestampBgOpacity / 100;
+      const lightR = Math.round(r * opacity + 255 * (1 - opacity));
+      const lightG = Math.round(g * opacity + 255 * (1 - opacity));
+      const lightB = Math.round(b * opacity + 255 * (1 - opacity));
+      timestampSpan.style.color = color;
+      timestampSpan.style.backgroundColor = `rgb(${lightR}, ${lightG}, ${lightB})`;
+    };
+
+    // Initial preview update
+    updatePreview();
+
+    // Listen for theme changes to update preview
+    const themeChangeHandler = () => updatePreview();
+    this.plugin.registerEvent(
+      // @ts-ignore - workspace exists
+      this.plugin.app.workspace.on('theme-change', themeChangeHandler),
+    );
+
+    previewEl.createEl('span', { text: '这里是日记内容…' });
 
     // ── Behavior ───────────────────────────────────────────────────────────
     containerEl.createEl('h3', { text: '⚙️ 行为' });
@@ -641,51 +680,6 @@ class JournalPartnerSettingTab extends PluginSettingTab {
             }
           }),
       );
-
-    // Preview badge
-    const previewEl = containerEl.createDiv({ cls: 'jp-settings-preview' });
-    previewEl.style.cssText =
-      'margin-top: 24px; padding: 16px; border-radius: 8px;' +
-      'background: var(--background-secondary); display: flex; align-items: center; gap: 10px;';
-    previewEl.createEl('span', { text: '预览：' }).style.color =
-      'var(--text-muted)';
-
-    const timestampSpan = previewEl.createEl('span', {
-      cls: 'jp-timestamp',
-      text: '07:31',
-    });
-
-    // Update preview badge colors based on settings
-    const updatePreview = () => {
-      if (this.plugin.settings.useAccentColor) {
-        const accent = getComputedStyle(document.documentElement)
-          .getPropertyValue('--interactive-accent')
-          .trim() || '#7c3aed';
-        // Derive light background
-        const hex = accent.replace('#', '');
-        const r = parseInt(hex.substring(0, 2), 16);
-        const g = parseInt(hex.substring(2, 4), 16);
-        const b = parseInt(hex.substring(4, 6), 16);
-        const lightR = Math.round(r * 0.15 + 255 * 0.85);
-        const lightG = Math.round(g * 0.15 + 255 * 0.85);
-        const lightB = Math.round(b * 0.15 + 255 * 0.85);
-        timestampSpan.style.color = accent;
-        timestampSpan.style.backgroundColor = `rgb(${lightR}, ${lightG}, ${lightB})`;
-      } else {
-        timestampSpan.style.color = this.plugin.settings.timestampColor || '#7c3aed';
-        timestampSpan.style.backgroundColor = this.plugin.settings.timestampBgColor || '#ede9fe';
-      }
-    };
-
-    // Initial preview update
-    updatePreview();
-
-    // Listen for theme changes to update preview
-    const themeChangeHandler = () => updatePreview();
-    this.plugin.registerEvent(
-      // @ts-ignore - workspace exists
-      this.plugin.app.workspace.on('theme-change', themeChangeHandler),
-    );
 
     previewEl.createEl('span', { text: '这里是日记内容…' });
   }
