@@ -1,6 +1,6 @@
 {
   "name": "journal-partner",
-  "version": "1.0.0",
+  "version": "2.0.1",
   "description": "Obsidian plugin – Journal timestamp highlighter",
   "main": "main.js",
   "scripts": {
