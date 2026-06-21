@@ -1,0 +1,19 @@
+docs/superpowers/specs/2026-06-21-journal-partner-editor-design.md
+  s_5a15abd33b3c3a::t_ab2fa413721985 1-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.17-trip",
+  "base_commit_sha": "3253e59d7e014833cb8d6c751b7debd175a48343",
+  "prompts": {},
+  "sessions": {
+    "s_5a15abd33b3c3a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67f946eb-bdc7-41e5-a9fa-a2c886bc545d",
+        "model": "MiniMax-M2.7"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
