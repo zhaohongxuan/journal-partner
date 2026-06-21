@@ -1,0 +1,22 @@
+main.ts
+  s_5a15abd33b3c3a::t_f12b2a17983370 522,533-534,561-562,573-574,585-586,593,597
+  s_5a15abd33b3c3a::t_3b72fd12749159 521
+capture-view.ts
+  s_5a15abd33b3c3a::t_22d588190f2375 736,738
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.17-trip",
+  "base_commit_sha": "974c2005226a6c277e7bb5f71a36c4135b3f8787",
+  "prompts": {},
+  "sessions": {
+    "s_5a15abd33b3c3a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67f946eb-bdc7-41e5-a9fa-a2c886bc545d",
+        "model": "MiniMax-M2.7"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
