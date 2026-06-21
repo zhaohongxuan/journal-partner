@@ -1,0 +1,31 @@
+stats.ts
+  s_5a15abd33b3c3a::t_a251ed755ced45 45-54
+  s_5a15abd33b3c3a::t_24bfa7215d2e40 302-338
+capture-view.ts
+  s_5a15abd33b3c3a::t_265a120d6bf5cb 175,195,202
+  s_5a15abd33b3c3a::t_c06f5094971afb 103-106
+  s_5a15abd33b3c3a::t_93331fefcc0b4e 47,49
+  s_5a15abd33b3c3a::t_ab78d1461f39aa 270
+  s_5a15abd33b3c3a::t_40d5a8c5e56830 934
+  s_5a15abd33b3c3a::t_e53013b09d05a6 857-858,862,870-910,914
+  s_5a15abd33b3c3a::t_464b98ed0266f7 853
+  s_5a15abd33b3c3a::t_59008f7a173fcd 946-947,949,954,965-968,971-981,1000,1004,1022
+  s_5a15abd33b3c3a::t_b6c58196e0ff3c 829,834,836
+  s_5a15abd33b3c3a::t_2133db4ae7cf43 201
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.17-trip",
+  "base_commit_sha": "56e54f37bd63da24120a9f75a74e3c35e2a170e8",
+  "prompts": {},
+  "sessions": {
+    "s_5a15abd33b3c3a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67f946eb-bdc7-41e5-a9fa-a2c886bc545d",
+        "model": "MiniMax-M2.7"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
