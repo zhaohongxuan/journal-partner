@@ -30,6 +30,8 @@ export interface JournalPartnerSettings {
   circularCheckboxes: boolean;
   /** Capture view: timeline sort direction (true = newest first) */
   captureSortDesc: boolean;
+  /** Capture view: position of the input card ('top' or 'bottom') */
+  inputPosition: 'top' | 'bottom';
   /** When true, deleting a memo (or its audio) shows a confirmation dialog first */
   confirmDelete: boolean;
 }
@@ -44,6 +46,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   autoTimestamp: true,
   circularCheckboxes: false,
   captureSortDesc: true,
+  inputPosition: 'top',
   confirmDelete: true,
 };
 

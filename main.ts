@@ -584,6 +584,23 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           }),
       );
 
+    // ── Capture view layout ─────────────────────────────────────────────────
+    containerEl.createEl('h3', { text: '📝 快速记录布局' });
+
+    new Setting(containerEl)
+      .setName('输入框位置')
+      .setDesc('文本输入框显示在时间线的上方还是下方')
+      .addDropdown(dd =>
+        dd
+          .addOption('top', '上方（最新在上）')
+          .addOption('bottom', '下方（最新在下）')
+          .setValue(this.plugin.settings.inputPosition)
+          .onChange(async value => {
+            this.plugin.settings.inputPosition = value as 'top' | 'bottom';
+            await this.plugin.saveSettings();
+          }),
+      );
+
     // ── Behavior ───────────────────────────────────────────────────────────
     containerEl.createEl('h3', { text: '⚙️ 行为' });
 

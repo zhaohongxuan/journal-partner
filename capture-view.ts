@@ -155,8 +155,15 @@ export class JournalCaptureView extends ItemView {
 
     // Capture pane (default visible)
     this.capturePaneEl = (root as HTMLElement).createDiv({ cls: 'jp-pane jp-pane-capture' });
-    this.buildInputCard(this.capturePaneEl);
-    this.buildTimeline(this.capturePaneEl);
+
+    // Build input card and timeline based on user preference
+    if (this.plugin.settings.inputPosition === 'bottom') {
+      this.buildTimeline(this.capturePaneEl);
+      this.buildInputCard(this.capturePaneEl);
+    } else {
+      this.buildInputCard(this.capturePaneEl);
+      this.buildTimeline(this.capturePaneEl);
+    }
 
     // Stats pane (hidden initially; built lazily on first switch)
     this.statsPaneEl = (root as HTMLElement).createDiv({ cls: 'jp-pane jp-pane-stats' });
@@ -271,17 +278,6 @@ export class JournalCaptureView extends ItemView {
     }
   }
 
-
-  private updateSortButton(btn: HTMLButtonElement) {
-    setIcon(
-      btn,
-      this.plugin.settings.captureSortDesc ? 'arrow-down-narrow-wide' : 'arrow-up-narrow-wide',
-    );
-    btn.setAttr(
-      'title',
-      this.plugin.settings.captureSortDesc ? '当前：最新在上' : '当前：最早在上',
-    );
-  }
 
   private buildInputCard(root: HTMLElement) {
     this.inputCardEl = root.createDiv({ cls: 'jp-capture-card' });
@@ -518,39 +514,26 @@ export class JournalCaptureView extends ItemView {
     headerText.createEl('div', { cls: 'jp-timeline-header-title', text: headerLabel.title });
     headerText.createEl('div', { cls: 'jp-timeline-header-sub', text: headerLabel.subtitle });
 
-    // Right-side actions on the date header: currently just the sort toggle.
-    // We attach it to every day, but it controls a global setting — clicking
-    // re-renders all days at once.
-    const actions = headerCard.createDiv({ cls: 'jp-timeline-header-actions' });
-    const sortBtn = actions.createEl('button', {
-      cls: 'jp-timeline-header-btn',
-      attr: { 'aria-label': '切换排序方向' },
-    });
-    this.updateSortButton(sortBtn);
-    sortBtn.addEventListener('click', async () => {
-      this.plugin.settings.captureSortDesc = !this.plugin.settings.captureSortDesc;
-      await this.plugin.saveSettings();
-      await this.fullRebuild();
-    });
-
     if (entries.length === 0) {
       // Today with no entries — soft hint only
       day.el.createDiv({ cls: 'jp-capture-empty', text: '还没有 memo，写点什么吧 →' });
       return;
     }
 
-    // Sort entries within the day
+    // Sort entries within the day — direction follows input position:
+    // input on top → newest first; input on bottom → newest last
+    const sortDesc = this.plugin.settings.inputPosition !== 'bottom';
     const latestTs = entries.reduce<string>(
       (acc, e) => (e.timestamp > acc ? e.timestamp : acc),
       '',
     );
     const sorted = [...entries].sort((a, b) => {
       if (a.timestamp === b.timestamp) {
-        return this.plugin.settings.captureSortDesc
+        return sortDesc
           ? b.lineIndex - a.lineIndex
           : a.lineIndex - b.lineIndex;
       }
-      return this.plugin.settings.captureSortDesc
+      return sortDesc
         ? a.timestamp < b.timestamp ? 1 : -1
         : a.timestamp < b.timestamp ? -1 : 1;
     });
@@ -1273,9 +1256,13 @@ export class JournalCaptureView extends ItemView {
         await this.fullRebuild();
       }
 
-      // Scroll to top so user sees the new entry land
+      // Scroll: input on top → scroll to top; input on bottom → scroll to bottom
       const scroller = this.containerEl.children[1] as HTMLElement;
-      scroller.scrollTo({ top: 0, behavior: 'smooth' });
+      if (this.plugin.settings.inputPosition === 'bottom') {
+        scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
+      } else {
+        scroller.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     } catch (err) {
       console.error('[Journal Partner] submit failed', err);
       new Notice(`写入失败：${err instanceof Error ? err.message : String(err)}`);
