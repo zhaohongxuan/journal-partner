@@ -1,0 +1,42 @@
+styles.css
+  s_5a15abd33b3c3a::t_58e27134a754da 195-197
+  s_5a15abd33b3c3a::t_bbbf40a7b38503 199
+  s_5a15abd33b3c3a::t_82eccdea7b3a68 203,209,213-214,216,220,222,227,235-236,238-243
+  s_5a15abd33b3c3a::t_ea3b0ebad3851b 202,215,217,221,226
+  s_5a15abd33b3c3a::t_432bdf0de8816f 189
+  s_5a15abd33b3c3a::t_811d9e0d59e3d1 198,201
+  s_5a15abd33b3c3a::t_3d2bb8c5ef5a67 200,205-206,211,228-229
+  s_5a15abd33b3c3a::t_e4450663bb5a6f 204,207-208,210,212,218-219,223-224,231-234
+  s_5a15abd33b3c3a::t_33933215d4ea6b 225,230,237
+  s_5a15abd33b3c3a::t_9a07b78c1861e1 246-247
+capture-view.ts
+  s_5a15abd33b3c3a::t_c87f7e34c30e1f 510,513-515
+  s_5a15abd33b3c3a::t_ae84d46e8585c4 511-512
+  s_5a15abd33b3c3a::t_9e148feb050d8d 404,414
+  s_5a15abd33b3c3a::t_733ff1148bd9b5 313-314,317-319,322-325,332,334-340
+  s_5a15abd33b3c3a::t_659f6d4714b343 371-372,413
+  s_5a15abd33b3c3a::t_782913162f9d1b 342-369
+  s_5a15abd33b3c3a::t_e56021df7431da 289,403
+  s_5a15abd33b3c3a::t_c4f33f3243b389 521-534
+  s_5a15abd33b3c3a::t_b9db6a05c8933c 487-491
+  s_5a15abd33b3c3a::t_98b0178b3d1e76 290-292,370,373-402,405-411
+  s_5a15abd33b3c3a::t_138e95acd68d19 415-483
+  s_5a15abd33b3c3a::t_f6cfc3a28ec2e4 311-312,315-316,320-321,326-331,333,341
+  s_5a15abd33b3c3a::t_b454368fd9d3fb 503-509,516-520
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.17-trip",
+  "base_commit_sha": "597e494a480b312209db6816a2d691c029c00173",
+  "prompts": {},
+  "sessions": {
+    "s_5a15abd33b3c3a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67f946eb-bdc7-41e5-a9fa-a2c886bc545d",
+        "model": "MiniMax-M2.7"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
