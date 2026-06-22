@@ -1,0 +1,26 @@
+styles.css
+  s_97ef3fcc7af526::t_6d3fae05be3de6 157
+  s_97ef3fcc7af526::t_43ad28e0084517 165-168,170-176,178-181,183-184,187-188
+  s_97ef3fcc7af526::t_876770c70b452c 169,177,185-186
+  s_97ef3fcc7af526::t_8739b0297cdfcd 610-659
+capture-view.ts
+  s_97ef3fcc7af526::t_4088ee37d79b9c 532-762
+  s_97ef3fcc7af526::t_be34ff69ef50ef 278,281-283,292-295
+  s_97ef3fcc7af526::t_b20af808a73e6c 284,288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.17-trip",
+  "base_commit_sha": "bd23b2324819c75cb4ff073cbb696dc618d2c5c2",
+  "prompts": {},
+  "sessions": {
+    "s_97ef3fcc7af526": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9c00d63-d15f-4da7-a96a-fdb08245a9c6",
+        "model": "MiniMax-M2.7"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
