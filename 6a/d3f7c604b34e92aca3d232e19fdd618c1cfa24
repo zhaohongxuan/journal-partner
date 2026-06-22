@@ -1,0 +1,27 @@
+package.json
+  s_97ef3fcc7af526::t_d21911c2eb41c3 29
+capture-view.ts
+  s_97ef3fcc7af526::t_a9b1d0d29dda1a 483,485-554,557,559-564,568-573,575-583,585-591,593-596,598-603,746
+  s_97ef3fcc7af526::t_27761941d76c50 96-97
+  s_97ef3fcc7af526::t_9f56abf209b46a 565
+  s_97ef3fcc7af526::t_83da16c902845e 36-39
+  s_97ef3fcc7af526::t_53bd115bd32264 608,610-614,616,634-635,653-654,661,663,667-668,723,725-726,728-732,735
+  s_97ef3fcc7af526::t_0e3c8a5defcf2e 283,290-291,293-294,296,310,318,320,329,337,344,355,368,404
+  s_97ef3fcc7af526::t_17557fa3c0b31b 1612,1629-1630
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.17-trip",
+  "base_commit_sha": "6ad3f7c604b34e92aca3d232e19fdd618c1cfa24",
+  "prompts": {},
+  "sessions": {
+    "s_97ef3fcc7af526": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9c00d63-d15f-4da7-a96a-fdb08245a9c6",
+        "model": "MiniMax-M2.7"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
