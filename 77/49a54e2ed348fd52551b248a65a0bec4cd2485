@@ -1,0 +1,21 @@
+package.json
+  s_7fec74d1739013::t_a1d0aef91dfebf 7-8
+src/capture-view.ts
+  s_7fec74d1739013::t_24acccc7f64aec 1200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.17-trip",
+  "base_commit_sha": "7749a54e2ed348fd52551b248a65a0bec4cd2485",
+  "prompts": {},
+  "sessions": {
+    "s_7fec74d1739013": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c69eb39-4b4b-4694-8859-df57da4806b7",
+        "model": "MiniMax-M2.7"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
