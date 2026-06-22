@@ -275,16 +275,24 @@ export class JournalCaptureView extends ItemView {
   private buildInputCard(root: HTMLElement) {
     this.inputCardEl = root.createDiv({ cls: 'jp-capture-card' });
 
-    // Wrapper for textarea
+    // Wrapper for textarea - uses flexbox for proper icon alignment
     const inputWrapper = this.inputCardEl.createDiv({ cls: 'jp-capture-input-wrapper' });
+
+    // Search icon - using inline SVG for proper vertical alignment
+    const iconWrapper = inputWrapper.createDiv({ cls: 'jp-capture-input-icon' });
+    iconWrapper.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`;
 
     this.textareaEl = inputWrapper.createEl('textarea', {
       cls: 'jp-capture-input',
       attr: {
-        placeholder: "What's happening?",
+        placeholder: "Search or type [[, #, **...",
         rows: '3',
       },
     });
+
+    // Initialize autocomplete for wiki-links and markdown
+    this.setupInputAutocomplete();
+
     this.textareaEl.addEventListener('input', () => {
       this.refreshSubmitState();
       this.autoResizeTextarea();
@@ -519,6 +527,237 @@ export class JournalCaptureView extends ItemView {
     const buffer = await blob.arrayBuffer();
     const file = await this.app.vault.createBinary(fileName, buffer);
     return `![[${file.path}]]`;
+  }
+
+  // ── Autocomplete ────────────────────────────────────────────────────────
+
+  /** Current autocomplete state */
+  private autocompleteActive = false;
+  private autocompleteQuery = '';
+  private autocompleteStartPos = 0;
+  private autocompleteEl: HTMLElement | null = null;
+  private selectedIndex = 0;
+
+  /**
+   * Setup input autocomplete for [[wiki-links, #tags, and markdown syntax.
+   */
+  private setupInputAutocomplete() {
+    const textarea = this.textareaEl;
+
+    textarea.addEventListener('input', (e: Event) => {
+      const event = e as InputEvent;
+      const value = textarea.value;
+      const cursorPos = textarea.selectionStart;
+
+      // Detect [[ trigger for wiki-link autocomplete
+      const textBeforeCursor = value.slice(0, cursorPos);
+      const wikiLinkMatch = textBeforeCursor.match(/\[\[([^\]]*?)$/);
+
+      if (wikiLinkMatch) {
+        this.showAutocomplete('wikilink', wikiLinkMatch[1], wikiLinkMatch.index!);
+        return;
+      }
+
+      // Detect # trigger for tag autocomplete
+      const tagMatch = textBeforeCursor.match(/#([\w-]*)$/);
+      if (tagMatch) {
+        this.showAutocomplete('tag', tagMatch[1], tagMatch.index!);
+        return;
+      }
+
+      this.hideAutocomplete();
+    });
+
+    textarea.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (!this.autocompleteActive) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.selectNextItem();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.selectPrevItem();
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        // Only intercept Enter/Tab when autocomplete is active and has suggestions
+        const items = this.getAutocompleteItems();
+        if (items.length > 0) {
+          e.preventDefault();
+          this.selectItem(this.selectedIndex);
+        }
+      } else if (e.key === 'Escape') {
+        this.hideAutocomplete();
+      }
+    });
+
+    // Hide autocomplete when textarea loses focus (with delay to allow click on dropdown)
+    textarea.addEventListener('blur', () => {
+      setTimeout(() => this.hideAutocomplete(), 200);
+    });
+  }
+
+  private showAutocomplete(type: 'wikilink' | 'tag', query: string, startPos: number) {
+    this.autocompleteActive = true;
+    this.autocompleteQuery = query;
+    this.autocompleteStartPos = startPos;
+    this.selectedIndex = 0;
+
+    const items = this.getAutocompleteItems();
+    if (items.length === 0) {
+      this.hideAutocomplete();
+      return;
+    }
+
+    // Create or update dropdown
+    if (!this.autocompleteEl) {
+      this.autocompleteEl = this.inputCardEl.createDiv({ cls: 'jp-autocomplete' });
+    }
+
+    this.renderAutocompleteItems(items);
+
+    // Position dropdown below textarea
+    const rect = this.textareaEl.getBoundingClientRect();
+    const cardRect = this.inputCardEl.getBoundingClientRect();
+    this.autocompleteEl.style.top = `${rect.bottom - cardRect.top + 4}px`;
+    this.autocompleteEl.style.left = `0`;
+    this.autocompleteEl.style.width = `100%`;
+  }
+
+  private hideAutocomplete() {
+    this.autocompleteActive = false;
+    if (this.autocompleteEl) {
+      this.autocompleteEl.remove();
+      this.autocompleteEl = null;
+    }
+  }
+
+  private getAutocompleteItems(): Array<{ label: string; detail: string; insert: string }> {
+    if (!this.autocompleteActive) return [];
+
+    // Get wiki-link suggestions
+    const wikiLinkItems: Array<{ label: string; detail: string; insert: string }> = [];
+
+    // Get all markdown files
+    const files = this.app.vault.getFiles().filter(f => f.extension === 'md');
+    const filtered = files
+      .filter(f =>
+        f.name.toLowerCase().includes(this.autocompleteQuery.toLowerCase()) ||
+        f.path.toLowerCase().includes(this.autocompleteQuery.toLowerCase())
+      )
+      .slice(0, 8);
+
+    for (const file of filtered) {
+      const label = file.name.replace(/\.md$/, '');
+      wikiLinkItems.push({
+        label,
+        detail: file.path,
+        insert: `[[${label}]]`,
+      });
+    }
+
+    // If query starts with #, also include tag suggestions
+    if (this.autocompleteQuery.startsWith('#')) {
+      const tagQuery = this.autocompleteQuery.slice(1);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cache = (this.app.metadataCache as any).getTags();
+      if (cache) {
+        const extractTags = (obj: Record<string, unknown>, prefix = '') => {
+          const tags: string[] = [];
+          for (const [key] of Object.entries(obj)) {
+            if (key.startsWith('#')) {
+              tags.push(key);
+            }
+          }
+          return tags;
+        };
+        const allTags = extractTags(cache as Record<string, unknown>);
+        const filteredTags = allTags
+          .filter(t => t.toLowerCase().includes(tagQuery.toLowerCase()))
+          .slice(0, 4);
+
+        for (const tag of filteredTags) {
+          wikiLinkItems.push({
+            label: tag,
+            detail: 'tag',
+            insert: tag,
+          });
+        }
+      }
+    }
+
+    return wikiLinkItems;
+  }
+
+  private renderAutocompleteItems(items: Array<{ label: string; detail: string; insert: string }>) {
+    if (!this.autocompleteEl) return;
+
+    this.autocompleteEl.innerHTML = '';
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const itemEl = this.autocompleteEl!.createDiv({
+        cls: `jp-autocomplete-item${i === this.selectedIndex ? ' is-selected' : ''}`,
+      });
+
+      const labelEl = itemEl.createDiv({ cls: 'jp-autocomplete-label', text: item.label });
+      const detailEl = itemEl.createDiv({ cls: 'jp-autocomplete-detail', text: item.detail });
+
+      itemEl.addEventListener('mouseenter', () => {
+        this.selectedIndex = i;
+        this.updateSelection();
+      });
+
+      itemEl.addEventListener('click', () => {
+        this.selectItem(i);
+      });
+    }
+  }
+
+  private selectNextItem() {
+    const items = this.getAutocompleteItems();
+    if (items.length === 0) return;
+    this.selectedIndex = (this.selectedIndex + 1) % items.length;
+    this.updateSelection();
+  }
+
+  private selectPrevItem() {
+    const items = this.getAutocompleteItems();
+    if (items.length === 0) return;
+    this.selectedIndex = (this.selectedIndex - 1 + items.length) % items.length;
+    this.updateSelection();
+  }
+
+  private updateSelection() {
+    if (!this.autocompleteEl) return;
+    const items = this.autocompleteEl.querySelectorAll('.jp-autocomplete-item');
+    items.forEach((el, i) => {
+      el.classList.toggle('is-selected', i === this.selectedIndex);
+    });
+  }
+
+  private selectItem(index: number) {
+    const items = this.getAutocompleteItems();
+    if (index < 0 || index >= items.length) return;
+
+    const item = items[index];
+    const textarea = this.textareaEl;
+    const cursorPos = textarea.selectionStart;
+
+    // Replace the trigger text with the selected item
+    const before = textarea.value.slice(0, this.autocompleteStartPos);
+    const after = textarea.value.slice(cursorPos);
+    const newValue = before + item.insert + after;
+
+    textarea.value = newValue;
+
+    // Position cursor after the inserted text
+    const newCursorPos = this.autocompleteStartPos + item.insert.length;
+    textarea.setSelectionRange(newCursorPos, newCursorPos);
+
+    // Trigger input event for submit state refresh
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+    this.hideAutocomplete();
+    textarea.focus();
   }
 
   private buildTimeline(root: HTMLElement) {

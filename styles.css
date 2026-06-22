@@ -154,7 +154,7 @@
   font-family: inherit;
   font-size: 14px;
   line-height: 1.55;
-  padding: 0 0 0 28px;
+  padding: 8px 0 8px 28px;
   box-sizing: border-box;
 }
 .jp-capture-input::placeholder {
@@ -162,7 +162,30 @@
 }
 .jp-capture-input-wrapper {
   position: relative;
+  display: flex;
+  align-items: flex-start;
 }
+
+/* Search icon - using flexbox for proper vertical alignment with textarea */
+.jp-capture-input-icon {
+  position: absolute;
+  left: 0;
+  top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 20px;
+  color: var(--text-muted);
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.jp-capture-input-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .jp-capture-button-row {
   display: inline-flex;
   gap: 4px;
@@ -582,6 +605,56 @@
   border-radius: 6px;
   font-size: 13px;
   cursor: pointer;
+}
+
+/* ── Autocomplete dropdown ──────────────────────────────────────────────── */
+
+.jp-autocomplete {
+  position: absolute;
+  z-index: 100;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.jp-autocomplete-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  margin: 0 4px;
+  gap: 12px;
+}
+
+.jp-autocomplete-item:hover,
+.jp-autocomplete-item.is-selected {
+  background: var(--background-modifier-hover);
+}
+
+.jp-autocomplete-label {
+  font-size: 13px;
+  color: var(--text-normal);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jp-autocomplete-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Tab bar (capture / stats) ──────────────────────────────────────────── */
