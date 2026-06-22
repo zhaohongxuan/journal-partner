@@ -33,6 +33,10 @@ import {
   getDailyNote,
   getDateFromFile,
 } from 'obsidian-daily-notes-interface';
+import { EditorView } from '@codemirror/view';
+import { EditorState } from '@codemirror/state';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 
 import {
   JournalEntry,
@@ -89,7 +93,8 @@ export class JournalCaptureView extends ItemView {
   private inputCardEl!: HTMLElement;
   private timelineEl!: HTMLElement;
   private sentinelEl!: HTMLElement;
-  private textareaEl!: HTMLTextAreaElement;
+  private editorViewEl!: HTMLElement;
+  private editorView!: EditorView;
   private submitBtn!: HTMLButtonElement;
 
   // DOM references (stats pane)
@@ -275,41 +280,23 @@ export class JournalCaptureView extends ItemView {
   private buildInputCard(root: HTMLElement) {
     this.inputCardEl = root.createDiv({ cls: 'jp-capture-card' });
 
-    // Wrapper for textarea - uses flexbox for proper icon alignment
+    // Wrapper for editor - uses flexbox for proper icon alignment
     const inputWrapper = this.inputCardEl.createDiv({ cls: 'jp-capture-input-wrapper' });
 
     // Search icon - using inline SVG for proper vertical alignment
     const iconWrapper = inputWrapper.createDiv({ cls: 'jp-capture-input-icon' });
     iconWrapper.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`;
 
-    this.textareaEl = inputWrapper.createEl('textarea', {
-      cls: 'jp-capture-input',
-      attr: {
-        placeholder: "Search or type [[, #, **...",
-        rows: '3',
-      },
-    });
+    // Create CodeMirror editor element
+    this.editorViewEl = inputWrapper.createDiv({ cls: 'jp-capture-editor' });
 
-    // Initialize autocomplete for wiki-links and markdown
-    this.setupInputAutocomplete();
+    // Initialize CodeMirror with markdown syntax highlighting
+    this.initCodeMirrorEditor();
 
-    this.textareaEl.addEventListener('input', () => {
-      this.refreshSubmitState();
-      this.autoResizeTextarea();
-    });
-    // Shift+Enter submits (Enter alone keeps default newline behaviour for
-    // multi-line composition, matching the user's chosen shortcut).
-    this.textareaEl.addEventListener('keydown', evt => {
-      if (evt.key === 'Enter' && evt.shiftKey && !evt.isComposing) {
-        evt.preventDefault();
-        void this.handleSubmit();
-      }
-    });
-    // Image paste: intercept at document level (capture phase) for reliability
+    // Image paste handler
     this.registerDomEvent(document, 'paste', async (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
       if (!items) return;
-      // Only intercept if focus is inside our textarea
       if (!this.inputCardEl.contains(document.activeElement)) return;
       for (const item of Array.from(items)) {
         if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
@@ -320,24 +307,17 @@ export class JournalCaptureView extends ItemView {
         if (!blob) continue;
         try {
           const result = await this.saveImageToVault(blob);
-          const textarea = this.textareaEl;
-          const start = textarea.selectionStart;
-          const end = textarea.selectionEnd;
-          const before = textarea.value.substring(0, start);
-          const after = textarea.value.substring(end);
-          textarea.value = before + result + ' ' + after;
-          const newPos = start + result.length + 1;
-          textarea.setSelectionRange(newPos, newPos);
+          this.insertTextAtCursor(result + ' ');
           this.refreshSubmitState();
-          this.autoResizeTextarea();
         } catch (err) {
           new Notice(`图片保存失败：${err instanceof Error ? err.message : String(err)}`);
         }
         return;
       }
     }, true);
+
     // Image drag & drop
-    this.textareaEl.addEventListener('drop', async (e) => {
+    this.editorViewEl.addEventListener('drop', async (e) => {
       const files = e.dataTransfer?.files;
       if (!files) return;
       for (const file of Array.from(files)) {
@@ -346,32 +326,22 @@ export class JournalCaptureView extends ItemView {
         e.stopPropagation();
         try {
           const result = await this.saveImageToVault(file);
-          const start = this.textareaEl.selectionStart;
-          const end = this.textareaEl.selectionEnd;
-          const before = this.textareaEl.value.substring(0, start);
-          const after = this.textareaEl.value.substring(end);
-          this.textareaEl.value = before + result + ' ' + after;
-          const newPos = start + result.length + 1;
-          this.textareaEl.setSelectionRange(newPos, newPos);
+          this.insertTextAtCursor(result + ' ');
           this.refreshSubmitState();
-          this.autoResizeTextarea();
         } catch (err) {
           new Notice(`图片保存失败：${err instanceof Error ? err.message : String(err)}`);
         }
         return;
       }
     });
-    this.textareaEl.addEventListener('dragover', (e) => {
+    this.editorViewEl.addEventListener('dragover', (e) => {
       if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
     }, true);
 
     // Hidden file input for image upload
     const fileInput = this.inputCardEl.createEl('input', {
       cls: 'jp-capture-image-input',
-      attr: {
-        type: 'file',
-        accept: 'image/*',
-      },
+      attr: { type: 'file', accept: 'image/*' },
     });
     fileInput.style.display = 'none';
     fileInput.addEventListener('change', async () => {
@@ -382,16 +352,8 @@ export class JournalCaptureView extends ItemView {
       fileInput.value = '';
       try {
         const result = await this.saveImageToVault(file);
-        const textarea = this.textareaEl;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const before = textarea.value.substring(0, start);
-        const after = textarea.value.substring(end);
-        textarea.value = before + result + ' ' + after;
-        const newPos = start + result.length + 1;
-        textarea.setSelectionRange(newPos, newPos);
+        this.insertTextAtCursor(result + ' ');
         this.refreshSubmitState();
-        this.autoResizeTextarea();
       } catch (err) {
         new Notice(`图片保存失败：${err instanceof Error ? err.message : String(err)}`);
       }
@@ -403,9 +365,7 @@ export class JournalCaptureView extends ItemView {
       attr: { 'aria-label': '上传图片' },
     });
     setIcon(imageBtn, 'image');
-    imageBtn.addEventListener('click', () => {
-      fileInput.click();
-    });
+    imageBtn.addEventListener('click', () => fileInput.click());
 
     // Microphone button
     const micBtn = this.inputCardEl.createEl('button', {
@@ -441,16 +401,8 @@ export class JournalCaptureView extends ItemView {
           const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
           try {
             const result = await this.saveAudioToVault(audioBlob);
-            const textarea = this.textareaEl;
-            const start = textarea.selectionStart;
-            const end = textarea.selectionEnd;
-            const before = textarea.value.substring(0, start);
-            const after = textarea.value.substring(end);
-            textarea.value = before + result + ' ' + after;
-            const newPos = start + result.length + 1;
-            textarea.setSelectionRange(newPos, newPos);
+            this.insertTextAtCursor(result + ' ');
             this.refreshSubmitState();
-            this.autoResizeTextarea();
           } catch (err) {
             new Notice(`录音保存失败：${err instanceof Error ? err.message : String(err)}`);
           }
@@ -481,7 +433,6 @@ export class JournalCaptureView extends ItemView {
 
     const actions = this.inputCardEl.createDiv({ cls: 'jp-capture-actions' });
 
-    // Button row inside actions, left side
     const buttonRow = actions.createDiv({ cls: 'jp-capture-button-row' });
     buttonRow.appendChild(imageBtn);
     buttonRow.appendChild(micBtn);
@@ -529,73 +480,140 @@ export class JournalCaptureView extends ItemView {
     return `![[${file.path}]]`;
   }
 
-  // ── Autocomplete ────────────────────────────────────────────────────────
+  // ── CodeMirror Editor ─────────────────────────────────────────────────
 
-  /** Current autocomplete state */
+  /**
+   * Initialize CodeMirror 6 editor with markdown syntax highlighting.
+   */
+  private initCodeMirrorEditor() {
+    const view = this.editorView;
+
+    this.editorView = new EditorView({
+      state: EditorState.create({
+        doc: '',
+        extensions: [
+          // Markdown syntax highlighting
+          markdown({ base: markdownLanguage }),
+          syntaxHighlighting(defaultHighlightStyle),
+          // Line wrapping
+          EditorView.lineWrapping,
+          // Placeholder
+          EditorView.contentAttributes.of({ 'aria-label': '写下此刻的想法...' }),
+          // Theme matching Obsidian
+          EditorView.theme({
+            '&': {
+              backgroundColor: 'transparent',
+              color: 'var(--text-normal)',
+              fontSize: '14px',
+              fontFamily: 'var(--font-text)',
+            },
+            '.cm-content': {
+              padding: '8px 0 8px 28px',
+              minHeight: '60px',
+              maxHeight: '240px',
+              caretColor: 'var(--text-normal)',
+            },
+            '.cm-line': {
+              lineHeight: '1.55',
+            },
+            '.cm-placeholder': {
+              color: 'var(--text-faint)',
+              fontStyle: 'italic',
+            },
+            '.cm-focused': {
+              outline: 'none',
+            },
+            '&.cm-focused .cm-cursor': {
+              borderLeftColor: 'var(--text-normal)',
+            },
+            '.cm-scroller': {
+              overflow: 'auto',
+            },
+          }),
+          // Update listener for submit state
+          EditorView.updateListener.of((update) => {
+            if (update.docChanged) {
+              this.refreshSubmitState();
+              this.autoResizeEditor();
+              this.handleEditorInput();
+            }
+          }),
+          // Keydown handler for Shift+Enter submit
+          EditorView.domEventHandlers({
+            keydown: (event) => {
+              if (event.key === 'Enter' && event.shiftKey && !event.isComposing) {
+                event.preventDefault();
+                void this.handleSubmit();
+              }
+            },
+          }),
+        ],
+      }),
+      parent: this.editorViewEl,
+    });
+  }
+
+  /**
+   * Insert text at the current cursor position in the editor.
+   */
+  private insertTextAtCursor(text: string) {
+    if (!this.editorView) return;
+    const { from, to } = this.editorView.state.selection.main;
+    this.editorView.dispatch({
+      changes: { from, to, insert: text },
+      selection: { anchor: from + text.length },
+    });
+  }
+
+  /**
+   * Get the current editor content.
+   */
+  private getEditorContent(): string {
+    return this.editorView?.state.doc.toString() ?? '';
+  }
+
+  /**
+   * Clear the editor content.
+   */
+  private clearEditorContent() {
+    if (!this.editorView) return;
+    this.editorView.dispatch({
+      changes: { from: 0, to: this.editorView.state.doc.length, insert: '' },
+    });
+  }
+
+  private autoResizeEditor() {
+    if (!this.editorView) return;
+    const scroller = this.editorView.scrollDOM;
+    scroller.style.height = 'auto';
+    const next = Math.min(scroller.scrollHeight, 240);
+    scroller.style.height = `${next}px`;
+  }
+
+  private handleEditorInput() {
+    const value = this.getEditorContent();
+    const cursorPos = this.editorView?.state.selection.main.head ?? 0;
+    const textBeforeCursor = value.slice(0, cursorPos);
+
+    // Detect [[ trigger for wiki-link autocomplete
+    const wikiLinkMatch = textBeforeCursor.match(/\[\[([^\]]*?)$/);
+    if (wikiLinkMatch) {
+      this.showAutocomplete(wikiLinkMatch[1], wikiLinkMatch.index!);
+      return;
+    }
+
+    this.hideAutocomplete();
+  }
+
+  // ── Wiki-link Autocomplete ─────────────────────────────────────────────
+
   private autocompleteActive = false;
   private autocompleteQuery = '';
   private autocompleteStartPos = 0;
   private autocompleteEl: HTMLElement | null = null;
   private selectedIndex = 0;
 
-  /**
-   * Setup input autocomplete for [[wiki-links, #tags, and markdown syntax.
-   */
-  private setupInputAutocomplete() {
-    const textarea = this.textareaEl;
-
-    textarea.addEventListener('input', (e: Event) => {
-      const event = e as InputEvent;
-      const value = textarea.value;
-      const cursorPos = textarea.selectionStart;
-
-      // Detect [[ trigger for wiki-link autocomplete
-      const textBeforeCursor = value.slice(0, cursorPos);
-      const wikiLinkMatch = textBeforeCursor.match(/\[\[([^\]]*?)$/);
-
-      if (wikiLinkMatch) {
-        this.showAutocomplete('wikilink', wikiLinkMatch[1], wikiLinkMatch.index!);
-        return;
-      }
-
-      // Detect # trigger for tag autocomplete
-      const tagMatch = textBeforeCursor.match(/#([\w-]*)$/);
-      if (tagMatch) {
-        this.showAutocomplete('tag', tagMatch[1], tagMatch.index!);
-        return;
-      }
-
-      this.hideAutocomplete();
-    });
-
-    textarea.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (!this.autocompleteActive) return;
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        this.selectNextItem();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        this.selectPrevItem();
-      } else if (e.key === 'Enter' || e.key === 'Tab') {
-        // Only intercept Enter/Tab when autocomplete is active and has suggestions
-        const items = this.getAutocompleteItems();
-        if (items.length > 0) {
-          e.preventDefault();
-          this.selectItem(this.selectedIndex);
-        }
-      } else if (e.key === 'Escape') {
-        this.hideAutocomplete();
-      }
-    });
-
-    // Hide autocomplete when textarea loses focus (with delay to allow click on dropdown)
-    textarea.addEventListener('blur', () => {
-      setTimeout(() => this.hideAutocomplete(), 200);
-    });
-  }
-
-  private showAutocomplete(type: 'wikilink' | 'tag', query: string, startPos: number) {
+  private showAutocomplete(query: string, startPos: number) {
     this.autocompleteActive = true;
     this.autocompleteQuery = query;
     this.autocompleteStartPos = startPos;
@@ -607,15 +625,14 @@ export class JournalCaptureView extends ItemView {
       return;
     }
 
-    // Create or update dropdown
     if (!this.autocompleteEl) {
       this.autocompleteEl = this.inputCardEl.createDiv({ cls: 'jp-autocomplete' });
     }
 
     this.renderAutocompleteItems(items);
 
-    // Position dropdown below textarea
-    const rect = this.textareaEl.getBoundingClientRect();
+    // Position dropdown below editor
+    const rect = this.editorViewEl.getBoundingClientRect();
     const cardRect = this.inputCardEl.getBoundingClientRect();
     this.autocompleteEl.style.top = `${rect.bottom - cardRect.top + 4}px`;
     this.autocompleteEl.style.left = `0`;
@@ -633,58 +650,22 @@ export class JournalCaptureView extends ItemView {
   private getAutocompleteItems(): Array<{ label: string; detail: string; insert: string }> {
     if (!this.autocompleteActive) return [];
 
-    // Get wiki-link suggestions
-    const wikiLinkItems: Array<{ label: string; detail: string; insert: string }> = [];
-
-    // Get all markdown files
-    const files = this.app.vault.getFiles().filter(f => f.extension === 'md');
-    const filtered = files
+    const files = this.app.vault.getFiles()
+      .filter(f => f.extension === 'md')
       .filter(f =>
         f.name.toLowerCase().includes(this.autocompleteQuery.toLowerCase()) ||
         f.path.toLowerCase().includes(this.autocompleteQuery.toLowerCase())
       )
       .slice(0, 8);
 
-    for (const file of filtered) {
+    return files.map(file => {
       const label = file.name.replace(/\.md$/, '');
-      wikiLinkItems.push({
+      return {
         label,
         detail: file.path,
         insert: `[[${label}]]`,
-      });
-    }
-
-    // If query starts with #, also include tag suggestions
-    if (this.autocompleteQuery.startsWith('#')) {
-      const tagQuery = this.autocompleteQuery.slice(1);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cache = (this.app.metadataCache as any).getTags();
-      if (cache) {
-        const extractTags = (obj: Record<string, unknown>, prefix = '') => {
-          const tags: string[] = [];
-          for (const [key] of Object.entries(obj)) {
-            if (key.startsWith('#')) {
-              tags.push(key);
-            }
-          }
-          return tags;
-        };
-        const allTags = extractTags(cache as Record<string, unknown>);
-        const filteredTags = allTags
-          .filter(t => t.toLowerCase().includes(tagQuery.toLowerCase()))
-          .slice(0, 4);
-
-        for (const tag of filteredTags) {
-          wikiLinkItems.push({
-            label: tag,
-            detail: 'tag',
-            insert: tag,
-          });
-        }
-      }
-    }
-
-    return wikiLinkItems;
+      };
+    });
   }
 
   private renderAutocompleteItems(items: Array<{ label: string; detail: string; insert: string }>) {
@@ -739,25 +720,19 @@ export class JournalCaptureView extends ItemView {
     if (index < 0 || index >= items.length) return;
 
     const item = items[index];
-    const textarea = this.textareaEl;
-    const cursorPos = textarea.selectionStart;
+    if (!this.editorView) return;
+
+    const from = this.autocompleteStartPos;
+    const to = this.editorView.state.selection.main.head;
 
     // Replace the trigger text with the selected item
-    const before = textarea.value.slice(0, this.autocompleteStartPos);
-    const after = textarea.value.slice(cursorPos);
-    const newValue = before + item.insert + after;
-
-    textarea.value = newValue;
-
-    // Position cursor after the inserted text
-    const newCursorPos = this.autocompleteStartPos + item.insert.length;
-    textarea.setSelectionRange(newCursorPos, newCursorPos);
-
-    // Trigger input event for submit state refresh
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    this.editorView.dispatch({
+      changes: { from, to, insert: item.insert },
+      selection: { anchor: from + item.insert.length },
+    });
 
     this.hideAutocomplete();
-    textarea.focus();
+    this.editorView.focus();
   }
 
   private buildTimeline(root: HTMLElement) {
@@ -768,15 +743,9 @@ export class JournalCaptureView extends ItemView {
   // ── Behaviour ───────────────────────────────────────────────────────────
 
   private refreshSubmitState() {
-    const hasContent = this.textareaEl.value.trim().length > 0;
+    const hasContent = this.getEditorContent().trim().length > 0;
     this.submitBtn.toggleClass('jp-capture-submit--disabled', !hasContent);
     this.submitBtn.disabled = !hasContent;
-  }
-
-  private autoResizeTextarea() {
-    this.textareaEl.style.height = 'auto';
-    const next = Math.min(this.textareaEl.scrollHeight, 240);
-    this.textareaEl.style.height = `${next}px`;
   }
 
   private scheduleFullRebuild() {
@@ -1640,7 +1609,7 @@ export class JournalCaptureView extends ItemView {
   // ── Submit / write path ─────────────────────────────────────────────────
 
   private async handleSubmit(): Promise<void> {
-    const raw = this.textareaEl.value;
+    const raw = this.getEditorContent();
     if (raw.trim().length === 0) return;
 
     if (!appHasDailyNotesPluginLoaded()) {
@@ -1657,8 +1626,8 @@ export class JournalCaptureView extends ItemView {
       const ok = await this.plugin.writeToTodayJournal(raw);
       if (!ok) return;
 
-      this.textareaEl.value = '';
-      this.autoResizeTextarea();
+      this.clearEditorContent();
+      this.autoResizeEditor();
 
       // vault.modify will catch-up the today section automatically; if
       // today's section wasn't mounted (e.g. plugin just opened with no
