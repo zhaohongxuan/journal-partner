@@ -1,0 +1,19 @@
+docs/superpowers/specs/2026-06-22-mood-indicator-design.md
+  s_7fec74d1739013::t_316b5a5d022a09 1-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.17-trip",
+  "base_commit_sha": "54895b35758d427d41b787803ad110a248dfdffd",
+  "prompts": {},
+  "sessions": {
+    "s_7fec74d1739013": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c69eb39-4b4b-4694-8859-df57da4806b7",
+        "model": "MiniMax-M2.7"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
