@@ -1,0 +1,26 @@
+package.json
+  s_7fec74d1739013::t_7101bc1958bdc1 5
+  s_7fec74d1739013::t_c5640c519178cc 7-8
+.github/workflows/release.yml
+  s_7fec74d1739013::t_7faf2c925a6220 58
+.gitignore
+  s_7fec74d1739013::t_d67db273bd7a0b 2
+deploy.sh
+  s_7fec74d1739013::t_c2cb022fa20ac1 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.17-trip",
+  "base_commit_sha": "61240560ed81c598a4bb8cbd4c0789b42749a46b",
+  "prompts": {},
+  "sessions": {
+    "s_7fec74d1739013": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c69eb39-4b4b-4694-8859-df57da4806b7",
+        "model": "MiniMax-M2.7"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
