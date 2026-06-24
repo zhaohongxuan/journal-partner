@@ -1,0 +1,19 @@
+src/main.ts
+  s_88d969bbd9f2c7::t_7792b3907136ad 814,818-833
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.18-trip",
+  "base_commit_sha": "9929259f7cff5809b4118915503bff69dcc8a1bb",
+  "prompts": {},
+  "sessions": {
+    "s_88d969bbd9f2c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7193cb1f-5b3e-4f02-bd8d-7974cff15428",
+        "model": "arn:aws:bedrock:us-east-1:133197901387:application-inference-profile/wzfuo4lzemcw"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
