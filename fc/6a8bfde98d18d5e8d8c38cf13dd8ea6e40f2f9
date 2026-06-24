@@ -1,0 +1,25 @@
+src/capture-view.ts
+  s_88d969bbd9f2c7::t_8eb2ef3194f916 1165-1167
+  s_88d969bbd9f2c7::t_353d5e3f579a1e 2142-2143
+  s_88d969bbd9f2c7::t_548f99242497cc 2152-2153
+  s_88d969bbd9f2c7::t_4528a96a9c469e 138-161
+src/main.ts
+  s_88d969bbd9f2c7::t_482f5704846031 182,193-204
+  s_88d969bbd9f2c7::t_a56d43f321f008 807-834
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.18-trip",
+  "base_commit_sha": "fc6a8bfde98d18d5e8d8c38cf13dd8ea6e40f2f9",
+  "prompts": {},
+  "sessions": {
+    "s_88d969bbd9f2c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7193cb1f-5b3e-4f02-bd8d-7974cff15428",
+        "model": "arn:aws:bedrock:us-east-1:133197901387:application-inference-profile/wzfuo4lzemcw"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
