@@ -1,0 +1,41 @@
+styles.css
+  s_88d969bbd9f2c7::t_dd7e6793f24a02 636,642-681
+  s_88d969bbd9f2c7::t_470a03dced735c 641
+  s_88d969bbd9f2c7::t_d7d5a5be035dae 686,688,702-703,706-711
+src/capture-view.ts
+  s_88d969bbd9f2c7::t_eba74ad94b9a57 254,257-258,263
+  s_88d969bbd9f2c7::t_f05fe045ffac9f 259-260
+  s_88d969bbd9f2c7::t_075602dc9736f4 451
+  s_88d969bbd9f2c7::t_94d4c25058daca 262,264-282
+  s_88d969bbd9f2c7::t_a49537ccc6ac45 358-359,361
+  s_88d969bbd9f2c7::t_ea7aece2970921 295,297,301,304-309,312,324-325,335-339,341,346,348
+  s_88d969bbd9f2c7::t_6a59dc1375dd19 357,360,362-367,371-372,376-388,390,392-394,396,399,401,405,460,472,486-551
+  s_88d969bbd9f2c7::t_e074ef92ed6603 368-370,400,473-485
+  s_88d969bbd9f2c7::t_069fd25f973bf9 373-375,389,391,395,397-398,402-404,406-408,411-450,452-459,461-471
+  s_88d969bbd9f2c7::t_a475c61300262e 285-286
+  s_88d969bbd9f2c7::t_616e9630472551 96
+  s_88d969bbd9f2c7::t_a754dc5295937a 310-311,313-323,326-334,340,342-345,347,349
+  s_88d969bbd9f2c7::t_d5dd5d70d6eab4 82,88
+  s_88d969bbd9f2c7::t_cc6f1ca5a98dc5 236-239
+  s_88d969bbd9f2c7::t_945f36aa5c980c 1335-1338
+  s_88d969bbd9f2c7::t_43b9edcfb4cec4 1281-1282
+  s_88d969bbd9f2c7::t_337832b1475e8a 97-100
+  s_88d969bbd9f2c7::t_2cfb43ba904257 90-95
+  s_88d969bbd9f2c7::t_8ae62c8069000e 409-410
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.18-trip",
+  "base_commit_sha": "b3d185cd7c52b4fc36d7c59f4b12e45114ea5a54",
+  "prompts": {},
+  "sessions": {
+    "s_88d969bbd9f2c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7193cb1f-5b3e-4f02-bd8d-7974cff15428",
+        "model": "arn:aws:bedrock:us-east-1:133197901387:application-inference-profile/wzfuo4lzemcw"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
