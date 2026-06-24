@@ -1,0 +1,30 @@
+styles.css
+  s_88d969bbd9f2c7::t_1da5746f311933 759-797
+src/capture-view.ts
+  s_88d969bbd9f2c7::t_b2a4ffb923bb42 305,311,318,338,355-360,365
+  s_88d969bbd9f2c7::t_04aa8bb42b8127 342-343,349-352
+  s_88d969bbd9f2c7::t_a28f9723cff30a 1589-1629,1637-1705
+  s_88d969bbd9f2c7::t_1f53a70d588379 82,86,90
+  s_88d969bbd9f2c7::t_4c957f1784d0e0 295,298
+  s_88d969bbd9f2c7::t_ea169637f4df0b 264-265
+  s_88d969bbd9f2c7::t_c9959dc90aa443 260,263,266,269
+  s_88d969bbd9f2c7::t_113ef939614afa 1301-1302
+  s_88d969bbd9f2c7::t_9713d5f49a1b66 182-185
+  s_88d969bbd9f2c7::t_48bc4d13eb45a0 1630-1636
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.18-trip",
+  "base_commit_sha": "1b0d9cb9c3d4556c2f8a16e098ebb8277b534e71",
+  "prompts": {},
+  "sessions": {
+    "s_88d969bbd9f2c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7193cb1f-5b3e-4f02-bd8d-7974cff15428",
+        "model": "arn:aws:bedrock:us-east-1:133197901387:application-inference-profile/wzfuo4lzemcw"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
