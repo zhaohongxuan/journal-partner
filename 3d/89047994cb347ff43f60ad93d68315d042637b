@@ -1,0 +1,26 @@
+src/capture-view.ts
+  s_88d969bbd9f2c7::t_7a4da81a8a7641 1466
+  s_88d969bbd9f2c7::t_0549dde641e497 1873
+  s_88d969bbd9f2c7::t_a26c989ad9da19 1866-1872,1874-1876
+  s_88d969bbd9f2c7::t_8a7584d147800f 497
+styles.css
+  s_88d969bbd9f2c7::t_4a498b017a0cce 712-714,718,726-727,730-731
+  s_88d969bbd9f2c7::t_4c562db1082742 662,664
+  s_88d969bbd9f2c7::t_7c630f980026dd 454-478
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.18-trip",
+  "base_commit_sha": "3d89047994cb347ff43f60ad93d68315d042637b",
+  "prompts": {},
+  "sessions": {
+    "s_88d969bbd9f2c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7193cb1f-5b3e-4f02-bd8d-7974cff15428",
+        "model": "arn:aws:bedrock:us-east-1:133197901387:application-inference-profile/wzfuo4lzemcw"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
