@@ -1,0 +1,19 @@
+src/capture-view.ts
+  s_bf5f53ee8a4397::t_b1401d306d504c 1100-1102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.18-trip",
+  "base_commit_sha": "b6e83d803d70bccb1da19f2669c2147d20a03316",
+  "prompts": {},
+  "sessions": {
+    "s_bf5f53ee8a4397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f52abcc8-d498-46d1-80a9-2839f3cd13cd",
+        "model": "MiniMax-M2.7"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
