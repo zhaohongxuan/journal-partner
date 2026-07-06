@@ -42,6 +42,7 @@ import {
   findSection,
   parseJournalEntries,
   removeAudioEmbedsFromEntry,
+  sortJournalEntries,
 } from './section';
 import {
   YearStats,
@@ -540,9 +541,7 @@ export class JournalCaptureView extends ItemView {
     this.addOpenNoteBtn(headerCard, day);
 
     const sourcePath = day.filePath ?? '';
-    const sorted = [...entries].sort((a, b) =>
-      a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : b.lineIndex - a.lineIndex,
-    );
+    const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder);
 
     for (const entry of sorted) {
       const row = day.el.createDiv({ cls: 'jp-timeline-entry' });
@@ -1511,7 +1510,7 @@ export class JournalCaptureView extends ItemView {
 
   // ── Full rebuild ────────────────────────────────────────────────────────
 
-  private async fullRebuild(): Promise<void> {
+  async fullRebuild(): Promise<void> {
     this.disposeDays();
     this.timelineEl.empty();
 
@@ -1689,12 +1688,7 @@ export class JournalCaptureView extends ItemView {
       (acc, e) => (e.timestamp > acc ? e.timestamp : acc),
       '',
     );
-    const sorted = [...entries].sort((a, b) => {
-      if (a.timestamp === b.timestamp) {
-        return b.lineIndex - a.lineIndex;
-      }
-      return a.timestamp < b.timestamp ? 1 : -1;
-    });
+    const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder);
 
     const sourcePath = day.filePath ?? '';
     for (const entry of sorted) {
@@ -1853,10 +1847,8 @@ export class JournalCaptureView extends ItemView {
       return;
     }
 
-    // Sort descending by timestamp
-    const sorted = [...entries].sort((a, b) =>
-      a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : b.lineIndex - a.lineIndex,
-    );
+    // Respect the configured sort order (newest or oldest first)
+    const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder);
 
     const scope = new Component();
     scope.load();

@@ -513,6 +513,19 @@ export default class JournalPartnerPlugin extends Plugin {
       }
     });
   }
+
+  /**
+   * Re-render any open capture sidebar views. Used after settings that affect
+   * the timeline's display (e.g. sort order) change, so the new value applies
+   * immediately instead of waiting for the next natural refresh.
+   */
+  refreshCaptureViews(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(CAPTURE_VIEW_TYPE)) {
+      if (leaf.view instanceof JournalCaptureView) {
+        void leaf.view.fullRebuild();
+      }
+    }
+  }
 }
 
 // ── Settings tab ────────────────────────────────────────────────────────────
@@ -703,6 +716,21 @@ class JournalPartnerSettingTab extends PluginSettingTab {
             } catch {
               new Notice('❌ 无效的正则表达式');
             }
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('排序方式')
+      .setDesc('时间线中日记条目的排列顺序')
+      .addDropdown(dropdown =>
+        dropdown
+          .addOption('desc', '最新在上（默认）')
+          .addOption('asc', '最早在上')
+          .setValue(this.plugin.settings.sortOrder)
+          .onChange(async (value: string) => {
+            this.plugin.settings.sortOrder = value as 'asc' | 'desc';
+            await this.plugin.saveSettings();
+            this.plugin.refreshCaptureViews();
           }),
       );
 

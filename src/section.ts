@@ -42,6 +42,8 @@ export interface JournalPartnerSettings {
   imageFolder: string;
   /** Keyboard shortcut to submit entry: 'shift+enter' | 'ctrl+enter' | 'alt+enter' | 'ctrl+shift+enter' */
   submitShortcut: string;
+  /** Entry display order in the timeline: 'desc' (newest first, default) | 'asc' (oldest first) */
+  sortOrder: 'desc' | 'asc';
 }
 
 export const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -60,6 +62,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   recordingFolder: '',
   imageFolder: '',
   submitShortcut: 'shift+enter',
+  sortOrder: 'desc',
 };
 
 export type Rng = { from: number; to: number };
@@ -237,6 +240,27 @@ export function parseJournalEntries(
   }
 
   return entries;
+}
+
+/**
+ * Sort parsed journal entries by timestamp, respecting the configured
+ * direction. Ties (identical timestamps) break by source line order scaled
+ * to the direction: descending puts the most recently typed entry on top,
+ * ascending keeps insertion order.
+ *
+ * `order === 'desc'` reproduces the previous hard-coded behaviour exactly.
+ */
+export function sortJournalEntries<T extends { timestamp: string; lineIndex: number }>(
+  entries: readonly T[],
+  order: 'asc' | 'desc',
+): T[] {
+  const dir = order === 'asc' ? 1 : -1;
+  return [...entries].sort((a, b) => {
+    const cmp =
+      a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0;
+    if (cmp !== 0) return cmp * dir;
+    return (a.lineIndex - b.lineIndex) * dir;
+  });
 }
 
 /**
