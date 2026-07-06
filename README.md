@@ -7,6 +7,8 @@
 ![License](https://img.shields.io/github/license/zhaohongxuan/journal-partner?style=flat-square&color=7c3aed)
 
 ---
+<img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/4f4b8a8a-3942-4fcc-971e-d335ca5b2512" />
+
 
 ## 效果预览
 
