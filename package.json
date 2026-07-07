@@ -1,11 +1,13 @@
 {
   "name": "journal-partner",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "Obsidian plugin – Journal timestamp highlighter",
   "main": "dist/main.js",
   "scripts": {
     "dev": "esbuild src/main.ts --bundle --external:obsidian --external:electron --external:@codemirror/* --external:@lezer/* --external:builtin-modules --format=cjs --target=es2018 --sourcemap=inline --log-level:info --watch --outfile:dist/main.js",
     "build": "tsc -noEmit -skipLibCheck && esbuild src/main.ts --bundle --external:obsidian --external:electron --external:@codemirror/* --external:@lezer/* --external:builtin-modules --format=cjs --target=es2018 --sourcemap --tree-shaking --outfile=dist/main.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "deploy": "bash deploy.sh"
   },
   "keywords": [
@@ -18,12 +20,16 @@
   "devDependencies": {
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.26.3",
+    "@eslint/js": "^9.39.4",
+    "@eslint/json": "^0.14.0",
     "@types/node": "^22.0.0",
-    "builtin-modules": "^3.3.0",
     "esbuild": "^0.21.5",
+    "eslint": "^9.39.4",
+    "eslint-plugin-obsidianmd": "^0.4.1",
     "obsidian": "latest",
     "tslib": "^2.6.2",
-    "typescript": "^5.5.3"
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^8.63.0"
   },
   "dependencies": {
     "obsidian-daily-notes-interface": "^0.9.5"
