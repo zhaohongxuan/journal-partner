@@ -57,6 +57,18 @@ import type JournalPartnerPlugin from './main';
 export const CAPTURE_VIEW_TYPE = 'journal-partner-capture-view';
 
 /**
+ * Wrap an async listener so it satisfies `void`-returning handler signatures
+ * (e.g. `addEventListener`, `setTimeout`). Without this, passing an `async`
+ * function directly trips `@typescript-eslint/no-misused-promises` because the
+ * handler returns a Promise that the caller ignores.
+ */
+const runAsync = <Args extends unknown[]>(
+  fn: (...args: Args) => Promise<void>,
+): ((...args: Args) => void) => (...args: Args): void => {
+  void fn(...args);
+};
+
+/**
  * Which "delete" action the context menu picked. Surfacing this as a type
  * (instead of two booleans) keeps `executeDelete` and the confirm modal
  * exhaustive — adding a fourth mode in the future will fail to type-check
@@ -154,9 +166,9 @@ export class JournalCaptureView extends ItemView {
       await this.startRecordingFn();
     } else {
       // If the view isn't fully built yet, retry once the event loop settles
-      window.setTimeout(async () => {
+      window.setTimeout(runAsync(async () => {
         if (this.startRecordingFn) await this.startRecordingFn();
-      }, 200);
+      }), 200);
     }
   }
 
@@ -202,11 +214,11 @@ export class JournalCaptureView extends ItemView {
 
     // Stats pane (hidden initially; built lazily on first switch)
     this.statsPaneEl = (root as HTMLElement).createDiv({ cls: 'jp-pane jp-pane-stats' });
-    this.statsPaneEl.style.display = 'none';
+    this.statsPaneEl.hide();
 
     // Review pane (hidden initially)
     this.reviewPaneEl = (root as HTMLElement).createDiv({ cls: 'jp-pane jp-pane-review' });
-    this.reviewPaneEl.style.display = 'none';
+    this.reviewPaneEl.hide();
 
     // ── Vault listeners ──
     // modify: refresh the affected day's section in place (no full rebuild)
@@ -296,7 +308,7 @@ export class JournalCaptureView extends ItemView {
 
     // Search bar — collapsed by default, shown when search tab is active
     this.searchBarEl = root.createDiv({ cls: 'jp-search-bar' });
-    this.searchBarEl.style.display = 'none';
+    this.searchBarEl.hide();
 
     const searchIcon = this.searchBarEl.createSpan({ cls: 'jp-search-bar-icon' });
     setIcon(searchIcon, 'search');
@@ -338,11 +350,11 @@ export class JournalCaptureView extends ItemView {
     this.statsTabBtn.toggleClass('is-active', tab === 'stats');
 
     if (tab === 'search') {
-      this.capturePaneEl.style.display = '';
-      this.statsPaneEl.style.display = 'none';
-      this.reviewPaneEl.style.display = 'none';
-      this.inputCardEl.style.display = 'none';
-      this.searchBarEl.style.display = '';
+      this.capturePaneEl.show();
+      this.statsPaneEl.hide();
+      this.reviewPaneEl.hide();
+      this.inputCardEl.hide();
+      this.searchBarEl.show();
       this.searchActive = true;
 
       if (prevTab !== 'search') {
@@ -358,11 +370,11 @@ export class JournalCaptureView extends ItemView {
         window.setTimeout(() => this.searchInputEl.focus(), 50);
       }
     } else if (tab === 'capture') {
-      this.capturePaneEl.style.display = '';
-      this.statsPaneEl.style.display = 'none';
-      this.reviewPaneEl.style.display = 'none';
-      this.inputCardEl.style.display = '';
-      this.searchBarEl.style.display = 'none';
+      this.capturePaneEl.show();
+      this.statsPaneEl.hide();
+      this.reviewPaneEl.hide();
+      this.inputCardEl.show();
+      this.searchBarEl.hide();
 
       // Always clean up search state when returning to capture
       if (this.searchActive || prevTab === 'search') {
@@ -378,18 +390,18 @@ export class JournalCaptureView extends ItemView {
         void this.fullRebuild();
       }
     } else if (tab === 'review') {
-      this.capturePaneEl.style.display = 'none';
-      this.statsPaneEl.style.display = 'none';
-      this.reviewPaneEl.style.display = '';
-      this.searchBarEl.style.display = 'none';
+      this.capturePaneEl.hide();
+      this.statsPaneEl.hide();
+      this.reviewPaneEl.show();
+      this.searchBarEl.hide();
       void this.loadReview();
     } else {
       // stats tab
-      this.capturePaneEl.style.display = 'none';
-      this.statsPaneEl.style.display = '';
-      this.reviewPaneEl.style.display = 'none';
-      this.inputCardEl.style.display = '';
-      this.searchBarEl.style.display = 'none';
+      this.capturePaneEl.hide();
+      this.statsPaneEl.show();
+      this.reviewPaneEl.hide();
+      this.inputCardEl.show();
+      this.searchBarEl.hide();
 
       if (this.statsPaneEl.childElementCount === 0) {
         this.buildStatsPane();
@@ -431,11 +443,11 @@ export class JournalCaptureView extends ItemView {
     this.renderTopLevelMessage('搜索中…');
 
     // Build the sorted file queue (newest → oldest) once, then scan lazily
-    const allNotes = getAllDailyNotes() as Record<string, TFile>;
+    const allNotes = getAllDailyNotes();
     const queue: Array<{ date: moment.Moment; file: TFile }> = [];
     for (const file of Object.values(allNotes)) {
       if (!(file instanceof TFile)) continue;
-      const date = getDateFromFile(file as TFile, 'day');
+      const date = getDateFromFile(file, 'day');
       if (date) queue.push({ date: date.clone().startOf('day'), file });
     }
     queue.sort((a, b) => (a.date.isBefore(b.date) ? 1 : -1));
@@ -536,8 +548,8 @@ export class JournalCaptureView extends ItemView {
     headerRow.createDiv({ cls: 'jp-timeline-dot jp-timeline-dot--header' });
     const headerCard = headerRow.createDiv({ cls: 'jp-timeline-header-card' });
     const headerText = headerCard.createDiv({ cls: 'jp-timeline-header-text' });
-    headerText.createEl('div', { cls: 'jp-timeline-header-title', text: headerLabel.title });
-    headerText.createEl('div', { cls: 'jp-timeline-header-sub', text: `${entries.length} 条匹配` });
+    headerText.createDiv({ cls: 'jp-timeline-header-title', text: headerLabel.title });
+    headerText.createDiv({ cls: 'jp-timeline-header-sub', text: `${entries.length} 条匹配` });
     this.addOpenNoteBtn(headerCard, day);
 
     const sourcePath = day.filePath ?? '';
@@ -548,7 +560,7 @@ export class JournalCaptureView extends ItemView {
       row.createDiv({ cls: 'jp-timeline-dot' });
 
       const head = row.createDiv({ cls: 'jp-timeline-entry-head' });
-      head.createEl('span', { cls: 'jp-timestamp', text: entry.timestamp });
+      head.createSpan({ cls: 'jp-timestamp', text: entry.timestamp });
 
       const bubble = row.createDiv({ cls: 'jp-timeline-bubble jp-search-bubble' });
       // Render markdown first, then highlight keywords in the resulting DOM text nodes
@@ -578,12 +590,12 @@ export class JournalCaptureView extends ItemView {
       const idx = text.toLowerCase().indexOf(lower);
       if (idx === -1) continue;
 
-      const frag = document.createDocumentFragment();
+      const frag = createFragment();
       let cursor = 0;
       let pos = text.toLowerCase().indexOf(lower, cursor);
       while (pos !== -1) {
         if (pos > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, pos)));
-        const mark = document.createElement('mark');
+        const mark = createEl('mark');
         mark.className = 'jp-search-highlight';
         mark.textContent = text.slice(pos, pos + query.length);
         frag.appendChild(mark);
@@ -658,7 +670,7 @@ export class JournalCaptureView extends ItemView {
       }
     }, true);
     // Image drag & drop
-    this.textareaEl.addEventListener('drop', async (e) => {
+    this.textareaEl.addEventListener('drop', runAsync(async (e: DragEvent) => {
       const files = e.dataTransfer?.files;
       if (!files) return;
       for (const file of Array.from(files)) {
@@ -681,7 +693,7 @@ export class JournalCaptureView extends ItemView {
         }
         return;
       }
-    });
+    }));
     this.textareaEl.addEventListener('dragover', (e) => {
       if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
     }, true);
@@ -694,8 +706,8 @@ export class JournalCaptureView extends ItemView {
         accept: 'image/*',
       },
     });
-    fileInput.style.display = 'none';
-    fileInput.addEventListener('change', async () => {
+    fileInput.hide();
+    fileInput.addEventListener('change', runAsync(async () => {
       const files = fileInput.files;
       if (!files || files.length === 0) return;
       const file = files[0];
@@ -716,16 +728,16 @@ export class JournalCaptureView extends ItemView {
       } catch (err) {
         new Notice(`图片保存失败：${err instanceof Error ? err.message : String(err)}`);
       }
-    });
+    }));
 
     // Hidden file input for image upload
     const recBar = this.inputCardEl.createDiv({ cls: 'jp-recording-bar' });
-    recBar.style.display = 'none';
+    recBar.hide();
     const recWaveRow = recBar.createDiv({ cls: 'jp-recording-wave-row' });
     const recCanvas = recWaveRow.createEl('canvas', { cls: 'jp-recording-waveform' });
     const recMeta = recWaveRow.createDiv({ cls: 'jp-recording-meta' });
-    const recTime = recMeta.createEl('span', { cls: 'jp-recording-time', text: '00:00' });
-    const recStatus = recMeta.createEl('span', { cls: 'jp-recording-status', text: '录音中…' });
+    const recTime = recMeta.createSpan({ cls: 'jp-recording-time', text: '00:00' });
+    const recStatus = recMeta.createSpan({ cls: 'jp-recording-status', text: '录音中…' });
     // Centered stop button shown beneath the waveform while recording.
     const recStopBtn = recBar.createEl('button', {
       cls: 'jp-recording-stop',
@@ -840,10 +852,12 @@ export class JournalCaptureView extends ItemView {
       const samplesPerBar = buf.length / barCount;
       const r = barW / 2; // fully rounded → capsule
       // Per-bar smoothing state, created once and reused across frames.
-      if (!(drawWaveform as any)._smooth) {
-        (drawWaveform as any)._smooth = new Float32Array(barCount);
+      const smoother = drawWaveform as unknown as { _smooth?: Float32Array };
+      let smooth = smoother._smooth;
+      if (!smooth) {
+        smooth = new Float32Array(barCount);
+        smoother._smooth = smooth;
       }
-      const smooth = (drawWaveform as any)._smooth as Float32Array;
       const gain = 2.4; // amplify raw mic level (typically 0.1–0.3)
 
       for (let i = 0; i < barCount; i++) {
@@ -879,7 +893,7 @@ export class JournalCaptureView extends ItemView {
       }
 
       recTime.setText(formatDuration(performance.now() - recordStartedAt));
-      rafId = requestAnimationFrame(drawWaveform);
+      rafId = window.requestAnimationFrame(drawWaveform);
     };
 
     const stopRecording = async () => {
@@ -1085,7 +1099,7 @@ export class JournalCaptureView extends ItemView {
           // appear together with the action buttons coming back).
           recStatus.setText('转写中…');
           recBar.addClass('is-transcribing');
-          recBar.style.display = '';
+          recBar.show();
           try {
             const audioEmbed = await this.saveAudioToVault(audioBlob);
             let text = '';
@@ -1117,7 +1131,7 @@ export class JournalCaptureView extends ItemView {
             // to act on it arrive in the same beat.
             recBar.removeClass('is-transcribing');
             recBar.removeClass('jp-bar-entering');
-            recBar.style.display = 'none';
+            recBar.hide();
             actions.removeClass('is-recording');
           }
         };
@@ -1130,7 +1144,9 @@ export class JournalCaptureView extends ItemView {
         // Wire up the live waveform + duration. Do NOT connect analyser to
         // destination — that would route mic back to speakers and cause feedback.
         try {
-          const Ctor = window.AudioContext || (window as any).webkitAudioContext;
+          const Ctor = window.AudioContext
+            || (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+          if (!Ctor) throw new Error('AudioContext unavailable');
           audioCtx = new Ctor();
           const source = audioCtx.createMediaStreamSource(stream);
           analyser = audioCtx.createAnalyser();
@@ -1162,13 +1178,13 @@ export class JournalCaptureView extends ItemView {
           // The `jp-bar-entering` class triggers a one-shot fade+slide
           // animation; we remove it after hide so the next show replays it.
           recStatus.setText(realtimeActive ? '实时转写中…' : '录音中…');
-          recBar.style.display = '';
+          recBar.show();
           recBar.addClass('jp-bar-entering');
           const dpr = window.devicePixelRatio || 1;
           recCanvas.width = Math.max(1, recCanvas.clientWidth) * dpr;
           recCanvas.height = Math.max(1, recCanvas.clientHeight) * dpr;
           recordStartedAt = performance.now();
-          rafId = requestAnimationFrame(drawWaveform);
+          rafId = window.requestAnimationFrame(drawWaveform);
         } catch {
           // Analyser/realtime are optional — recording still works without them.
         }
@@ -1231,13 +1247,13 @@ export class JournalCaptureView extends ItemView {
       setIcon(micBtn, 'mic');
     };
 
-    micBtn.addEventListener('click', async () => {
+    micBtn.addEventListener('click', runAsync(async () => {
       if (!mediaRecorder || mediaRecorder.state === 'inactive') {
         await startRecording();
       } else {
         await doStop();
       }
-    });
+    }));
 
     // Stop button centered under the waveform.
     recStopBtn.addEventListener('click', () => void doStop());
@@ -1287,7 +1303,7 @@ export class JournalCaptureView extends ItemView {
   private async resolveAttachmentPath(configuredFolder: string, baseName: string): Promise<string> {
     const configured = configuredFolder.trim();
     if (configured.length === 0) {
-      const todayNote = getDailyNote(moment(), getAllDailyNotes()) as TFile | null;
+      const todayNote = getDailyNote(moment(), getAllDailyNotes());
       const sourcePath = todayNote?.path ?? '';
       return this.app.fileManager.getAvailablePathForAttachment(baseName, sourcePath);
     }
@@ -1409,9 +1425,9 @@ export class JournalCaptureView extends ItemView {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': `multipart/form-data; boundary=${boundary}`,
       },
-      body: body.buffer as ArrayBuffer,
+      body: body.buffer,
     });
-    const text = resp.json?.text;
+    const text = (resp.json as { text?: string } | undefined)?.text;
     return typeof text === 'string' ? text : '';
   }
 
@@ -1457,7 +1473,7 @@ export class JournalCaptureView extends ItemView {
       cls: 'mod-warning jp-delete-confirm-confirm',
       text: '清空',
     });
-    confirmBtn.addEventListener('click', async () => {
+    confirmBtn.addEventListener('click', runAsync(async () => {
       modal.close();
       // Trash embedded audio files (recoverable via Obsidian trash).
       let trashed = 0;
@@ -1479,15 +1495,15 @@ export class JournalCaptureView extends ItemView {
           ? `🧹 已清空，${trashed}/${audioPaths.length} 个录音文件移入回收站`
           : '🧹 已清空',
       );
-    });
+    }));
     window.setTimeout(() => cancelBtn.focus(), 0);
     modal.open();
   }
 
   private autoResizeTextarea() {
-    this.textareaEl.style.height = 'auto';
+    this.textareaEl.setCssProps({ height: 'auto' });
     const next = Math.min(this.textareaEl.scrollHeight, 240);
-    this.textareaEl.style.height = `${next}px`;
+    this.textareaEl.setCssProps({ height: `${next}px` });
   }
 
   private scheduleFullRebuild() {
@@ -1592,7 +1608,7 @@ export class JournalCaptureView extends ItemView {
   ): Promise<DaySection | null> {
     let file: TFile | null = null;
     try {
-      file = getDailyNote(date, getAllDailyNotes()) as TFile | null;
+      file = getDailyNote(date, getAllDailyNotes());
     } catch (err) {
       console.error('[Journal Partner] daily note resolve failed', err);
     }
@@ -1636,7 +1652,7 @@ export class JournalCaptureView extends ItemView {
     let entries: JournalEntry[] = [];
     let file: TFile | null = null;
     try {
-      file = getDailyNote(day.date, getAllDailyNotes()) as TFile | null;
+      file = getDailyNote(day.date, getAllDailyNotes());
       if (file) {
         const content = await this.app.vault.cachedRead(file);
         const section = findSection(
@@ -1673,8 +1689,8 @@ export class JournalCaptureView extends ItemView {
     headerRow.createDiv({ cls: 'jp-timeline-dot jp-timeline-dot--header' });
     const headerCard = headerRow.createDiv({ cls: 'jp-timeline-header-card' });
     const headerText = headerCard.createDiv({ cls: 'jp-timeline-header-text' });
-    headerText.createEl('div', { cls: 'jp-timeline-header-title', text: headerLabel.title });
-    headerText.createEl('div', { cls: 'jp-timeline-header-sub', text: headerLabel.subtitle });
+    headerText.createDiv({ cls: 'jp-timeline-header-title', text: headerLabel.title });
+    headerText.createDiv({ cls: 'jp-timeline-header-sub', text: headerLabel.subtitle });
     this.addOpenNoteBtn(headerCard, day);
 
     if (entries.length === 0) {
@@ -1706,7 +1722,7 @@ export class JournalCaptureView extends ItemView {
 
       // Header: timestamp pill anchored to the dot via a short connector line.
       const head = row.createDiv({ cls: 'jp-timeline-entry-head' });
-      head.createEl('span', { cls: 'jp-timestamp', text: entry.timestamp });
+      head.createSpan({ cls: 'jp-timestamp', text: entry.timestamp });
 
       // Body bubble: chat-style rounded card holding the rendered markdown.
       const bubble = row.createDiv({ cls: 'jp-timeline-bubble' });
@@ -1785,7 +1801,7 @@ export class JournalCaptureView extends ItemView {
       return;
     }
 
-    const allNotes = getAllDailyNotes() as Record<string, TFile>;
+    const allNotes = getAllDailyNotes();
     const today = moment().startOf('day');
     const files = Object.values(allNotes).filter((f): f is TFile => {
       if (!(f instanceof TFile)) return false;
@@ -1800,7 +1816,7 @@ export class JournalCaptureView extends ItemView {
 
     // Pick a random file
     const file = files[Math.floor(Math.random() * files.length)];
-    const date = getDateFromFile(file, 'day')!.clone().startOf('day');
+    const date = getDateFromFile(file, 'day').clone().startOf('day');
 
     // Header with date + re-roll button
     const header = this.reviewPaneEl.createDiv({ cls: 'jp-review-header' });
@@ -1861,7 +1877,7 @@ export class JournalCaptureView extends ItemView {
       const row = timeline.createDiv({ cls: 'jp-timeline-entry' });
       row.createDiv({ cls: 'jp-timeline-dot' });
       const head = row.createDiv({ cls: 'jp-timeline-entry-head' });
-      head.createEl('span', { cls: 'jp-timestamp', text: entry.timestamp });
+      head.createSpan({ cls: 'jp-timestamp', text: entry.timestamp });
       const bubble = row.createDiv({ cls: 'jp-timeline-bubble' });
       void MarkdownRenderer.render(this.app, entry.text, bubble, sourcePath, scope);
     }
@@ -1935,13 +1951,13 @@ export class JournalCaptureView extends ItemView {
         return;
       }
 
-      const all = getAllDailyNotes() as Record<string, TFile>;
+      const all = getAllDailyNotes();
       const yearMap = new Map<number, Array<{ key: string; sectionText: string }>>();
 
       // Group all daily notes by year
       for (const file of Object.values(all)) {
         if (!(file instanceof TFile)) continue;
-        const d = getDateFromFile(file as TFile, 'day');
+        const d = getDateFromFile(file, 'day');
         if (!d) continue;
         const year = d.year();
         const key = d.format('YYYY-MM-DD');
@@ -1962,7 +1978,7 @@ export class JournalCaptureView extends ItemView {
         }
 
         if (!yearMap.has(year)) yearMap.set(year, []);
-        yearMap.get(year)!.push({ key, sectionText });
+        yearMap.get(year).push({ key, sectionText });
       }
 
       // Compute stats for each year
@@ -2043,7 +2059,7 @@ export class JournalCaptureView extends ItemView {
     // ── Per-year heatmaps ─────────────────────────────────────────────────
     const years = [...this.allYearStats.keys()].sort((a, b) => b - a);
     for (const year of years) {
-      const ys = this.allYearStats.get(year)!;
+      const ys = this.allYearStats.get(year);
       this.renderStatsHeatmapSection(year, ys);
     }
   }
@@ -2112,10 +2128,9 @@ export class JournalCaptureView extends ItemView {
     // becomes 0, etc. Matches the "一/三/五" weekday labels.
     const firstDow = allDays[0].date.day();
     const startPad = firstDow === 0 ? 6 : firstDow - 1;
-    const paddedDays: (typeof allDays[number] | null)[] = [
-      ...Array(startPad).fill(null),
-      ...allDays,
-    ];
+    const paddedDays: (typeof allDays[number] | null)[] = [];
+    for (let i = 0; i < startPad; i++) paddedDays.push(null);
+    paddedDays.push(...allDays);
     const totalWeeks = Math.ceil(paddedDays.length / 7);
 
     // First week each month appears in (for the month-label row).
@@ -2199,7 +2214,7 @@ export class JournalCaptureView extends ItemView {
   /** Open the daily note for `date` in a new center tab. */
   private async openDailyNoteByDate(date: moment.Moment): Promise<void> {
     try {
-      const file = getDailyNote(date, getAllDailyNotes()) as TFile | null;
+      const file = getDailyNote(date, getAllDailyNotes());
       if (!file) {
         new Notice(`${date.format('YYYY年M月D日')} 没有日记文件`);
         return;
@@ -2558,11 +2573,11 @@ class DeleteConfirmModal extends Modal {
 
     // Preview card — timestamp + body preview
     const preview = contentEl.createDiv({ cls: 'jp-delete-confirm-preview' });
-    preview.createEl('span', {
+    preview.createSpan({
       cls: 'jp-timestamp',
       text: this.opts.timestamp,
     });
-    preview.createEl('span', {
+    preview.createSpan({
       cls: 'jp-delete-confirm-preview-text',
       text: this.opts.preview.length > 0 ? this.opts.preview : '(空 memo)',
     });
@@ -2570,7 +2585,7 @@ class DeleteConfirmModal extends Modal {
     // Audio file list (only when audio is being trashed)
     if (this.opts.audioPaths.length > 0) {
       const audioBlock = contentEl.createDiv({ cls: 'jp-delete-confirm-audio' });
-      audioBlock.createEl('div', {
+      audioBlock.createDiv({
         cls: 'jp-delete-confirm-audio-label',
         text:
           this.opts.mode === 'audio-only'

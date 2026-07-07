@@ -1,8 +1,8 @@
 {
   "id": "journal-partner",
   "name": "Journal Partner",
-  "version": "2.7.0",
-  "minAppVersion": "1.4.0",
+  "version": "2.8.0",
+  "minAppVersion": "1.7.2",
   "description": "Highlight timestamps in your Journal section, capture quick notes, images, and audio from a sidebar, dictate with real-time speech-to-text, and review your year with a heatmap.",
   "author": "hankzhao",
   "authorUrl": "https://github.com/zhaohongxuan",

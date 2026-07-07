@@ -63,7 +63,7 @@ export default class JournalPartnerPlugin extends Plugin {
     await this.loadSettings();
     this.applyCSSVariables();
     this.registerEditorExtension(this.createEditorExtensions());
-    this.registerMarkdownPostProcessor(this.postProcessor.bind(this));
+    this.registerMarkdownPostProcessor((el, ctx) => this.postProcessor(el, ctx));
     this.addSettingTab(new JournalPartnerSettingTab(this.app, this));
 
     // Capture sidebar view
@@ -94,23 +94,10 @@ export default class JournalPartnerPlugin extends Plugin {
     });
   }
 
-  onunload() {
-    this.app.workspace.detachLeavesOfType(CAPTURE_VIEW_TYPE);
-  }
-
-  /**
-   * Reveal an existing capture view leaf, or create one.
-   *
-   * - **Mobile** — Obsidian's right sidebar pins views in a drawer the user
-   *   can't pop out, which makes the timeline feel cramped. Open in the
-   *   main work area instead so it gets full-screen treatment.
-   * - **Desktop** — keep the right sidebar so the capture view stays a
-   *   persistent companion next to whatever the user is editing.
-   */
   async activateCaptureView() {
     const existing = this.app.workspace.getLeavesOfType(CAPTURE_VIEW_TYPE);
     if (existing.length > 0) {
-      this.app.workspace.revealLeaf(existing[0]);
+      void this.app.workspace.revealLeaf(existing[0]);
       return;
     }
     const leaf: WorkspaceLeaf | null = Platform.isMobile
@@ -118,7 +105,7 @@ export default class JournalPartnerPlugin extends Plugin {
       : this.app.workspace.getRightLeaf(false);
     if (!leaf) return;
     await leaf.setViewState({ type: CAPTURE_VIEW_TYPE, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    void this.app.workspace.revealLeaf(leaf);
   }
 
   // ── Quick-capture write path (shared) ─────────────────────────────────────
@@ -144,7 +131,6 @@ export default class JournalPartnerPlugin extends Plugin {
     }
     const trimmed = text.trim();
     const audioPath = audio?.trim() ?? '';
-    console.log("音频路径:", audioPath)
     // Require at least one of text / audio — an entry with neither is junk.
     if (trimmed.length === 0 && audioPath.length === 0) return false;
 
@@ -159,9 +145,9 @@ export default class JournalPartnerPlugin extends Plugin {
     const line = buildEntryLine(body.replace(/\r\n/g, '\n'), stamp);
 
     try {
-      let file = getDailyNote(moment(), getAllDailyNotes()) as TFile | null;
+      let file = getDailyNote(moment(), getAllDailyNotes());
       if (!file) {
-        file = (await createDailyNote(moment())) as TFile;
+        file = (await createDailyNote(moment()));
       }
       await this.app.vault.process(file, content =>
         appendToJournalSection(content, this.settings, line),
@@ -227,7 +213,7 @@ export default class JournalPartnerPlugin extends Plugin {
   // ── Editor extension (source + live-preview) ───────────────────────────────
 
   private createEditorExtensions(): Extension[] {
-    const plugin = this;
+    const getSettings = () => this.settings;
 
     // ViewPlugin renders timestamp decorations
     const viewPlugin = ViewPlugin.fromClass(
@@ -237,7 +223,7 @@ export default class JournalPartnerPlugin extends Plugin {
         constructor(view: EditorView) {
           this.decorations = buildDecorations(
             view.state.doc.toString(),
-            plugin.settings,
+            getSettings(),
           );
         }
 
@@ -251,7 +237,7 @@ export default class JournalPartnerPlugin extends Plugin {
           if (needsRebuild) {
             this.decorations = buildDecorations(
               update.state.doc.toString(),
-              plugin.settings,
+              getSettings(),
             );
           }
         }
@@ -262,11 +248,11 @@ export default class JournalPartnerPlugin extends Plugin {
     // Transaction filter: reject changes that overlap a timestamp range
     const readonlyFilter = EditorState.transactionFilter.of(
       (tr: Transaction) => {
-        if (!plugin.settings.readonlyTimestamps || !tr.docChanged) return tr;
+        if (!this.settings.readonlyTimestamps || !tr.docChanged) return tr;
 
         const timestamps = getTimestampRanges(
           tr.startState.doc.toString(),
-          plugin.settings,
+          this.settings,
         );
         let blocked = false;
 
@@ -297,21 +283,19 @@ export default class JournalPartnerPlugin extends Plugin {
    * target section.
    */
   private createEnterKeymap(): Extension {
-    const plugin = this;
-
     return Prec.high(
       keymap.of([
         {
           key: 'Enter',
-          run(view: EditorView): boolean {
-            if (!plugin.settings.autoTimestamp) return false;
+          run: (view: EditorView): boolean => {
+            if (!this.settings.autoTimestamp) return false;
 
             const state = view.state;
             const doc = state.doc.toString();
             const section = findSection(
               doc,
-              plugin.settings.targetHeading,
-              plugin.settings.headingLevel,
+              this.settings.targetHeading,
+              this.settings.headingLevel,
             );
             if (!section) return false;
 
@@ -360,19 +344,17 @@ export default class JournalPartnerPlugin extends Plugin {
    * target section.
    */
   private createTabKeymap(): Extension {
-    const plugin = this;
-
     return Prec.high(
       keymap.of([
         {
           key: 'Tab',
-          run(view: EditorView): boolean {
+          run: (view: EditorView): boolean => {
             const state = view.state;
             const doc = state.doc.toString();
             const section = findSection(
               doc,
-              plugin.settings.targetHeading,
-              plugin.settings.headingLevel,
+              this.settings.targetHeading,
+              this.settings.headingLevel,
             );
             if (!section) return false;
 
@@ -390,7 +372,7 @@ export default class JournalPartnerPlugin extends Plugin {
             if (!isTopLevel) return false;
 
             const timestampMatch = line.text.match(
-              new RegExp(`^([-*+]\\s+)(${plugin.settings.timestampPattern})\\s+`),
+              new RegExp(`^([-*+]\\s+)(${this.settings.timestampPattern})\\s+`),
             );
 
             if (!timestampMatch) return false;
@@ -399,7 +381,7 @@ export default class JournalPartnerPlugin extends Plugin {
             const timestampText = timestampMatch[2];
 
             const afterTimestampMatch = line.text.match(
-              new RegExp(`^([-*+]\\s+)(${plugin.settings.timestampPattern})\\s+(.*)`),
+              new RegExp(`^([-*+]\\s+)(${this.settings.timestampPattern})\\s+(.*)`),
             );
             const contentAfterTimestamp = afterTimestampMatch?.[3] ?? '';
 
@@ -472,9 +454,9 @@ export default class JournalPartnerPlugin extends Plugin {
 
       const before = raw.slice(0, m.index);
       const after = raw.slice(m.index + m[0].length);
-      const span = createEl('span', { cls: 'jp-timestamp', text: m[0] });
+      const span = createSpan({ cls: 'jp-timestamp', text: m[0] });
 
-      const parent = textNode.parentNode!;
+      const parent = textNode.parentNode;
       if (before) parent.insertBefore(document.createTextNode(before), textNode);
       parent.insertBefore(span, textNode);
       if (after) parent.insertBefore(document.createTextNode(after), textNode);
@@ -491,11 +473,8 @@ export default class JournalPartnerPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign(
-      {},
-      DEFAULT_SETTINGS,
-      await this.loadData(),
-    );
+    const loaded = (await this.loadData()) as Partial<JournalPartnerSettings> | null;
+    this.settings = { ...DEFAULT_SETTINGS, ...loaded };
   }
 
   async saveSettings() {
@@ -507,8 +486,7 @@ export default class JournalPartnerPlugin extends Plugin {
   private refreshEditors() {
     this.app.workspace.iterateAllLeaves(leaf => {
       if (leaf.view instanceof MarkdownView) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cm: EditorView | undefined = (leaf.view.editor as any)?.cm;
+        const cm = (leaf.view.editor as unknown as { cm?: EditorView }).cm;
         cm?.dispatch({ effects: forceUpdateEffect.of(null) });
       }
     });
@@ -561,10 +539,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
    * Special values: `.` = same folder as the note, `/` or empty = vault root.
    */
   private attachmentFolderLabel(): string {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const folder = (this.app as any).vault?.config?.attachmentFolderPath as
-      | string
-      | undefined;
+    type VaultConfig = { config?: { attachmentFolderPath?: string } };
+    const folder = (this.app.vault as unknown as VaultConfig).config?.attachmentFolderPath;
     if (!folder || folder === '/' || folder === '') return 'Vault 根目录';
     if (folder === '.') return '与日记同目录';
     return folder;
@@ -621,10 +597,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl('h2', { text: 'Journal Partner' });
-
     // ── Timestamp Settings ────────────────────────────────────────────────
-    containerEl.createEl('h3', { text: '时间戳设置' });
+    new Setting(containerEl).setName('时间戳设置').setHeading();
 
     new Setting(containerEl)
       .setName('日记标题')
@@ -736,22 +710,15 @@ class JournalPartnerSettingTab extends PluginSettingTab {
 
     // Preview badge
     const previewEl = containerEl.createDiv({ cls: 'jp-settings-preview' });
-    previewEl.style.cssText =
-      'margin-top: 24px; padding: 16px; border-radius: 8px;' +
-      'background: var(--background-secondary); display: flex; align-items: center; gap: 10px;';
-    previewEl.createEl('span', { text: '预览：' }).style.color =
-      'var(--text-muted)';
-    previewEl.createEl('span', {
-      cls: 'jp-timestamp',
-      text: '07:31',
-    });
-    previewEl.createEl('span', { text: '这里是日记内容…' });
+    previewEl.createSpan({ cls: 'jp-settings-preview-label', text: '预览：' });
+    previewEl.createSpan({ cls: 'jp-timestamp', text: '07:31' });
+    previewEl.createSpan({ text: '这里是日记内容…' });
 
     // ── Speech-to-text ────────────────────────────────────────────────────
-    containerEl.createEl('h3', { text: '语音转文字' });
+    new Setting(containerEl).setName('语音转文字').setHeading();
 
     // Usage guide — explains how STT works here and lists mainstream / free models.
-    const guide = containerEl.createEl('div', { cls: 'jp-stt-guide' });
+    const guide = containerEl.createDiv({ cls: 'jp-stt-guide' });
     guide.createEl('p', {
       text: '录音转文字使用 OpenAI 兼容的 /audio/transcriptions 接口。填好转写地址与 API Key 即可开启；留空则关闭转写，麦克风仅作纯录音。也可不配置，直接用系统听写（macOS 双击 Fn / iOS 键盘麦克风）往输入框输入。',
     });
@@ -888,7 +855,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     // ── Shortcut ──────────────────────────────────────────────────────────
-    containerEl.createEl('h3', { text: '其他' });
+    new Setting(containerEl).setName('其他').setHeading();
 
     this.addFolderSetting(
       containerEl,
@@ -930,26 +897,16 @@ class JournalPartnerSettingTab extends PluginSettingTab {
 
     // URL scheme reference
     const urlSection = containerEl.createDiv({ cls: 'jp-settings-url-section' });
-    urlSection.style.cssText =
-      'margin-top: 16px; padding: 12px 16px; border-radius: 8px;' +
-      'background: var(--background-secondary); font-size: 0.85em;';
-    urlSection.createEl('div', {
-      text: 'URL Scheme',
-      cls: 'jp-settings-url-title',
-    }).style.cssText = 'font-weight: 600; margin-bottom: 8px; color: var(--text-normal);';
+    urlSection.createDiv({ text: 'URL Scheme', cls: 'jp-settings-url-title' });
 
-    const urlDesc = urlSection.createEl('div', {
+    urlSection.createDiv({
       text: '可在浏览器地址栏、快捷指令、自动化 App 等任意位置调用，自动打开侧边栏并开始录音。',
+      cls: 'jp-settings-url-desc',
     });
-    urlDesc.style.cssText = 'margin-bottom: 10px; color: var(--text-muted);';
 
     const url = 'obsidian://journal-partner?cmd=record';
-    const row = urlSection.createDiv();
-    row.style.cssText = 'color: var(--text-muted);';
-    const code = row.createEl('code', { text: url });
-    code.style.cssText =
-      'font-size: 0.9em; cursor: pointer; padding: 1px 4px;' +
-      'border-radius: 3px; background: var(--background-primary-alt);';
+    const row = urlSection.createDiv({ cls: 'jp-settings-url-row' });
+    const code = row.createEl('code', { text: url, cls: 'jp-settings-url-code' });
     code.setAttr('title', '点击复制');
     code.addEventListener('click', () => {
       void navigator.clipboard.writeText(url).then(() => new Notice('已复制 URL'));
