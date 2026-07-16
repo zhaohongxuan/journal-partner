@@ -2582,13 +2582,14 @@ export class JournalCaptureView extends ItemView {
     }
 
     const { type, query, pos } = trigger;
-    this.autocompleteType = type;
+    // Store type as @ or #, treat [[ as @
+    this.autocompleteType = type === '[[' ? '@' : type;
     this.autocompleteQuery = query;
     this.autocompleteStartPos = pos;
     this.autocompleteSelectedIndex = 0;
 
     let suggestions: string[] = [];
-    if (type === '@') {
+    if (type === '@' || type === '[[') {
       suggestions = this.getFileSuggestions(query);
     } else if (type === '#') {
       suggestions = this.getTagSuggestions(query);
@@ -2606,20 +2607,30 @@ export class JournalCaptureView extends ItemView {
    * Returns null if no trigger found or if # is at line start (markdown heading).
    */
   /**
-   * Find the nearest @ or # to the cursor, working backwards from current position.
-   * For @: always trigger (file mention)
+   * Find the nearest @, #, or [[ to the cursor, working backwards from current position.
+   * For @ and [[: always trigger (file mention)
    * For #: trigger unless it's a markdown heading (i.e., followed by space at line start)
    */
-  private getTriggerInfo(): { type: '@' | '#'; query: string; pos: number } | null {
+  private getTriggerInfo(): { type: '@' | '#' | '[['; query: string; pos: number } | null {
     const textarea = this.textareaEl;
     const cursorPos = textarea.selectionStart;
     const text = textarea.value;
 
-    // Scan backwards to find @ or #
+    // Scan backwards to find @, #, or [[
     for (let i = cursorPos - 1; i >= 0; i--) {
       const char = text[i];
+      const nextChar = text[i + 1];
 
-      if (char === '@') {
+      // Check for [[ trigger
+      if (char === '[' && nextChar === '[') {
+        // [[ can trigger anywhere for file mention
+        const rawQuery = text.slice(i + 2, cursorPos);
+        // Only trigger if no ] closes the bracket yet and no spaces
+        if (!/[\]\s]/.test(rawQuery)) {
+          return { type: '[[', query: rawQuery, pos: i };
+        }
+        break;
+      } else if (char === '@') {
         // @ can trigger anywhere
         const rawQuery = text.slice(i + 1, cursorPos);
         // Only trigger if no spaces between @ and cursor
@@ -2767,7 +2778,7 @@ export class JournalCaptureView extends ItemView {
   /**
    * Display the autocomplete popup with suggestions.
    */
-  private showAutocompletePopup(type: '@' | '#', suggestions: string[]): void {
+  private showAutocompletePopup(type: '@' | '#' | '[[', suggestions: string[]): void {
     this.autocompleteSuggestions = suggestions;
     this.autocompleteItemsEl.empty();
 
@@ -2778,7 +2789,11 @@ export class JournalCaptureView extends ItemView {
       });
 
       const icon = item.createSpan({ cls: 'jp-autocomplete-item-icon' });
-      icon.setText(type === '@' ? '📄' : '#');
+      if (type === '@' || type === '[[') {
+        icon.setText('📄');
+      } else if (type === '#') {
+        icon.setText('#');
+      }
 
       const text = item.createSpan({ cls: 'jp-autocomplete-item-text' });
       text.setText(suggestion);
