@@ -2608,7 +2608,7 @@ export class JournalCaptureView extends ItemView {
   /**
    * Find the nearest @ or # to the cursor, working backwards from current position.
    * For @: always trigger (file mention)
-   * For #: only trigger if not at line start (to avoid markdown headings)
+   * For #: trigger unless it's a markdown heading (i.e., followed by space at line start)
    */
   private getTriggerInfo(): { type: '@' | '#'; query: string; pos: number } | null {
     const textarea = this.textareaEl;
@@ -2628,18 +2628,22 @@ export class JournalCaptureView extends ItemView {
         }
         break;
       } else if (char === '#') {
-        // For #, check if it's at line start (markdown heading)
+        // Check if this is a markdown heading: "# " at line start
+        // Only skip if: it's at line start AND immediately followed by space
         const lineStart = text.lastIndexOf('\n', i) + 1;
         const beforeTrigger = text.slice(lineStart, i);
+        const afterTrigger = text[i + 1];
 
-        // If only whitespace before # on the same line, it's a heading - skip
-        if (/^\s*$/.test(beforeTrigger)) {
-          // Skip this # and continue searching for an earlier # or @
-          // Don't break, keep searching backwards
+        const isLineStart = /^\s*$/.test(beforeTrigger);
+        const hasSpaceAfter = afterTrigger === ' ' || afterTrigger === '\t';
+        const isMarkdownHeading = isLineStart && hasSpaceAfter;
+
+        if (isMarkdownHeading) {
+          // This looks like "# " at line start, skip and continue searching
           continue;
         }
 
-        // This # is mid-line and can trigger tag suggestion
+        // This # can trigger tag suggestion
         const rawQuery = text.slice(i + 1, cursorPos);
         if (!/\s/.test(rawQuery)) {
           return { type: '#', query: rawQuery, pos: i };
