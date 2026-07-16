@@ -2625,14 +2625,18 @@ export class JournalCaptureView extends ItemView {
           // Otherwise, # is mid-line and can trigger tag suggestion
         }
 
-        const query = text.slice(i + 1, cursorPos).trim();
-        // Only trigger if immediately after @ or #, no spaces between trigger and cursor
-        if (query === text.slice(i + 1, cursorPos)) {
-          return { type: char as '@' | '#', query, pos: i };
+        // Get the raw text after the trigger (without trimming)
+        const rawQuery = text.slice(i + 1, cursorPos);
+        // Only trigger if no spaces between trigger and cursor (spaces would break the mention)
+        if (!/\s/.test(rawQuery)) {
+          return { type: char as '@' | '#', query: rawQuery, pos: i };
         }
         break;
-      } else if (char === '\n' || /[^\w@#-]/.test(char)) {
-        // Hit whitespace or special char (except what makes sense for file/tag names)
+      } else if (char === '\n') {
+        // Hit newline, stop searching
+        break;
+      } else if (char === ' ' || char === '\t') {
+        // Hit whitespace, stop searching (@ or # must be immediately before text or nothing)
         break;
       }
     }
@@ -2650,10 +2654,19 @@ export class JournalCaptureView extends ItemView {
 
     try {
       const allFiles = this.app.vault.getFiles();
+
+      // If query is empty, just return first 8 files
+      if (lower.length === 0) {
+        return allFiles.slice(0, 8).map(f => f.path);
+      }
+
+      // Otherwise, search all files and return matching ones (up to 8)
       for (const file of allFiles) {
-        // Include markdown files and attachments
-        const basename = file.basename;
-        if (basename.toLowerCase().includes(lower)) {
+        const basename = file.basename.toLowerCase();
+        const fullPath = file.path.toLowerCase();
+
+        // Match against both basename and full path for better search
+        if (basename.includes(lower) || fullPath.includes(lower)) {
           suggestions.push(file.path);
           if (suggestions.length >= 8) break;
         }
@@ -2681,32 +2694,31 @@ export class JournalCaptureView extends ItemView {
         const metadata = cache.getFileCache(file);
         if (!metadata) continue;
 
-        // Check tags in frontmatter
-        if (metadata.frontmatter?.tags) {
-          const tags = metadata.frontmatter.tags;
-          if (Array.isArray(tags)) {
-            for (const tag of tags) {
-              const tagStr = String(tag).toLowerCase();
-              if (tagStr.includes(lower)) {
-                suggestions.add(String(tag));
-                if (suggestions.size >= 8) break;
-              }
-            }
-          } else if (typeof tags === 'string') {
-            const tagStr = tags.toLowerCase();
-            if (tagStr.includes(lower)) {
-              suggestions.add(tags);
+        // Check inline tags in the file content (most reliable source)
+        if (metadata.tags && Array.isArray(metadata.tags)) {
+          for (const tagObj of metadata.tags) {
+            // tagObj is like { tag: '#mytag', position: {line: 0, ch: 0} }
+            const fullTag = tagObj.tag || '';
+            let tagName = fullTag.startsWith('#') ? fullTag.slice(1) : fullTag;
+
+            // For nested tags like #parent/child, keep the full name
+            const tagLower = tagName.toLowerCase();
+            if (lower.length === 0 || tagLower.includes(lower)) {
+              suggestions.add(tagName);
+              if (suggestions.size >= 8) break;
             }
           }
         }
 
-        // Also check inline tags (not required, but helpful)
-        if (metadata.tags) {
-          for (const tag of metadata.tags) {
-            // tag is like { tag: '#mytag', position: ... }
-            const tagStr = tag.tag ? tag.tag.slice(1) : ''; // Remove leading #
-            if (tagStr.toLowerCase().includes(lower)) {
-              suggestions.add(tagStr);
+        // Also check frontmatter tags
+        if (metadata.frontmatter?.tags) {
+          const fm = metadata.frontmatter.tags;
+          const tagsArray = Array.isArray(fm) ? fm : (typeof fm === 'string' ? [fm] : []);
+
+          for (const tag of tagsArray) {
+            const tagName = String(tag).toLowerCase();
+            if (lower.length === 0 || tagName.includes(lower)) {
+              suggestions.add(String(tag));
               if (suggestions.size >= 8) break;
             }
           }
