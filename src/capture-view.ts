@@ -121,6 +121,16 @@ export class JournalCaptureView extends ItemView {
   private textareaEl!: HTMLTextAreaElement;
   private submitBtn!: HTMLButtonElement;
 
+  // Autocomplete state
+  private autocompletePopupEl!: HTMLElement;
+  private autocompleteItemsEl!: HTMLElement;
+  private autocompleteActive = false;
+  private autocompleteType: '@' | '#' | null = null;
+  private autocompleteSelectedIndex = 0;
+  private autocompleteSuggestions: string[] = [];
+  private autocompleteStartPos = 0;  // position of @ or #
+  private autocompleteQuery = '';
+
   // DOM references (stats pane)
   private statsToolbarEl!: HTMLElement;
   private statsBodyEl!: HTMLElement;
@@ -617,16 +627,38 @@ export class JournalCaptureView extends ItemView {
     this.textareaEl = inputWrapper.createEl('textarea', {
       cls: 'jp-capture-input',
       attr: {
-        placeholder: "What's happening?",
+        placeholder: '记录这一刻吧，使用 @ 或 [[ 引入文件，# 添加标签',
         rows: '3',
       },
     });
     this.textareaEl.addEventListener('input', () => {
       this.refreshSubmitState();
       this.autoResizeTextarea();
+      this.updateAutocompleteSuggestions();
     });
     // Configurable shortcut to submit (default Shift+Enter).
     this.textareaEl.addEventListener('keydown', evt => {
+      // Handle autocomplete navigation first
+      if (this.autocompleteActive) {
+        if (evt.key === 'ArrowUp') {
+          evt.preventDefault();
+          this.navigateSuggestions('up');
+          return;
+        } else if (evt.key === 'ArrowDown') {
+          evt.preventDefault();
+          this.navigateSuggestions('down');
+          return;
+        } else if (evt.key === 'Enter') {
+          evt.preventDefault();
+          this.selectCurrentSuggestion();
+          return;
+        } else if (evt.key === 'Escape') {
+          evt.preventDefault();
+          this.hideAutocompletePopup();
+          return;
+        }
+      }
+
       if (evt.key !== 'Enter' || evt.isComposing) return;
       const shortcut = this.plugin.settings.submitShortcut;
       const matches =
@@ -697,6 +729,20 @@ export class JournalCaptureView extends ItemView {
     this.textareaEl.addEventListener('dragover', (e) => {
       if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
     }, true);
+
+    // Autocomplete popup
+    this.autocompletePopupEl = inputWrapper.createDiv({ cls: 'jp-autocomplete-popup' });
+    this.autocompleteItemsEl = this.autocompletePopupEl.createDiv({ cls: 'jp-autocomplete-items' });
+    this.autocompletePopupEl.addEventListener('click', (evt) => {
+      const item = (evt.target as HTMLElement).closest('.jp-autocomplete-item');
+      if (!item) return;
+      const index = Array.from(this.autocompleteItemsEl.querySelectorAll('.jp-autocomplete-item')).indexOf(item);
+      if (index >= 0) {
+        this.autocompleteSelectedIndex = index;
+        this.selectCurrentSuggestion();
+      }
+    });
+
 
     // Hidden file input for image upload
     const fileInput = this.inputCardEl.createEl('input', {
@@ -2521,6 +2567,321 @@ export class JournalCaptureView extends ItemView {
       this.submitBtn.setText(originalText ?? 'NOTE');
       this.refreshSubmitState();
     }
+  }
+
+  // ── Autocomplete ───────────────────────────────────────────────────────────
+
+  /**
+   * Called on every input event. Detects @ or # trigger and updates suggestions.
+   */
+  private updateAutocompleteSuggestions(): void {
+    const trigger = this.getTriggerInfo();
+    if (!trigger) {
+      this.hideAutocompletePopup();
+      return;
+    }
+
+    const { type, query, pos } = trigger;
+    // Store type as @ or #, treat [[ as @
+    this.autocompleteType = type === '[[' ? '@' : type;
+    this.autocompleteQuery = query;
+    this.autocompleteStartPos = pos;
+    this.autocompleteSelectedIndex = 0;
+
+    let suggestions: string[] = [];
+    if (type === '@' || type === '[[') {
+      suggestions = this.getFileSuggestions(query);
+    } else if (type === '#') {
+      suggestions = this.getTagSuggestions(query);
+    }
+
+    if (suggestions.length === 0) {
+      this.hideAutocompletePopup();
+    } else {
+      this.showAutocompletePopup(type, suggestions);
+    }
+  }
+
+  /**
+   * Find the nearest @ or # to the cursor, working backwards from current position.
+   * Returns null if no trigger found or if # is at line start (markdown heading).
+   */
+  /**
+   * Find the nearest @, #, or [[ to the cursor, working backwards from current position.
+   * For @ and [[: always trigger (file mention)
+   * For #: trigger unless it's a markdown heading (i.e., followed by space at line start)
+   */
+  private getTriggerInfo(): { type: '@' | '#' | '[['; query: string; pos: number } | null {
+    const textarea = this.textareaEl;
+    const cursorPos = textarea.selectionStart;
+    const text = textarea.value;
+
+    // Scan backwards to find @, #, or [[
+    for (let i = cursorPos - 1; i >= 0; i--) {
+      const char = text[i];
+      const nextChar = text[i + 1];
+
+      // Check for [[ trigger
+      if (char === '[' && nextChar === '[') {
+        // [[ can trigger anywhere for file mention
+        const rawQuery = text.slice(i + 2, cursorPos);
+        // Only trigger if no ] closes the bracket yet and no spaces
+        if (!/[\]\s]/.test(rawQuery)) {
+          return { type: '[[', query: rawQuery, pos: i };
+        }
+        break;
+      } else if (char === '@') {
+        // @ can trigger anywhere
+        const rawQuery = text.slice(i + 1, cursorPos);
+        // Only trigger if no spaces between @ and cursor
+        if (!/\s/.test(rawQuery)) {
+          return { type: '@', query: rawQuery, pos: i };
+        }
+        break;
+      } else if (char === '#') {
+        // Check if this is a markdown heading: "# " at line start
+        // Only skip if: it's at line start AND immediately followed by space
+        const lineStart = text.lastIndexOf('\n', i) + 1;
+        const beforeTrigger = text.slice(lineStart, i);
+        const afterTrigger = text[i + 1];
+
+        const isLineStart = /^\s*$/.test(beforeTrigger);
+        const hasSpaceAfter = afterTrigger === ' ' || afterTrigger === '\t';
+        const isMarkdownHeading = isLineStart && hasSpaceAfter;
+
+        if (isMarkdownHeading) {
+          // This looks like "# " at line start, skip and continue searching
+          continue;
+        }
+
+        // This # can trigger tag suggestion
+        const rawQuery = text.slice(i + 1, cursorPos);
+        if (!/\s/.test(rawQuery)) {
+          return { type: '#', query: rawQuery, pos: i };
+        }
+        break;
+      } else if (char === '\n') {
+        // Hit newline, stop searching
+        break;
+      } else if (char === ' ' || char === '\t') {
+        // Hit whitespace, stop searching
+        break;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Get file suggestions matching the query.
+   * Returns paths like "folder/file" (without extension).
+   */
+  private getFileSuggestions(query: string): string[] {
+    const lower = query.toLowerCase();
+    const suggestions: string[] = [];
+
+    try {
+      const allFiles = this.app.vault.getFiles();
+
+      // If query is empty, just return first 8 files
+      if (lower.length === 0) {
+        return allFiles.slice(0, 8).map(f => f.path);
+      }
+
+      // Otherwise, search all files and return matching ones (up to 8)
+      for (const file of allFiles) {
+        const basename = file.basename.toLowerCase();
+        const fullPath = file.path.toLowerCase();
+
+        // Match against both basename and full path for better search
+        if (basename.includes(lower) || fullPath.includes(lower)) {
+          suggestions.push(file.path);
+          if (suggestions.length >= 8) break;
+        }
+      }
+    } catch (err) {
+      console.error('[Journal Partner] getFileSuggestions error', err);
+    }
+
+    return suggestions;
+  }
+
+  /**
+   * Get tag suggestions matching the query.
+   * Returns tags like "tag-name" (without the # prefix).
+   */
+  private getTagSuggestions(query: string): string[] {
+    const lower = query.toLowerCase();
+    const suggestions: Set<string> = new Set();
+
+    try {
+      const cache = this.app.metadataCache;
+      const allFiles = this.app.vault.getFiles();
+
+      for (const file of allFiles) {
+        const metadata = cache.getFileCache(file);
+        if (!metadata) continue;
+
+        // Check inline tags in the file content
+        // metadata.tags is an array of { tag: '#mytag', position: ... }
+        if (metadata.tags && Array.isArray(metadata.tags)) {
+          for (const tagObj of metadata.tags) {
+            if (typeof tagObj !== 'object' || !tagObj.tag) continue;
+
+            // tagObj.tag is like "#mytag" or "#parent/child"
+            let tagName = tagObj.tag;
+            if (tagName.startsWith('#')) {
+              tagName = tagName.slice(1);
+            }
+
+            const tagLower = tagName.toLowerCase();
+            if (lower.length === 0 || tagLower.includes(lower)) {
+              suggestions.add(tagName);
+              if (suggestions.size >= 8) break;
+            }
+          }
+        }
+
+        // Also check frontmatter tags
+        if (metadata.frontmatter?.tags) {
+          const fm = metadata.frontmatter.tags as string | string[];
+          const tagsArray: string[] = [];
+
+          if (typeof fm === 'string') {
+            tagsArray.push(fm);
+          } else if (Array.isArray(fm)) {
+            for (const item of fm) {
+              if (typeof item === 'string') {
+                tagsArray.push(item);
+              }
+            }
+          }
+
+          for (const tag of tagsArray) {
+            const tagLower = tag.toLowerCase();
+            if (lower.length === 0 || tagLower.includes(lower)) {
+              suggestions.add(tag);
+              if (suggestions.size >= 8) break;
+            }
+          }
+        }
+
+        if (suggestions.size >= 8) break;
+      }
+    } catch (err) {
+      console.error('[Journal Partner] getTagSuggestions error', err);
+    }
+
+    return Array.from(suggestions);
+  }
+
+  /**
+   * Display the autocomplete popup with suggestions.
+   */
+  private showAutocompletePopup(type: '@' | '#' | '[[', suggestions: string[]): void {
+    this.autocompleteSuggestions = suggestions;
+    this.autocompleteItemsEl.empty();
+
+    for (let i = 0; i < suggestions.length; i++) {
+      const suggestion = suggestions[i];
+      const item = this.autocompleteItemsEl.createDiv({
+        cls: 'jp-autocomplete-item' + (i === 0 ? ' is-active' : ''),
+      });
+
+      // Only show icon for tags
+      if (type === '#') {
+        const icon = item.createSpan({ cls: 'jp-autocomplete-item-icon' });
+        icon.setText('#');
+      }
+
+      const text = item.createSpan({ cls: 'jp-autocomplete-item-text' });
+      text.setText(suggestion);
+    }
+
+    this.autocompleteActive = true;
+    this.autocompletePopupEl.addClass('is-active');
+  }
+
+  /**
+   * Hide the autocomplete popup.
+   */
+  private hideAutocompletePopup(): void {
+    this.autocompleteActive = false;
+    this.autocompletePopupEl.removeClass('is-active');
+    this.autocompleteItemsEl.empty();
+  }
+
+  /**
+   * Navigate suggestions up or down.
+   */
+  private navigateSuggestions(direction: 'up' | 'down'): void {
+    if (!this.autocompleteActive || this.autocompleteSuggestions.length === 0) return;
+
+    // Remove active class from current
+    const items = this.autocompleteItemsEl.querySelectorAll('.jp-autocomplete-item');
+    if (items[this.autocompleteSelectedIndex]) {
+      items[this.autocompleteSelectedIndex].removeClass('is-active');
+    }
+
+    // Move index
+    if (direction === 'down') {
+      this.autocompleteSelectedIndex = (this.autocompleteSelectedIndex + 1) % items.length;
+    } else {
+      this.autocompleteSelectedIndex = (this.autocompleteSelectedIndex - 1 + items.length) % items.length;
+    }
+
+    // Add active class to new current
+    if (items[this.autocompleteSelectedIndex]) {
+      items[this.autocompleteSelectedIndex].addClass('is-active');
+      items[this.autocompleteSelectedIndex].scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  /**
+   * Insert the selected suggestion into the textarea.
+   */
+  private selectCurrentSuggestion(): void {
+    if (!this.autocompleteActive || this.autocompleteSelectedIndex < 0) return;
+
+    const suggestion = this.autocompleteSuggestions[this.autocompleteSelectedIndex];
+    if (!suggestion) return;
+
+    this.insertSuggestion(suggestion, this.autocompleteType || '@');
+  }
+
+  /**
+   * Replace the trigger + query with the formatted suggestion.
+   */
+  private insertSuggestion(suggestion: string, type: '@' | '#'): void {
+    const textarea = this.textareaEl;
+    const trigger = this.getTriggerInfo();
+    if (!trigger) return;
+
+    const startPos = trigger.pos;
+    const endPos = textarea.selectionStart;
+
+    // Replace @query or #query with the suggestion
+    let replacement = '';
+    if (type === '@') {
+      replacement = `[[${suggestion}]]`;
+    } else if (type === '#') {
+      replacement = `#${suggestion}`;
+    }
+
+    const before = textarea.value.substring(0, startPos);
+    const after = textarea.value.substring(endPos);
+    textarea.value = before + replacement + ' ' + after;
+
+    // Move cursor after the inserted suggestion + space
+    const newPos = startPos + replacement.length + 1;
+    textarea.setSelectionRange(newPos, newPos);
+
+    this.hideAutocompletePopup();
+    this.refreshSubmitState();
+    this.autoResizeTextarea();
+
+    // Focus back on textarea
+    textarea.focus();
   }
 }
 
