@@ -2605,6 +2605,11 @@ export class JournalCaptureView extends ItemView {
    * Find the nearest @ or # to the cursor, working backwards from current position.
    * Returns null if no trigger found or if # is at line start (markdown heading).
    */
+  /**
+   * Find the nearest @ or # to the cursor, working backwards from current position.
+   * For @: always trigger (file mention)
+   * For #: only trigger if not at line start (to avoid markdown headings)
+   */
   private getTriggerInfo(): { type: '@' | '#'; query: string; pos: number } | null {
     const textarea = this.textareaEl;
     const cursorPos = textarea.selectionStart;
@@ -2613,30 +2618,38 @@ export class JournalCaptureView extends ItemView {
     // Scan backwards to find @ or #
     for (let i = cursorPos - 1; i >= 0; i--) {
       const char = text[i];
-      if (char === '@' || char === '#') {
+
+      if (char === '@') {
+        // @ can trigger anywhere
+        const rawQuery = text.slice(i + 1, cursorPos);
+        // Only trigger if no spaces between @ and cursor
+        if (!/\s/.test(rawQuery)) {
+          return { type: '@', query: rawQuery, pos: i };
+        }
+        break;
+      } else if (char === '#') {
         // For #, check if it's at line start (markdown heading)
-        if (char === '#') {
-          const lineStart = text.lastIndexOf('\n', i) + 1;
-          const beforeTrigger = text.slice(lineStart, i);
-          // If only whitespace before # on the same line, it could be a markdown heading - skip
-          if (/^\s*$/.test(beforeTrigger)) {
-            break;
-          }
-          // Otherwise, # is mid-line and can trigger tag suggestion
+        const lineStart = text.lastIndexOf('\n', i) + 1;
+        const beforeTrigger = text.slice(lineStart, i);
+
+        // If only whitespace before # on the same line, it's a heading - skip
+        if (/^\s*$/.test(beforeTrigger)) {
+          // Skip this # and continue searching for an earlier # or @
+          // Don't break, keep searching backwards
+          continue;
         }
 
-        // Get the raw text after the trigger (without trimming)
+        // This # is mid-line and can trigger tag suggestion
         const rawQuery = text.slice(i + 1, cursorPos);
-        // Only trigger if no spaces between trigger and cursor (spaces would break the mention)
         if (!/\s/.test(rawQuery)) {
-          return { type: char as '@' | '#', query: rawQuery, pos: i };
+          return { type: '#', query: rawQuery, pos: i };
         }
         break;
       } else if (char === '\n') {
         // Hit newline, stop searching
         break;
       } else if (char === ' ' || char === '\t') {
-        // Hit whitespace, stop searching (@ or # must be immediately before text or nothing)
+        // Hit whitespace, stop searching
         break;
       }
     }
@@ -2694,14 +2707,18 @@ export class JournalCaptureView extends ItemView {
         const metadata = cache.getFileCache(file);
         if (!metadata) continue;
 
-        // Check inline tags in the file content (most reliable source)
+        // Check inline tags in the file content
+        // metadata.tags is an array of { tag: '#mytag', position: ... }
         if (metadata.tags && Array.isArray(metadata.tags)) {
           for (const tagObj of metadata.tags) {
-            // tagObj is like { tag: '#mytag', position: {line: 0, ch: 0} }
-            const fullTag = tagObj.tag || '';
-            let tagName = fullTag.startsWith('#') ? fullTag.slice(1) : fullTag;
+            if (typeof tagObj !== 'object' || !tagObj.tag) continue;
 
-            // For nested tags like #parent/child, keep the full name
+            // tagObj.tag is like "#mytag" or "#parent/child"
+            let tagName = tagObj.tag;
+            if (tagName.startsWith('#')) {
+              tagName = tagName.slice(1);
+            }
+
             const tagLower = tagName.toLowerCase();
             if (lower.length === 0 || tagLower.includes(lower)) {
               suggestions.add(tagName);
@@ -2713,12 +2730,22 @@ export class JournalCaptureView extends ItemView {
         // Also check frontmatter tags
         if (metadata.frontmatter?.tags) {
           const fm = metadata.frontmatter.tags;
-          const tagsArray = Array.isArray(fm) ? fm : (typeof fm === 'string' ? [fm] : []);
+          const tagsArray: string[] = [];
+
+          if (typeof fm === 'string') {
+            tagsArray.push(fm);
+          } else if (Array.isArray(fm)) {
+            for (const item of fm) {
+              if (typeof item === 'string') {
+                tagsArray.push(item);
+              }
+            }
+          }
 
           for (const tag of tagsArray) {
-            const tagName = String(tag).toLowerCase();
-            if (lower.length === 0 || tagName.includes(lower)) {
-              suggestions.add(String(tag));
+            const tagLower = tag.toLowerCase();
+            if (lower.length === 0 || tagLower.includes(lower)) {
+              suggestions.add(tag);
               if (suggestions.size >= 8) break;
             }
           }
