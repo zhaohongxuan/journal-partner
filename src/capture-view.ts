@@ -627,7 +627,7 @@ export class JournalCaptureView extends ItemView {
     this.textareaEl = inputWrapper.createEl('textarea', {
       cls: 'jp-capture-input',
       attr: {
-        placeholder: '记录这一刻吧，使用 @引入文件 #添加标签',
+        placeholder: '记录这一刻吧，使用 @/[[ 引入文件 # 添加标签',
         rows: '3',
       },
     });
@@ -2788,10 +2788,9 @@ export class JournalCaptureView extends ItemView {
         cls: 'jp-autocomplete-item' + (i === 0 ? ' is-active' : ''),
       });
 
-      const icon = item.createSpan({ cls: 'jp-autocomplete-item-icon' });
-      if (type === '@' || type === '[[') {
-        icon.setText('📄');
-      } else if (type === '#') {
+      // Only show icon for tags
+      if (type === '#') {
+        const icon = item.createSpan({ cls: 'jp-autocomplete-item-icon' });
         icon.setText('#');
       }
 
