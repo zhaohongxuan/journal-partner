@@ -2744,7 +2744,7 @@ export class JournalCaptureView extends ItemView {
 
         // Also check frontmatter tags
         if (metadata.frontmatter?.tags) {
-          const fm = metadata.frontmatter.tags;
+          const fm = metadata.frontmatter.tags as string | string[];
           const tagsArray: string[] = [];
 
           if (typeof fm === 'string') {
