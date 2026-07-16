@@ -163,6 +163,57 @@
 .jp-capture-input-wrapper {
   position: relative;
 }
+/* ── Autocomplete popup ──────────────────────────────────────────────────── */
+.jp-autocomplete-popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 1000;
+  display: none;
+}
+
+.jp-autocomplete-popup.is-active {
+  display: block;
+}
+
+.jp-autocomplete-items {
+  padding: 4px 0;
+}
+
+.jp-autocomplete-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.9em;
+  color: var(--text-normal);
+  transition: background-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jp-autocomplete-item:hover,
+.jp-autocomplete-item.is-active {
+  background-color: var(--background-modifier-hover);
+}
+
+.jp-autocomplete-item-icon {
+  opacity: 0.6;
+  font-size: 0.85em;
+  flex-shrink: 0;
+}
+
+.jp-autocomplete-item-text {
+  word-break: break-word;
+  flex: 1;
+}
+
 .jp-capture-button-row {
   display: inline-flex;
   flex-direction: row;
