@@ -38,6 +38,7 @@ import {
 import {
   JournalEntry,
   deleteEntryFromSection,
+  editEntryInSection,
   extractAudioEmbeds,
   findSection,
   parseJournalEntries,
@@ -2352,6 +2353,15 @@ export class JournalCaptureView extends ItemView {
         }),
     );
 
+    menu.addItem(item =>
+      item
+        .setTitle('编辑')
+        .setIcon('pencil')
+        .onClick(() => {
+          void this.openEditEntry(day, entry);
+        }),
+    );
+
     menu.addSeparator();
 
     menu.addItem(item =>
@@ -2391,6 +2401,45 @@ export class JournalCaptureView extends ItemView {
       console.error('[Journal Partner] copy failed', err);
       new Notice(`复制失败：${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  /**
+   * Open a modal pre-filled with the entry's body text. On save, rewrite the
+   * entry's head + continuation lines in the daily note via
+   * `editEntryInSection`, preserving the original list marker and timestamp.
+   */
+  private async openEditEntry(day: DaySection, entry: JournalEntry): Promise<void> {
+    if (!day.filePath) {
+      new Notice('找不到对应的日记文件');
+      return;
+    }
+    const file = this.app.vault.getAbstractFileByPath(day.filePath);
+    if (!(file instanceof TFile)) {
+      new Notice('找不到对应的日记文件');
+      return;
+    }
+    new EditEntryModal(this.app, entry, async newText => {
+      try {
+        const content = await this.app.vault.read(file);
+        const next = editEntryInSection(
+          content,
+          this.plugin.settings,
+          entry.lineIndex,
+          newText,
+        );
+        if (next === content) {
+          // lineIndex no longer points at a head line — file changed.
+          new Notice('日记内容已变化，请刷新后重试');
+          await this.refreshDay(day);
+          return;
+        }
+        await this.app.vault.modify(file, next);
+        new Notice('✏️ 已更新');
+      } catch (err) {
+        console.error('[Journal Partner] edit entry failed', err);
+        new Notice(`保存失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    }).open();
   }
 
   /**
@@ -2977,6 +3026,84 @@ class DeleteConfirmModal extends Modal {
     });
     // Initial focus on cancel — safer default for a destructive dialog.
     window.setTimeout(() => cancelBtn.focus(), 0);
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+/**
+ * Modal for editing one journal entry's body text. Pre-fills a textarea with
+ * the entry's raw text (which may include continuation lines and audio
+ * embeds); on 保存, calls back with the new text. Empty input is rejected.
+ */
+class EditEntryModal extends Modal {
+  private readonly entry: JournalEntry;
+  private readonly onSave: (newText: string) => Promise<void>;
+
+  constructor(
+    app: import('obsidian').App,
+    entry: JournalEntry,
+    onSave: (newText: string) => Promise<void>,
+  ) {
+    super(app);
+    this.entry = entry;
+    this.onSave = onSave;
+  }
+
+  onOpen(): void {
+    const { contentEl, titleEl } = this;
+    titleEl.setText(`编辑 ${this.entry.timestamp}`);
+
+    contentEl.addClass('jp-edit-entry');
+
+    const textarea = contentEl.createEl('textarea', {
+      cls: 'jp-edit-entry-textarea',
+    });
+    textarea.value = this.entry.text;
+    // Multi-line body deserves a roomy editor.
+    textarea.rows = Math.max(4, this.entry.text.split('\n').length + 1);
+
+    const actions = contentEl.createDiv({ cls: 'jp-edit-entry-actions' });
+    const cancelBtn = actions.createEl('button', {
+      cls: 'jp-edit-entry-cancel',
+      text: '取消',
+    });
+    cancelBtn.addEventListener('click', () => this.close());
+
+    const saveBtn = actions.createEl('button', {
+      cls: 'mod-cta jp-edit-entry-save',
+      text: '保存',
+    });
+    saveBtn.addEventListener('click', async () => {
+      const next = textarea.value;
+      if (next.trim().length === 0) {
+        new Notice('内容不能为空');
+        return;
+      }
+      saveBtn.disabled = true;
+      try {
+        await this.onSave(next);
+        this.close();
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+
+    // Enter to save, Shift+Enter for newline — matches the capture input.
+    textarea.addEventListener('keydown', evt => {
+      if (evt.key === 'Enter' && (evt.metaKey || evt.ctrlKey)) {
+        evt.preventDefault();
+        void saveBtn.click();
+      }
+    });
+
+    window.setTimeout(() => {
+      textarea.focus();
+      // Place cursor at the end so the user can append/edit immediately.
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }, 0);
   }
 
   onClose(): void {

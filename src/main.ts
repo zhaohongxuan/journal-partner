@@ -468,8 +468,26 @@ export default class JournalPartnerPlugin extends Plugin {
 
   applyCSSVariables() {
     const root = document.documentElement;
-    root.style.setProperty('--jp-ts-color', this.settings.timestampColor);
-    root.style.setProperty('--jp-ts-bg', this.settings.timestampBgColor);
+
+    // Clear any legacy inline variables previously set on <html>; inline
+    // styles would otherwise override the theme-scoped rules below.
+    root.style.removeProperty('--jp-ts-color');
+    root.style.removeProperty('--jp-ts-bg');
+
+    // Inject a <style> element so the CSS variables can be scoped per theme.
+    // Obsidian toggles `.theme-dark` on <body>; the dark rule wins by source
+    // order (equal specificity), and applies automatically on theme switch.
+    const light = `--jp-ts-color: ${this.settings.timestampColor}; --jp-ts-bg: ${this.settings.timestampBgColor};`;
+    const dark = `--jp-ts-color: ${this.settings.timestampColorDark}; --jp-ts-bg: ${this.settings.timestampBgColorDark};`;
+    let styleEl = document.getElementById(
+      'jp-theme-vars',
+    ) as HTMLStyleElement | null;
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = 'jp-theme-vars';
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = `:root{${light}}.theme-dark{${dark}}`;
   }
 
   async loadSettings() {
@@ -526,6 +544,52 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       folderPaths.unshift('/');
     }
     return Array.from(new Set(folderPaths)).sort();
+  }
+
+  /**
+   * Render one timestamp color setting row with two pickers — light theme
+   * (left) and dark theme (right) — plus a reset button that restores both
+   * to their defaults.
+   */
+  private addColorSetting(
+    name: string,
+    desc: string,
+    lightKey: 'timestampColor' | 'timestampBgColor',
+    darkKey: 'timestampColorDark' | 'timestampBgColorDark',
+    lightDefault: string,
+    darkDefault: string,
+  ): void {
+    new Setting(this.containerEl)
+      .setName(name)
+      .setDesc(desc)
+      .addColorPicker(cp =>
+        cp
+          .setValue(this.plugin.settings[lightKey])
+          .onChange(async value => {
+            this.plugin.settings[lightKey] = value;
+            await this.plugin.saveSettings();
+          }),
+      )
+      .addColorPicker(cp =>
+        cp
+          .setValue(this.plugin.settings[darkKey])
+          .onChange(async value => {
+            this.plugin.settings[darkKey] = value;
+            await this.plugin.saveSettings();
+          }),
+      )
+      .addExtraButton(btn =>
+        btn
+          .setIcon('rotate-ccw')
+          .setTooltip('恢复默认')
+          .onClick(async () => {
+            this.plugin.settings[lightKey] = lightDefault;
+            this.plugin.settings[darkKey] = darkDefault;
+            await this.plugin.saveSettings();
+            // Re-render so the color pickers reflect the reset values.
+            this.display();
+          }),
+      );
   }
 
   /**
@@ -628,30 +692,6 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName('文字颜色')
-      .setDesc('时间戳徽标的前景色')
-      .addColorPicker(cp =>
-        cp
-          .setValue(this.plugin.settings.timestampColor)
-          .onChange(async value => {
-            this.plugin.settings.timestampColor = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName('背景颜色')
-      .setDesc('时间戳徽标的背景色')
-      .addColorPicker(cp =>
-        cp
-          .setValue(this.plugin.settings.timestampBgColor)
-          .onChange(async value => {
-            this.plugin.settings.timestampBgColor = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
       .setName('只读保护')
       .setDesc('开启后，无法在编辑器中修改已存在的时间戳')
       .addToggle(toggle =>
@@ -713,6 +753,26 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     previewEl.createSpan({ cls: 'jp-settings-preview-label', text: '预览：' });
     previewEl.createSpan({ cls: 'jp-timestamp', text: '07:31' });
     previewEl.createSpan({ text: '这里是日记内容…' });
+
+    // ── Color Settings ───────────────────────────────────────────────────
+    new Setting(containerEl).setName('颜色设置').setHeading();
+
+    this.addColorSetting(
+      '文字颜色',
+      '时间戳徽标的前景色（左：白天 ☀　右：深色 🌙）',
+      'timestampColor',
+      'timestampColorDark',
+      DEFAULT_SETTINGS.timestampColor,
+      DEFAULT_SETTINGS.timestampColorDark,
+    );
+    this.addColorSetting(
+      '背景颜色',
+      '时间戳徽标的背景色（左：白天 ☀　右：深色 🌙）',
+      'timestampBgColor',
+      'timestampBgColorDark',
+      DEFAULT_SETTINGS.timestampBgColor,
+      DEFAULT_SETTINGS.timestampBgColorDark,
+    );
 
     // ── Speech-to-text ────────────────────────────────────────────────────
     new Setting(containerEl).setName('语音转文字').setHeading();
