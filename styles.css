@@ -790,6 +790,32 @@
   cursor: pointer;
 }
 
+/* ── Edit entry modal ──────────────────────────────────────────────────── */
+.jp-edit-entry-textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-family: var(--font-monospace, ui-monospace, monospace);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.jp-edit-entry-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.jp-edit-entry-cancel,
+.jp-edit-entry-save {
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
 /* ── Tab bar (capture / stats) ──────────────────────────────────────────── */
 
 /* Tabs sit at the very top of the view, above the input card / stats

@@ -18,10 +18,14 @@ export interface JournalPartnerSettings {
   headingLevel: number;
   /** Regex pattern whose first match (or capture group 1) is the timestamp */
   timestampPattern: string;
-  /** Foreground color of the timestamp badge */
+  /** Foreground color of the timestamp badge (light theme) */
   timestampColor: string;
-  /** Background color of the timestamp badge */
+  /** Background color of the timestamp badge (light theme) */
   timestampBgColor: string;
+  /** Foreground color of the timestamp badge (dark theme) */
+  timestampColorDark: string;
+  /** Background color of the timestamp badge (dark theme) */
+  timestampBgColorDark: string;
   /** When true, editing a timestamp in the editor is blocked */
   readonlyTimestamps: boolean;
   /** When true, pressing Enter inside the journal section auto-inserts a timestamp on the new line */
@@ -52,6 +56,8 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   timestampPattern: '\\d{2}:\\d{2}',
   timestampColor: '#7c3aed',
   timestampBgColor: '#ede9fe',
+  timestampColorDark: '#a78bfa',
+  timestampBgColorDark: '#2e1065',
   readonlyTimestamps: true,
   autoTimestamp: true,
   sttEndpoint: '',
@@ -278,16 +284,16 @@ export function sortJournalEntries<T extends { timestamp: string; lineIndex: num
  * soft break in markdown. Continuation lines are indented with two spaces so
  * they belong to the same list item.
  */
-export function buildEntryLine(text: string, ts: string): string {
+export function buildEntryLine(text: string, ts: string, marker = '-'): string {
   const trimmed = text.trim();
-  if (trimmed.length === 0) return `- ${ts} `;
+  if (trimmed.length === 0) return `${marker} ${ts} `;
 
   const parts = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   if (parts.length === 1) {
-    return `- ${ts} ${parts[0]}`;
+    return `${marker} ${ts} ${parts[0]}`;
   }
 
-  const head = `- ${ts} ${parts[0]}  `;
+  const head = `${marker} ${ts} ${parts[0]}  `;
   const tail = parts
     .slice(1)
     .map((line, idx) =>
@@ -436,6 +442,59 @@ export function deleteEntryFromSection(
   const absStart = section.from + charStart;
   const absEnd = section.from + charEnd;
   return content.slice(0, absStart) + content.slice(absEnd);
+}
+
+/**
+ * Replace the body of one entry (identified by its `lineIndex` within the
+ * section body) with `newText`, preserving the original list marker and
+ * timestamp.
+ *
+ * Behaviour mirrors `deleteEntryFromSection` for locating the entry head +
+ * continuation lines; instead of dropping them, the whole block is replaced
+ * by a rebuilt block produced via `buildEntryLine` (using the original
+ * marker). Returns the new content, or the original content unchanged if the
+ * section is missing / `lineIndex` is out of range / not a valid entry head
+ * (e.g. the file changed under us).
+ */
+export function editEntryInSection(
+  content: string,
+  settings: JournalPartnerSettings,
+  lineIndex: number,
+  newText: string,
+): string {
+  const section = findSection(
+    content,
+    settings.targetHeading,
+    settings.headingLevel,
+  );
+  if (!section) return content;
+
+  const sectionText = content.slice(section.from, section.to);
+  const lines = sectionText.split('\n');
+  if (lineIndex < 0 || lineIndex >= lines.length) return content;
+
+  // Extract the original list marker + timestamp from the head line so the
+  // rebuilt entry stays consistent with the surrounding list style.
+  const tsRe = new RegExp(`^([-*+])\\s+(${settings.timestampPattern})(?=\\s|$)`);
+  const headMatch = tsRe.exec(lines[lineIndex]);
+  if (!headMatch) return content;
+  const marker = headMatch[1];
+  const ts = headMatch[2];
+
+  // Find end (exclusive) of the entry: head + continuation lines.
+  let end = lineIndex + 1;
+  while (end < lines.length && /^\s+\S/.test(lines[end])) {
+    end++;
+  }
+
+  const replacement = buildEntryLine(newText, ts, marker);
+  const newLines = [
+    ...lines.slice(0, lineIndex),
+    ...replacement.split('\n'),
+    ...lines.slice(end),
+  ];
+  const newSectionText = newLines.join('\n');
+  return content.slice(0, section.from) + newSectionText + content.slice(section.to);
 }
 
 /**
