@@ -1852,23 +1852,28 @@ export class JournalCaptureView extends ItemView {
                         insert: newContent,
                       },
                     });
+                    console.log('[TASK] ⑥ CodeMirror modified');
+
+                    // Trigger Obsidian to save this file by calling the save function
+                    console.log('[TASK] ⑦ Saving via vault.modify...');
+                    this.app.vault.modify(file, newContent).catch(err => {
+                      console.error('[TASK] Save failed:', err);
+                    });
                     editorModified = true;
-                    console.log('[TASK] ⑥ CodeMirror modified, skipping vault.modify');
                   }
                 }
               }
             });
 
-            // If editor was open and we modified it, don't also modify vault
-            // CodeMirror's autosave will handle persistence
+            // If editor was open and we modified it, don't also await vault.modify
             if (!editorModified) {
-              console.log('[TASK] ⑦ No open editor, modifying vault directly');
+              console.log('[TASK] ⑧ No open editor, modifying vault directly');
               await this.app.vault.modify(file, newContent);
-              console.log('[TASK] ⑧ vault.modify completed');
+              console.log('[TASK] ⑨ vault.modify completed');
             }
 
             // Update the local entry state
-            console.log('[TASK] ⑨ Updating local state');
+            console.log('[TASK] ⑩ Updating local state');
             entry.completed = !entry.completed;
 
             // Refresh the icon immediately
@@ -1880,16 +1885,16 @@ export class JournalCaptureView extends ItemView {
               setIcon(checkbox, 'square');
               row.removeClass('jp-task-completed');
             }
-            console.log('[TASK] ⑩ Icon updated');
+            console.log('[TASK] ⑪ Icon updated');
 
             // Show success feedback
             new Notice(entry.completed ? '✓ 任务已完成' : '○ 任务未完成');
-            console.log('[TASK] ⑪ Toggle complete, final state:', entry.completed);
+            console.log('[TASK] ⑫ Toggle complete, final state:', entry.completed);
 
             // Clear the marking after a brief delay
             window.setTimeout(() => {
               this.taskModifyingFiles.delete(day.filePath!);
-              console.log('[TASK] ⑫ Unmarked file');
+              console.log('[TASK] ⑬ Unmarked file');
             }, 150);
           } catch (err) {
             console.error('[Journal Partner] toggle task failed:', err);
