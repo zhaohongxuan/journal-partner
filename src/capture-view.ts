@@ -1780,16 +1780,12 @@ export class JournalCaptureView extends ItemView {
       if (entry.type === 'task') {
         dot.empty();
         dot.addClass('jp-timeline-dot--task');
-        const checkbox = dot.createEl('input', {
-          type: 'checkbox',
-          attr: {
-            'aria-label': entry.text,
-            disabled: 'true'
-          }
-        });
-        checkbox.classList.add('jp-task-checkbox');
+        const checkboxEl = dot.createDiv({ cls: 'jp-task-checkbox' });
         if (entry.completed) {
-          checkbox.checked = true;
+          checkboxEl.addClass('jp-task-checkbox--checked');
+          setIcon(checkboxEl, 'check-square-2');
+        } else {
+          setIcon(checkboxEl, 'square');
         }
       } else {
         // "Latest" highlight only applies on today's section (otherwise every
