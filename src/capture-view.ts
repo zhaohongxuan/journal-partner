@@ -1815,25 +1815,32 @@ export class JournalCaptureView extends ItemView {
               newTaskLine,
             );
 
-            // Update the file first
-            await this.app.vault.modify(file, newContent);
-
-            // Then find and update open editors
-            // Using a small delay to let Obsidian's modify event settle
-            setTimeout(() => {
-              this.app.workspace.iterateAllLeaves(leaf => {
-                if (leaf.view instanceof MarkdownView) {
-                  const view = leaf.view as MarkdownView;
-                  if (view.file?.path === day.filePath) {
-                    const editor = view.editor;
-                    if (editor && editor.getValue() !== newContent) {
-                      // Only update if content differs (to avoid unnecessary updates)
-                      editor.setValue(newContent);
-                    }
+            // Find the editor and modify using CodeMirror's dispatch
+            let found = false;
+            this.app.workspace.iterateAllLeaves(leaf => {
+              if (!found && leaf.view instanceof MarkdownView) {
+                const view = leaf.view as MarkdownView;
+                if (view.file?.path === day.filePath) {
+                  const cm = (view.editor as any).cm;  // Get CodeMirror instance
+                  if (cm) {
+                    // Use CodeMirror's transaction to replace all content
+                    cm.dispatch({
+                      changes: {
+                        from: 0,
+                        to: cm.state.doc.length,
+                        insert: newContent,
+                      },
+                    });
+                    found = true;
                   }
                 }
-              });
-            }, 50);  // 50ms delay for modify event to complete
+              }
+            });
+
+            // If no open editor found, just update the file directly
+            if (!found) {
+              await this.app.vault.modify(file, newContent);
+            }
 
             // Update the local entry state
             entry.completed = !entry.completed;
