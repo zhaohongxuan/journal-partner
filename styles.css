@@ -218,37 +218,43 @@
   display: inline-flex;
   flex-direction: row;
   align-items: center;
-  gap: 0;
-  background: color-mix(in srgb, var(--jp-tl-dot) 8%, var(--background-primary));
-  border: 1px solid color-mix(in srgb, var(--jp-tl-dot) 18%, transparent);
-  border-radius: 999px;
-  padding: 0 4px;
+  gap: 8px;
 }
 .jp-capture-image-btn,
 .jp-capture-mic-btn,
-.jp-capture-clear-btn {
-  background: transparent !important;
-  border: none !important;
+.jp-capture-clear-btn,
+.jp-capture-task-btn {
+  background: color-mix(in srgb, var(--jp-tl-dot) 12%, var(--background-primary)) !important;
+  border: 1px solid color-mix(in srgb, var(--jp-tl-dot) 24%, transparent) !important;
   outline: none !important;
   box-shadow: none !important;
   color: color-mix(in srgb, var(--jp-tl-dot) 70%, var(--text-muted)) !important;
   cursor: pointer;
-  padding: 3px 6px !important;
-  border-radius: 999px;
+  width: 36px !important;
+  height: 36px !important;
+  padding: 0 !important;
+  border-radius: 50%;
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
   vertical-align: middle;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
   flex-shrink: 0;
   -webkit-appearance: none !important;
   appearance: none !important;
 }
 .jp-capture-image-btn:hover,
 .jp-capture-mic-btn:hover,
-.jp-capture-clear-btn:hover {
+.jp-capture-clear-btn:hover,
+.jp-capture-task-btn:hover {
   color: var(--jp-tl-dot) !important;
-  background-color: color-mix(in srgb, var(--jp-tl-dot) 14%, transparent) !important;
+  background-color: color-mix(in srgb, var(--jp-tl-dot) 24%, var(--background-primary)) !important;
+  border-color: color-mix(in srgb, var(--jp-tl-dot) 32%, transparent) !important;
+}
+.jp-capture-task-btn.is-active {
+  color: #4f46e5 !important;
+  background-color: color-mix(in srgb, #4f46e5 24%, var(--background-primary)) !important;
+  border-color: color-mix(in srgb, #4f46e5 32%, transparent) !important;
 }
 .jp-capture-image-btn svg,
 .jp-capture-mic-btn svg,
@@ -538,6 +544,23 @@
   background: color-mix(in srgb, var(--jp-tl-dot) 12%, var(--background-primary));
   border-color: color-mix(in srgb, var(--jp-tl-dot) 22%, transparent);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Task entry styling */
+.jp-timeline-entry.jp-entry-task .jp-timeline-bubble {
+  background: color-mix(in srgb, #4f46e5 6%, var(--background-primary));
+  border-color: color-mix(in srgb, #4f46e5 14%, transparent);
+}
+.theme-dark .jp-timeline-entry.jp-entry-task .jp-timeline-bubble {
+  background: color-mix(in srgb, #4f46e5 12%, var(--background-primary));
+  border-color: color-mix(in srgb, #4f46e5 22%, transparent);
+}
+.jp-timeline-entry.jp-entry-task.jp-task-completed .jp-timeline-bubble {
+  opacity: 0.6;
+}
+.jp-timeline-entry.jp-entry-task.jp-task-completed .jp-timeline-entry-head .jp-timestamp {
+  text-decoration: line-through;
+  opacity: 0.6;
 }
 
 /* Timeline date-header node (first row) */
