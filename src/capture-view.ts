@@ -1806,23 +1806,33 @@ export class JournalCaptureView extends ItemView {
             if (!(file instanceof TFile)) return;
 
             const content = await this.app.vault.read(file);
+            const newTaskLine = buildTaskLine(entry.text, entry.timestamp, !entry.completed);
             const newContent = editEntryInSection(
               content,
               this.plugin.settings,
               entry.lineIndex,
-              buildTaskLine(entry.text, entry.timestamp, !entry.completed),
+              newTaskLine,
             );
 
+            // Update the file - vault.modify will trigger the 'modify' event
+            // which will cause editors to refresh
             await this.app.vault.modify(file, newContent);
-            // Update entry state
+
+            // Optimistically update the local entry state for immediate UI feedback
             entry.completed = !entry.completed;
-            // Refresh the icon
+
+            // Refresh the icon immediately
             checkbox.empty();
             if (entry.completed) {
               setIcon(checkbox, 'check-square-2');
+              row.addClass('jp-task-completed');
             } else {
               setIcon(checkbox, 'square');
+              row.removeClass('jp-task-completed');
             }
+
+            // Show success feedback
+            new Notice(entry.completed ? '✓ 任务已完成' : '○ 任务未完成');
           } catch (err) {
             console.error('[Journal Partner] toggle task failed:', err);
             new Notice('切换任务状态失败');
