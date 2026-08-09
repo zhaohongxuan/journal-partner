@@ -322,20 +322,20 @@ export function sortJournalEntries<T extends { timestamp: string; lineIndex: num
 /**
  * Construct a task entry line to append to the section.
  *
- * Similar to buildEntryLine but includes checkbox syntax: [ ] or [x]
- * Format: `- HH:MM [ ] text` (incomplete) or `- HH:MM [x] text` (completed)
+ * Format: `- [ ] HH:MM text` (incomplete) or `- [x] HH:MM text` (completed)
+ * This matches Obsidian's native task checkbox syntax.
  */
 export function buildTaskLine(text: string, ts: string, completed: boolean, marker = '-'): string {
   const checkbox = completed ? '[x]' : '[ ]';
   const trimmed = text.trim();
-  if (trimmed.length === 0) return `${marker} ${ts} ${checkbox} `;
+  if (trimmed.length === 0) return `${marker} ${checkbox} ${ts} `;
 
   const parts = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   if (parts.length === 1) {
-    return `${marker} ${ts} ${checkbox} ${parts[0]}`;
+    return `${marker} ${checkbox} ${ts} ${parts[0]}`;
   }
 
-  const head = `${marker} ${ts} ${checkbox} ${parts[0]}  `;
+  const head = `${marker} ${checkbox} ${ts} ${parts[0]}  `;
   const tail = parts
     .slice(1)
     .map((line, idx) =>
