@@ -1778,6 +1778,7 @@ export class JournalCaptureView extends ItemView {
 
       // For task entries, show a checkbox instead of a dot
       if (entry.type === 'task') {
+        dot.empty();
         dot.addClass('jp-timeline-dot--task');
         const checkbox = dot.createEl('input', {
           type: 'checkbox',
@@ -1786,6 +1787,7 @@ export class JournalCaptureView extends ItemView {
             disabled: 'true'
           }
         });
+        checkbox.classList.add('jp-task-checkbox');
         if (entry.completed) {
           checkbox.checked = true;
         }
