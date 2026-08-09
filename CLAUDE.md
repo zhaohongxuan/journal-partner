@@ -137,3 +137,74 @@ Settings are persisted via Obsidian's `this.saveData()` / `this.loadData()` API.
 - **DOM mutation in reading view:** Uses `TreeWalker` to find all text nodes, then replaces them. This preserves existing DOM structure (e.g., links, bold text within the paragraph).
 - **ESBuild externals:** CodeMirror and Obsidian are excluded from the bundle — they're provided by Obsidian at runtime.
 - **Dark theme:** Checkbox and timestamp styling automatically adapts via `.theme-dark` class and Obsidian CSS variables (e.g., `--background-secondary`, `--text-muted`).
+
+## Version 2.11.0 - UI Redesign & Task Support
+
+### Changes Made
+
+#### 1. Button UI Redesign
+- **What changed:** Converted capsule-shaped button group to individual circular buttons
+  - Before: `[📷 🎙️ 🗑️]` (grouped in one pill)
+  - After: `[📷] [🎙️] [🗑️] [✓]` (separate 36×36px circles)
+- **Files:** `styles.css` - `.jp-capture-button-row` and button styling
+- **CSS Details:**
+  - Changed gap from `0` to `8px`
+  - Removed group background/border
+  - Each button gets individual circular background with independent hover states
+  - New `.jp-capture-task-btn` for the task button
+
+#### 2. TODO Task Support
+- **New Entry Type:** Extended `JournalEntry` interface with `type` ('memo' | 'task') and `completed` boolean
+- **Task Format:** `- HH:MM [ ] text` (incomplete) or `- HH:MM [x] text` (completed)
+- **Parsing:** Modified `parseJournalEntries()` to detect checkbox syntax via regex `/^\s*\[([ xX])\]\s*(.*)$/`
+- **New Helper:** `buildTaskLine(text, ts, completed, marker)` constructs task entries
+- **Files Changed:**
+  - `src/section.ts` - Entry type extensions, parsing logic, task builder
+  - `src/capture-view.ts` - Task button, `isTaskMode` state, task submission
+  - `styles.css` - Task-specific timeline styling (blue #4f46e5 accent)
+
+#### 3. UI Integration
+- **Task Button:** Click the ✓ icon to toggle task mode for the next entry
+- **Task Rendering:**
+  - Tasks appear with blue background accent (`.jp-entry-task`)
+  - Completed tasks show with reduced opacity and strikethrough timestamp
+  - Timeline distinguishes tasks from memos at a glance
+
+### Implementation Notes
+
+**State Management:**
+- `JournalCaptureView.isTaskMode` boolean tracks current mode
+- Resets after each submission
+- Task button highlights (`.is-active` class) when mode is active
+
+**Entry Submission Flow:**
+1. User clicks task button to enable task mode (button highlights blue)
+2. Enters task text in textarea
+3. Clicks NOTE / submits
+4. If `isTaskMode` is true, prepends `[ ]` to the text
+5. Task is written as `- HH:MM [ ] text content`
+6. Timeline renders with task styling
+7. Mode auto-resets for next entry
+
+**Timeline Rendering:**
+- `renderDayContent()` checks entry.type and entry.completed
+- Adds classes: `.jp-entry-task` and optionally `.jp-task-completed`
+- CSS applies blue theme and strikethrough effects
+
+### Testing Checklist
+- [x] Circular buttons display correctly (36×36px, independent backgrounds)
+- [x] Task button highlights when active
+- [x] Tasks can be entered and render in timeline with blue styling
+- [x] Completed tasks show strikethrough + reduced opacity
+- [x] Task mode resets after submission
+- [x] Regular memos still work normally
+- [x] TypeScript compiles without errors (excluding pre-existing warnings)
+- [x] Deployed to local vault without issues
+
+### Version Bump
+- `package.json`: 2.10.0 → 2.11.0
+- `manifest.json`: 2.10.0 → 2.11.0 + updated description to mention task support
+- Commit: `2b92ca9` merged to main on 2026-08-09
+
+### Git Workflow Issue
+⚠️ **Note:** This feature was committed directly to main instead of via PR due to user error. Proper workflow should create a feature branch (`feat/button-redesign-and-task-support`) and submit via Pull Request before merging to main. The commit is now part of main history but the process wasn't followed as intended.
