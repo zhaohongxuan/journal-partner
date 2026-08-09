@@ -1308,18 +1308,6 @@ export class JournalCaptureView extends ItemView {
     // Stop button centered under the waveform.
     recStopBtn.addEventListener('click', () => void doStop());
 
-    // Clear button — wipes the textarea and trashes any embedded audio files.
-    const clearBtn = buttonRow.createEl('button', {
-      cls: 'jp-capture-clear-btn',
-      attr: { 'aria-label': '清空' },
-    });
-    setIcon(clearBtn, 'delete');
-    clearBtn.addEventListener('click', () => {
-      const value = this.textareaEl.value;
-      if (value.trim().length === 0) return; // nothing to clear
-      void this.confirmClearInput(value);
-    });
-
     // Task button
     const taskBtn = buttonRow.createEl('button', {
       cls: 'jp-capture-task-btn',
