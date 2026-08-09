@@ -486,35 +486,27 @@
   flex-shrink: 0 !important;
   position: relative !important;
   box-sizing: border-box !important;
-}
-
-.jp-task-checkbox::after {
-  content: '';
-  display: none;
-  width: 4px;
-  height: 8px;
-  border: solid white;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-  position: absolute;
+  font-size: 12px !important;
+  line-height: 1 !important;
+  color: #4f46e5 !important;
+  font-weight: bold !important;
 }
 
 .jp-task-checkbox--checked {
   background: #4f46e5 !important;
   border-color: #4f46e5 !important;
-}
-
-.jp-task-checkbox--checked::after {
-  display: block !important;
+  color: white !important;
 }
 
 .theme-dark .jp-task-checkbox {
   border-color: #6366f1 !important;
+  color: #6366f1 !important;
 }
 
 .theme-dark .jp-task-checkbox--checked {
   background: #6366f1 !important;
   border-color: #6366f1 !important;
+  color: white !important;
 }
 .jp-timeline-dot--latest {
   width: 12px;
