@@ -458,21 +458,21 @@
   box-sizing: border-box;
 }
 .jp-timeline-dot--task {
-  width: 20px !important;
-  height: 20px !important;
+  width: 24px !important;
+  height: 24px !important;
   border-radius: 0 !important;
   border: none !important;
   background: transparent !important;
-  left: -20px !important;
-  top: 1px !important;
+  left: -22px !important;
+  top: 0px !important;
   padding: 0 !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
 }
 .jp-task-checkbox {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -481,6 +481,11 @@
 }
 .jp-task-checkbox--checked {
   color: #4f46e5;
+}
+.jp-task-checkbox svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 1.5;
 }
 .jp-timeline-dot--latest {
   width: 12px;
