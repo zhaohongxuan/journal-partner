@@ -474,47 +474,21 @@
   flex-shrink: 0 !important;
 }
 
-.jp-timeline-dot--task {
+/* Obsidian-style task checkbox in timeline */
+.jp-timeline-dot input[type="checkbox"].task-list-item-checkbox {
   position: absolute !important;
   left: -27px !important;
-  top: 3px !important;
+  top: 5px !important;
   width: 20px !important;
   height: 20px !important;
-  border-radius: 0 !important;
-  border: none !important;
-  background: transparent !important;
-  padding: 0 !important;
   margin: 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex-shrink: 0 !important;
-  color: #4f46e5 !important;
+  padding: 0 !important;
+  cursor: default !important;
+  accent-color: #4f46e5 !important;
 }
 
-.jp-timeline-dot--task svg {
-  width: 20px !important;
-  height: 20px !important;
-  color: #4f46e5 !important;
-  stroke-width: 2 !important;
-}
-
-.jp-timeline-dot--task.jp-task-completed svg {
-  color: #4f46e5 !important;
-  fill: #4f46e5 !important;
-}
-
-.theme-dark .jp-timeline-dot--task {
-  color: #6366f1 !important;
-}
-
-.theme-dark .jp-timeline-dot--task svg {
-  color: #6366f1 !important;
-}
-
-.theme-dark .jp-timeline-dot--task.jp-task-completed svg {
-  color: #6366f1 !important;
-  fill: #6366f1 !important;
+.theme-dark .jp-timeline-dot input[type="checkbox"].task-list-item-checkbox {
+  accent-color: #6366f1 !important;
 }
 .jp-timeline-dot--latest {
   width: 12px;

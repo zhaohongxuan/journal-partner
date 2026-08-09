@@ -1779,13 +1779,13 @@ export class JournalCaptureView extends ItemView {
       // For task entries, show a checkbox instead of a dot
       if (entry.type === 'task') {
         dot.empty();
-        dot.addClass('jp-timeline-dot--task');
-        if (entry.completed) {
-          dot.addClass('jp-task-completed');
-          setIcon(dot, 'circle-dot');  // 实心圆点
-        } else {
-          setIcon(dot, 'circle');      // 空心圆
-        }
+        // Create an Obsidian-style task checkbox
+        const checkbox = dot.createEl('input', {
+          type: 'checkbox',
+          cls: 'task-list-item-checkbox',
+        });
+        checkbox.checked = entry.completed;
+        checkbox.disabled = true;  // Make it read-only, just for display
       } else {
         // "Latest" highlight only applies on today's section (otherwise every
         // historical day would have its own filled dot, which is noisy).
