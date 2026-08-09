@@ -1783,8 +1783,10 @@ export class JournalCaptureView extends ItemView {
         const checkbox = dot.createDiv({
           cls: entry.completed ? 'jp-task-checkbox jp-task-checkbox--checked' : 'jp-task-checkbox',
         });
-        // Add checkmark or empty box as text content
-        checkbox.textContent = entry.completed ? '✓' : '';
+        // Add checkmark as HTML content for completed tasks
+        if (entry.completed) {
+          checkbox.innerHTML = '✓';
+        }
       } else {
         // "Latest" highlight only applies on today's section (otherwise every
         // historical day would have its own filled dot, which is noisy).

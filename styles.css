@@ -486,10 +486,13 @@
   flex-shrink: 0 !important;
   position: relative !important;
   box-sizing: border-box !important;
-  font-size: 12px !important;
+  font-size: 13px !important;
   line-height: 1 !important;
   color: #4f46e5 !important;
   font-weight: bold !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  vertical-align: middle !important;
 }
 
 .jp-task-checkbox--checked {
