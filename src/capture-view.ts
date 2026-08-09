@@ -1783,9 +1783,9 @@ export class JournalCaptureView extends ItemView {
         const checkboxEl = dot.createDiv({ cls: 'jp-task-checkbox' });
         if (entry.completed) {
           checkboxEl.addClass('jp-task-checkbox--checked');
-          setIcon(checkboxEl, 'check-circle-2');
+          checkboxEl.textContent = '✓';
         } else {
-          setIcon(checkboxEl, 'circle');
+          checkboxEl.textContent = '☐';
         }
       } else {
         // "Latest" highlight only applies on today's section (otherwise every
