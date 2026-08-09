@@ -1815,13 +1815,15 @@ export class JournalCaptureView extends ItemView {
               newTaskLine,
             );
 
-            // Find the editor and modify using CodeMirror's dispatch
-            let found = false;
+            // Update the vault file FIRST
+            await this.app.vault.modify(file, newContent);
+
+            // Then update the CodeMirror editor if it's open
             this.app.workspace.iterateAllLeaves(leaf => {
-              if (!found && leaf.view instanceof MarkdownView) {
+              if (leaf.view instanceof MarkdownView) {
                 const view = leaf.view as MarkdownView;
                 if (view.file?.path === day.filePath) {
-                  const cm = (view.editor as any).cm;  // Get CodeMirror instance
+                  const cm = (view.editor as any).cm;
                   if (cm) {
                     // Use CodeMirror's transaction to replace all content
                     cm.dispatch({
@@ -1831,16 +1833,10 @@ export class JournalCaptureView extends ItemView {
                         insert: newContent,
                       },
                     });
-                    found = true;
                   }
                 }
               }
             });
-
-            // If no open editor found, just update the file directly
-            if (!found) {
-              await this.app.vault.modify(file, newContent);
-            }
 
             // Update the local entry state
             entry.completed = !entry.completed;
