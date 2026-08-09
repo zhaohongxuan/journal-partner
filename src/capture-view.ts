@@ -1815,15 +1815,17 @@ export class JournalCaptureView extends ItemView {
               newTaskLine,
             );
 
-            // Only modify the editor via CodeMirror transaction
-            // Obsidian's autosave will handle persisting to disk
-            let updated = false;
+            // Always update vault first - this is the source of truth
+            await this.app.vault.modify(file, newContent);
+
+            // Then update the CodeMirror editor if it's open, to keep it in sync
             this.app.workspace.iterateAllLeaves(leaf => {
-              if (!updated && leaf.view instanceof MarkdownView) {
+              if (leaf.view instanceof MarkdownView) {
                 const view = leaf.view as MarkdownView;
                 if (view.file?.path === day.filePath) {
                   const cm = (view.editor as any).cm;
                   if (cm) {
+                    // Suppress the change event to avoid feedback loops
                     cm.dispatch({
                       changes: {
                         from: 0,
@@ -1831,16 +1833,10 @@ export class JournalCaptureView extends ItemView {
                         insert: newContent,
                       },
                     });
-                    updated = true;
                   }
                 }
               }
             });
-
-            // If editor wasn't open, update vault directly
-            if (!updated) {
-              await this.app.vault.modify(file, newContent);
-            }
 
             // Update the local entry state
             entry.completed = !entry.completed;
