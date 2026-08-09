@@ -1748,6 +1748,7 @@ export class JournalCaptureView extends ItemView {
   /** Render the date header + entry rows for one day into `day.el`. */
   private renderDayContent(day: DaySection, entries: JournalEntry[]) {
     console.log('[RENDER] renderDayContent called for', day.date, 'entries:', entries.length);
+    console.log('[RENDER] Stack:', new Error().stack?.split('\n').slice(1, 5).join('\n'));
 
     // Date header — first row of the day
     const headerLabel = this.formatDateHeader(day.date, entries.length);
@@ -1828,24 +1829,22 @@ export class JournalCaptureView extends ItemView {
               entry.lineIndex,
               newTaskLine,
             );
-            console.log('[TASK] ③ Built new content, about to modify vault');
+            console.log('[TASK] ③ Built new content, about to modify');
 
             // Mark this file as being modified by us, so refreshDay skips re-render
             this.taskModifyingFiles.add(day.filePath);
-            console.log('[TASK] ④ Marked file, calling vault.modify...');
+            console.log('[TASK] ④ Marked file');
 
-            await this.app.vault.modify(file, newContent);
-            console.log('[TASK] ⑤ vault.modify completed');
-
-            // Then update the CodeMirror editor if it's open, to keep it in sync
-            console.log('[TASK] ⑥ Looking for open editor...');
+            // Find the editor FIRST
+            let editorModified = false;
             this.app.workspace.iterateAllLeaves(leaf => {
-              if (leaf.view instanceof MarkdownView) {
+              if (!editorModified && leaf.view instanceof MarkdownView) {
                 const view = leaf.view as MarkdownView;
                 if (view.file?.path === day.filePath) {
-                  console.log('[TASK] ⑦ Found matching editor, updating CodeMirror');
+                  console.log('[TASK] ⑤ Found open editor, modifying CodeMirror');
                   const cm = (view.editor as any).cm;
                   if (cm) {
+                    // Directly modify the CodeMirror state
                     cm.dispatch({
                       changes: {
                         from: 0,
@@ -1853,11 +1852,20 @@ export class JournalCaptureView extends ItemView {
                         insert: newContent,
                       },
                     });
-                    console.log('[TASK] ⑧ CodeMirror dispatch completed');
+                    editorModified = true;
+                    console.log('[TASK] ⑥ CodeMirror modified, skipping vault.modify');
                   }
                 }
               }
             });
+
+            // If editor was open and we modified it, don't also modify vault
+            // CodeMirror's autosave will handle persistence
+            if (!editorModified) {
+              console.log('[TASK] ⑦ No open editor, modifying vault directly');
+              await this.app.vault.modify(file, newContent);
+              console.log('[TASK] ⑧ vault.modify completed');
+            }
 
             // Update the local entry state
             console.log('[TASK] ⑨ Updating local state');
@@ -1878,11 +1886,11 @@ export class JournalCaptureView extends ItemView {
             new Notice(entry.completed ? '✓ 任务已完成' : '○ 任务未完成');
             console.log('[TASK] ⑪ Toggle complete, final state:', entry.completed);
 
-            // Clear the marking after a brief delay to allow the file event to be processed
+            // Clear the marking after a brief delay
             window.setTimeout(() => {
               this.taskModifyingFiles.delete(day.filePath!);
               console.log('[TASK] ⑫ Unmarked file');
-            }, 100);
+            }, 150);
           } catch (err) {
             console.error('[Journal Partner] toggle task failed:', err);
             new Notice('切换任务状态失败');
