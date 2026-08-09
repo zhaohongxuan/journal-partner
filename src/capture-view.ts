@@ -1815,31 +1815,30 @@ export class JournalCaptureView extends ItemView {
               newTaskLine,
             );
 
-            // 1. First, update all open editors BEFORE modifying the file
-            // This prevents the modify event from reverting our changes
-            this.app.workspace.iterateAllLeaves(leaf => {
-              if (leaf.view instanceof MarkdownView) {
-                const view = leaf.view as MarkdownView;
-                if (view.file?.path === day.filePath) {
-                  const editor = view.editor;
-                  if (editor) {
-                    // Update editor content directly
-                    editor.setValue(newContent);
-                    // Mark as modified so Obsidian knows there are unsaved changes
-                    view.requestSave();
-                  }
-                }
-              }
-            });
-
-            // 2. Then update the file in the vault
-            // Since the editor is already updated, the modify event won't revert it
+            // Update the file first
             await this.app.vault.modify(file, newContent);
 
-            // 3. Optimistically update the local entry state for immediate UI feedback
+            // Then find and update open editors
+            // Using a small delay to let Obsidian's modify event settle
+            setTimeout(() => {
+              this.app.workspace.iterateAllLeaves(leaf => {
+                if (leaf.view instanceof MarkdownView) {
+                  const view = leaf.view as MarkdownView;
+                  if (view.file?.path === day.filePath) {
+                    const editor = view.editor;
+                    if (editor && editor.getValue() !== newContent) {
+                      // Only update if content differs (to avoid unnecessary updates)
+                      editor.setValue(newContent);
+                    }
+                  }
+                }
+              });
+            }, 50);  // 50ms delay for modify event to complete
+
+            // Update the local entry state
             entry.completed = !entry.completed;
 
-            // 4. Refresh the icon immediately
+            // Refresh the icon immediately
             checkbox.empty();
             if (entry.completed) {
               setIcon(checkbox, 'check-square-2');
