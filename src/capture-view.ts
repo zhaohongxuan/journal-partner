@@ -1711,7 +1711,6 @@ export class JournalCaptureView extends ItemView {
   private async refreshDay(day: DaySection): Promise<void> {
     // Skip re-render if this file is being modified by our task toggle
     if (day.filePath && this.taskModifyingFiles.has(day.filePath)) {
-      console.log('[RENDER] Skipping refreshDay for', day.filePath, '(self-modified)');
       return;
     }
 
@@ -1747,9 +1746,6 @@ export class JournalCaptureView extends ItemView {
 
   /** Render the date header + entry rows for one day into `day.el`. */
   private renderDayContent(day: DaySection, entries: JournalEntry[]) {
-    console.log('[RENDER] renderDayContent called for', day.date, 'entries:', entries.length);
-    console.log('[RENDER] Stack:', new Error().stack?.split('\n').slice(1, 5).join('\n'));
-
     // Date header — first row of the day
     const headerLabel = this.formatDateHeader(day.date, entries.length);
     const headerRow = day.el.createDiv({
@@ -1814,14 +1810,11 @@ export class JournalCaptureView extends ItemView {
         // Make checkbox clickable to toggle completion status
         checkbox.addEventListener('click', runAsync(async () => {
           if (!day.filePath) return;
-          console.log('[TASK] ① Click detected, starting toggle');
           try {
             const file = this.app.vault.getAbstractFileByPath(day.filePath);
             if (!(file instanceof TFile)) return;
 
             const content = await this.app.vault.read(file);
-            console.log('[TASK] ② Read file, content length:', content.length);
-
             const newTaskLine = buildTaskLine(entry.text, entry.timestamp, !entry.completed);
             const newContent = editEntryInSection(
               content,
@@ -1829,11 +1822,9 @@ export class JournalCaptureView extends ItemView {
               entry.lineIndex,
               newTaskLine,
             );
-            console.log('[TASK] ③ Built new content, about to modify');
 
             // Mark this file as being modified by us, so refreshDay skips re-render
             this.taskModifyingFiles.add(day.filePath);
-            console.log('[TASK] ④ Marked file');
 
             // Find the editor FIRST
             let editorModified = false;
@@ -1841,7 +1832,6 @@ export class JournalCaptureView extends ItemView {
               if (!editorModified && leaf.view instanceof MarkdownView) {
                 const view = leaf.view as MarkdownView;
                 if (view.file?.path === day.filePath) {
-                  console.log('[TASK] ⑤ Found open editor, modifying CodeMirror');
                   const cm = (view.editor as any).cm;
                   if (cm) {
                     // Directly modify the CodeMirror state
@@ -1852,12 +1842,10 @@ export class JournalCaptureView extends ItemView {
                         insert: newContent,
                       },
                     });
-                    console.log('[TASK] ⑥ CodeMirror modified');
 
-                    // Trigger Obsidian to save this file by calling the save function
-                    console.log('[TASK] ⑦ Saving via vault.modify...');
+                    // Trigger Obsidian to save this file
                     this.app.vault.modify(file, newContent).catch(err => {
-                      console.error('[TASK] Save failed:', err);
+                      console.error('[Journal Partner] Save failed:', err);
                     });
                     editorModified = true;
                   }
@@ -1867,13 +1855,10 @@ export class JournalCaptureView extends ItemView {
 
             // If editor was open and we modified it, don't also await vault.modify
             if (!editorModified) {
-              console.log('[TASK] ⑧ No open editor, modifying vault directly');
               await this.app.vault.modify(file, newContent);
-              console.log('[TASK] ⑨ vault.modify completed');
             }
 
             // Update the local entry state
-            console.log('[TASK] ⑩ Updating local state');
             entry.completed = !entry.completed;
 
             // Refresh the icon immediately
@@ -1885,16 +1870,13 @@ export class JournalCaptureView extends ItemView {
               setIcon(checkbox, 'square');
               row.removeClass('jp-task-completed');
             }
-            console.log('[TASK] ⑪ Icon updated');
 
             // Show success feedback
             new Notice(entry.completed ? '✓ 任务已完成' : '○ 任务未完成');
-            console.log('[TASK] ⑫ Toggle complete, final state:', entry.completed);
 
             // Clear the marking after a brief delay
             window.setTimeout(() => {
               this.taskModifyingFiles.delete(day.filePath!);
-              console.log('[TASK] ⑬ Unmarked file');
             }, 150);
           } catch (err) {
             console.error('[Journal Partner] toggle task failed:', err);
