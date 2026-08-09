@@ -1776,16 +1776,13 @@ export class JournalCaptureView extends ItemView {
 
       const dot = row.createDiv({ cls: 'jp-timeline-dot' });
 
-      // Regular dot for memos, nothing special for tasks
-      if (entry.type !== 'task') {
-        // "Latest" highlight only applies on today's section (otherwise every
-        // historical day would have its own filled dot, which is noisy).
-        if (
-          day.date.isSame(moment().startOf('day'), 'day') &&
-          entry.timestamp === latestTs
-        ) {
-          dot.addClass('jp-timeline-dot--latest');
-        }
+      // Regular memos: always filled dot
+      if (entry.type === 'memo') {
+        dot.addClass('jp-timeline-dot--filled');
+      }
+      // Tasks: special outlined dot with ring
+      else if (entry.type === 'task') {
+        dot.addClass('jp-timeline-dot--task-marker');
       }
 
       // Header: timestamp pill anchored to the dot via a short connector line.
