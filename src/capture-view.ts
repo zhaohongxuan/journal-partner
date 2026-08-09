@@ -1780,12 +1780,9 @@ export class JournalCaptureView extends ItemView {
       if (entry.type === 'task') {
         dot.empty();
         dot.addClass('jp-timeline-dot--task');
-        if (entry.completed) {
-          dot.addClass('jp-task-completed-dot');
-          setIcon(dot, 'check-square-2');
-        } else {
-          setIcon(dot, 'square');
-        }
+        dot.createDiv({
+          cls: entry.completed ? 'jp-task-checkbox jp-task-checkbox--checked' : 'jp-task-checkbox',
+        });
       } else {
         // "Latest" highlight only applies on today's section (otherwise every
         // historical day would have its own filled dot, which is noisy).
