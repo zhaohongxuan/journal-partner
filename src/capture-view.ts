@@ -1780,12 +1780,10 @@ export class JournalCaptureView extends ItemView {
       if (entry.type === 'task') {
         dot.empty();
         dot.addClass('jp-timeline-dot--task');
-        const checkbox = dot.createDiv({
-          cls: entry.completed ? 'jp-task-checkbox jp-task-checkbox--checked' : 'jp-task-checkbox',
-        });
-        // Add checkmark as HTML content for completed tasks
         if (entry.completed) {
-          checkbox.innerHTML = '✓';
+          setIcon(dot, 'circle-check');
+        } else {
+          setIcon(dot, 'circle');
         }
       } else {
         // "Latest" highlight only applies on today's section (otherwise every
