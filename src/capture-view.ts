@@ -43,6 +43,7 @@ import {
   editEntryInSection,
   extractAudioEmbeds,
   findSection,
+  generateTimestamp,
   parseJournalEntries,
   removeAudioEmbedsFromEntry,
   sortJournalEntries,
@@ -2600,8 +2601,15 @@ export class JournalCaptureView extends ItemView {
     this.submitBtn.setText('写入中…');
 
     try {
-      // Format as task if task mode is enabled
-      const text = this.isTaskMode ? `[ ] ${raw}` : raw;
+      // Format entry based on mode
+      let text: string;
+      if (this.isTaskMode) {
+        // Task format: "[ ] timestamp text" (Obsidian checkbox syntax)
+        const stamp = generateTimestamp();
+        text = `[ ] ${stamp} ${raw}`;
+      } else {
+        text = raw;
+      }
       const ok = await this.plugin.writeToTodayJournal(text);
       if (!ok) return;
 

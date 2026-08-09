@@ -218,9 +218,14 @@ export function parseJournalEntries(
   sectionText: string,
   pattern: string,
 ): JournalEntry[] {
+  // Match list items with optional checkbox: `- [ ] ...`, `- [x] ...`, or `- ...`
+  // Regex handles three formats:
+  // 1. Task: `- [ ] HH:MM text` or `- [x] HH:MM text`
+  // 2. Memo: `- HH:MM text`
+  // 3. Alternate markers: `* ...` or `+ ...`
+  const taskListRe = /^[-*+]\s+\[([ xX])\]\s+(.*)$/;
   const tsRe = new RegExp(`^[-*+]\\s+(${pattern})\\s+(.*)$`);
-  // Task pattern: matches [ ] or [x] at the start of content
-  const taskRe = /^\s*\[([ xX])\]\s*(.*)$/;
+
   // Normalize line endings (CRLF / lone CR → LF). Otherwise a trailing "\r"
   // breaks the `(.*)$` anchor below — `.` won't match CR and `$` (no `m`
   // flag) won't anchor before it, so every entry silently fails to parse on
@@ -241,32 +246,35 @@ export function parseJournalEntries(
       continue;
     }
 
+    // Try to match task format first: `- [ ] HH:MM text`
+    const taskMatch = taskListRe.exec(raw);
+    if (taskMatch) {
+      const checkbox = taskMatch[1];
+      const content = taskMatch[2];
+      // Extract timestamp from the rest of content
+      const tsMatch = new RegExp(`^(${pattern})\\s+(.*)$`).exec(content);
+      if (tsMatch) {
+        entries.push({
+          timestamp: tsMatch[1],
+          text: tsMatch[2],
+          lineIndex: i,
+          type: 'task',
+          completed: checkbox.toLowerCase() === 'x',
+        });
+        continue;
+      }
+    }
+
+    // Try to match memo format: `- HH:MM text`
     const m = tsRe.exec(raw);
     if (!m) continue;
 
-    const content = m[2];
-    const taskMatch = taskRe.exec(content);
-
-    if (taskMatch) {
-      // This is a task entry
-      const checkbox = taskMatch[1];
-      const taskText = taskMatch[2];
-      entries.push({
-        timestamp: m[1],
-        text: taskText,
-        lineIndex: i,
-        type: 'task',
-        completed: checkbox.toLowerCase() === 'x',
-      });
-    } else {
-      // Regular memo entry
-      entries.push({
-        timestamp: m[1],
-        text: content,
-        lineIndex: i,
-        type: 'memo',
-      });
-    }
+    entries.push({
+      timestamp: m[1],
+      text: m[2],
+      lineIndex: i,
+      type: 'memo',
+    });
   }
 
   return entries;
