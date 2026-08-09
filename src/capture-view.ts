@@ -1776,17 +1776,8 @@ export class JournalCaptureView extends ItemView {
 
       const dot = row.createDiv({ cls: 'jp-timeline-dot' });
 
-      // For task entries, show a checkbox instead of a dot
-      if (entry.type === 'task') {
-        dot.empty();
-        // Create an Obsidian-style task checkbox
-        const checkbox = dot.createEl('input', {
-          type: 'checkbox',
-          cls: 'task-list-item-checkbox',
-        });
-        checkbox.checked = entry.completed;
-        checkbox.disabled = true;  // Make it read-only, just for display
-      } else {
+      // Regular dot for memos, nothing special for tasks
+      if (entry.type !== 'task') {
         // "Latest" highlight only applies on today's section (otherwise every
         // historical day would have its own filled dot, which is noisy).
         if (
@@ -1800,6 +1791,16 @@ export class JournalCaptureView extends ItemView {
       // Header: timestamp pill anchored to the dot via a short connector line.
       const head = row.createDiv({ cls: 'jp-timeline-entry-head' });
       head.createSpan({ cls: 'jp-timestamp', text: entry.timestamp });
+
+      // Add checkbox icon after timestamp for task entries
+      if (entry.type === 'task') {
+        const checkbox = head.createDiv({ cls: 'jp-task-icon' });
+        if (entry.completed) {
+          setIcon(checkbox, 'check-square-2');
+        } else {
+          setIcon(checkbox, 'square');
+        }
+      }
 
       // Body bubble: chat-style rounded card holding the rendered markdown.
       const bubble = row.createDiv({ cls: 'jp-timeline-bubble' });

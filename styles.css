@@ -474,21 +474,31 @@
   flex-shrink: 0 !important;
 }
 
-/* Obsidian-style task checkbox in timeline */
-.jp-timeline-dot input[type="checkbox"].task-list-item-checkbox {
-  position: absolute !important;
-  left: -27px !important;
-  top: 5px !important;
-  width: 20px !important;
-  height: 20px !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  cursor: default !important;
-  accent-color: #4f46e5 !important;
+/* Task icon after timestamp */
+.jp-task-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  flex-shrink: 0;
+  color: #4f46e5;
 }
 
-.theme-dark .jp-timeline-dot input[type="checkbox"].task-list-item-checkbox {
-  accent-color: #6366f1 !important;
+.jp-task-icon svg {
+  width: 16px;
+  height: 16px;
+  color: #4f46e5;
+  stroke-width: 2;
+}
+
+.theme-dark .jp-task-icon {
+  color: #6366f1;
+}
+
+.theme-dark .jp-task-icon svg {
+  color: #6366f1;
 }
 .jp-timeline-dot--latest {
   width: 12px;
