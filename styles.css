@@ -252,7 +252,8 @@
 }
 .jp-capture-task-btn.is-active {
   color: #4f46e5 !important;
-  background-color: color-mix(in srgb, #4f46e5 15%, transparent) !important;
+  background-color: transparent !important;
+  border: none !important;
 }
 .jp-capture-mic-btn.is-recording {
   color: var(--text-error);

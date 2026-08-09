@@ -140,9 +140,12 @@ export function getTimestampRanges(
   );
   if (!section) return [];
 
-  // Match optional list-marker prefix, then capture the timestamp
+  // Match optional list-marker prefix with optional checkbox, then capture the timestamp
+  // Handles both:
+  // - Memo: `- HH:MM text`
+  // - Task: `- [ ] HH:MM text` or `- [x] HH:MM text`
   const linePattern = new RegExp(
-    `^(?:[-*+]\\s+)?(${settings.timestampPattern})(?=\\s|$)`,
+    `^(?:[-*+]\\s+(?:\\[[\\sx]\\]\\s+)?)?(${settings.timestampPattern})(?=\\s|$)`,
   );
 
   const sectionText = doc.slice(section.from, section.to);
