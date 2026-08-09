@@ -225,7 +225,7 @@
 .jp-capture-clear-btn,
 .jp-capture-task-btn {
   background: transparent !important;
-  border: 1px solid var(--text-muted) !important;
+  border: none !important;
   outline: none !important;
   box-shadow: none !important;
   color: var(--text-muted) !important;
@@ -233,12 +233,12 @@
   width: 28px !important;
   height: 28px !important;
   padding: 0 !important;
-  border-radius: 50%;
+  border-radius: 6px;
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
   vertical-align: middle;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease;
   flex-shrink: 0;
   -webkit-appearance: none !important;
   appearance: none !important;
@@ -248,13 +248,11 @@
 .jp-capture-clear-btn:hover,
 .jp-capture-task-btn:hover {
   color: var(--jp-tl-dot) !important;
-  background-color: color-mix(in srgb, var(--jp-tl-dot) 12%, var(--background-primary)) !important;
-  border-color: var(--jp-tl-dot) !important;
+  background-color: color-mix(in srgb, var(--jp-tl-dot) 10%, transparent) !important;
 }
 .jp-capture-task-btn.is-active {
   color: #4f46e5 !important;
-  background-color: color-mix(in srgb, #4f46e5 24%, var(--background-primary)) !important;
-  border-color: #4f46e5 !important;
+  background-color: color-mix(in srgb, #4f46e5 15%, transparent) !important;
 }
 .jp-capture-mic-btn.is-recording {
   color: var(--text-error);

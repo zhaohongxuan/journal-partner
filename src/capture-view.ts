@@ -1314,10 +1314,16 @@ export class JournalCaptureView extends ItemView {
       cls: 'jp-capture-task-btn',
       attr: { 'aria-label': '切换任务模式' },
     });
-    setIcon(taskBtn, 'square-check');
+    setIcon(taskBtn, 'list');
     taskBtn.addEventListener('click', () => {
       this.isTaskMode = !this.isTaskMode;
       taskBtn.toggleClass('is-active', this.isTaskMode);
+      // Change icon based on mode
+      if (this.isTaskMode) {
+        setIcon(taskBtn, 'square-check');
+      } else {
+        setIcon(taskBtn, 'list');
+      }
     });
 
     this.submitBtn = actions.createEl('button', {
