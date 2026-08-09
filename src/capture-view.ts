@@ -18,6 +18,7 @@ import {
   Component,
   ItemView,
   MarkdownRenderer,
+  MarkdownView,
   Menu,
   Modal,
   Notice,
@@ -1814,9 +1815,22 @@ export class JournalCaptureView extends ItemView {
               newTaskLine,
             );
 
-            // Update the file - vault.modify will trigger the 'modify' event
-            // which will cause editors to refresh
+            // Update the file
             await this.app.vault.modify(file, newContent);
+
+            // Also update any open editor panes directly
+            this.app.workspace.iterateAllLeaves(leaf => {
+              if (leaf.view instanceof MarkdownView) {
+                const view = leaf.view as MarkdownView;
+                if (view.file?.path === day.filePath) {
+                  // Force the editor to update by setting the content directly
+                  const editor = view.editor;
+                  if (editor) {
+                    editor.setValue(newContent);
+                  }
+                }
+              }
+            });
 
             // Optimistically update the local entry state for immediate UI feedback
             entry.completed = !entry.completed;
