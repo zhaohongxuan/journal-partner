@@ -37,6 +37,8 @@ import {
 
 import {
   JournalEntry,
+  buildEntryLine,
+  buildTaskLine,
   deleteEntryFromSection,
   editEntryInSection,
   extractAudioEmbeds,
@@ -121,6 +123,7 @@ export class JournalCaptureView extends ItemView {
   private sentinelEl!: HTMLElement;
   private textareaEl!: HTMLTextAreaElement;
   private submitBtn!: HTMLButtonElement;
+  private isTaskMode = false;
 
   // Autocomplete state
   private autocompletePopupEl!: HTMLElement;
@@ -1317,6 +1320,17 @@ export class JournalCaptureView extends ItemView {
       void this.confirmClearInput(value);
     });
 
+    // Task button
+    const taskBtn = buttonRow.createEl('button', {
+      cls: 'jp-capture-task-btn',
+      attr: { 'aria-label': '切换任务模式' },
+    });
+    setIcon(taskBtn, 'check-circle-2');
+    taskBtn.addEventListener('click', () => {
+      this.isTaskMode = !this.isTaskMode;
+      taskBtn.toggleClass('is-active', this.isTaskMode);
+    });
+
     this.submitBtn = actions.createEl('button', {
       cls: 'jp-capture-submit',
       text: 'NOTE',
@@ -1756,6 +1770,14 @@ export class JournalCaptureView extends ItemView {
     const sourcePath = day.filePath ?? '';
     for (const entry of sorted) {
       const row = day.el.createDiv({ cls: 'jp-timeline-entry' });
+
+      // Add task-specific classes if this is a task entry
+      if (entry.type === 'task') {
+        row.addClass('jp-entry-task');
+        if (entry.completed) {
+          row.addClass('jp-task-completed');
+        }
+      }
 
       const dot = row.createDiv({ cls: 'jp-timeline-dot' });
       // "Latest" highlight only applies on today's section (otherwise every
@@ -2590,10 +2612,13 @@ export class JournalCaptureView extends ItemView {
     this.submitBtn.setText('写入中…');
 
     try {
-      const ok = await this.plugin.writeToTodayJournal(raw);
+      // Format as task if task mode is enabled
+      const text = this.isTaskMode ? `[ ] ${raw}` : raw;
+      const ok = await this.plugin.writeToTodayJournal(text);
       if (!ok) return;
 
       this.textareaEl.value = '';
+      this.isTaskMode = false;
       this.autoResizeTextarea();
 
       // vault.modify will catch-up the today section automatically; if

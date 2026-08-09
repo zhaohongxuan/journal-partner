@@ -81,6 +81,10 @@ export interface JournalEntry {
   text: string;
   /** Source line index inside the section (0-based, for stable ordering) */
   lineIndex: number;
+  /** Entry type: 'memo' (default) or 'task' (checkbox-based) */
+  type?: 'memo' | 'task';
+  /** For task entries: whether the task is completed */
+  completed?: boolean;
 }
 
 // ── Section detection ──────────────────────────────────────────────────────
@@ -215,6 +219,8 @@ export function parseJournalEntries(
   pattern: string,
 ): JournalEntry[] {
   const tsRe = new RegExp(`^[-*+]\\s+(${pattern})\\s+(.*)$`);
+  // Task pattern: matches [ ] or [x] at the start of content
+  const taskRe = /^\s*\[([ xX])\]\s*(.*)$/;
   // Normalize line endings (CRLF / lone CR → LF). Otherwise a trailing "\r"
   // breaks the `(.*)$` anchor below — `.` won't match CR and `$` (no `m`
   // flag) won't anchor before it, so every entry silently fails to parse on
@@ -238,11 +244,29 @@ export function parseJournalEntries(
     const m = tsRe.exec(raw);
     if (!m) continue;
 
-    entries.push({
-      timestamp: m[1],
-      text: m[2],
-      lineIndex: i,
-    });
+    const content = m[2];
+    const taskMatch = taskRe.exec(content);
+
+    if (taskMatch) {
+      // This is a task entry
+      const checkbox = taskMatch[1];
+      const taskText = taskMatch[2];
+      entries.push({
+        timestamp: m[1],
+        text: taskText,
+        lineIndex: i,
+        type: 'task',
+        completed: checkbox.toLowerCase() === 'x',
+      });
+    } else {
+      // Regular memo entry
+      entries.push({
+        timestamp: m[1],
+        text: content,
+        lineIndex: i,
+        type: 'memo',
+      });
+    }
   }
 
   return entries;
@@ -267,6 +291,31 @@ export function sortJournalEntries<T extends { timestamp: string; lineIndex: num
     if (cmp !== 0) return cmp * dir;
     return (a.lineIndex - b.lineIndex) * dir;
   });
+}
+
+/**
+ * Construct a task entry line to append to the section.
+ *
+ * Similar to buildEntryLine but includes checkbox syntax: [ ] or [x]
+ * Format: `- HH:MM [ ] text` (incomplete) or `- HH:MM [x] text` (completed)
+ */
+export function buildTaskLine(text: string, ts: string, completed: boolean, marker = '-'): string {
+  const checkbox = completed ? '[x]' : '[ ]';
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return `${marker} ${ts} ${checkbox} `;
+
+  const parts = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  if (parts.length === 1) {
+    return `${marker} ${ts} ${checkbox} ${parts[0]}`;
+  }
+
+  const head = `${marker} ${ts} ${checkbox} ${parts[0]}  `;
+  const tail = parts
+    .slice(1)
+    .map((line, idx) =>
+      idx === parts.length - 2 ? `  ${line}` : `  ${line}  `,
+    );
+  return [head, ...tail].join('\n');
 }
 
 /**
