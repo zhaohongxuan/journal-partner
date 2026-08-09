@@ -1797,6 +1797,37 @@ export class JournalCaptureView extends ItemView {
         } else {
           setIcon(checkbox, 'square');
         }
+
+        // Make checkbox clickable to toggle completion status
+        checkbox.addEventListener('click', runAsync(async () => {
+          if (!day.filePath) return;
+          try {
+            const file = this.app.vault.getAbstractFileByPath(day.filePath);
+            if (!(file instanceof TFile)) return;
+
+            const content = await this.app.vault.read(file);
+            const newContent = editEntryInSection(
+              content,
+              this.plugin.settings,
+              entry.lineIndex,
+              buildTaskLine(entry.text, entry.timestamp, !entry.completed),
+            );
+
+            await this.app.vault.modify(file, newContent);
+            // Update entry state
+            entry.completed = !entry.completed;
+            // Refresh the icon
+            checkbox.empty();
+            if (entry.completed) {
+              setIcon(checkbox, 'check-square-2');
+            } else {
+              setIcon(checkbox, 'square');
+            }
+          } catch (err) {
+            console.error('[Journal Partner] toggle task failed:', err);
+            new Notice('切换任务状态失败');
+          }
+        }));
       }
 
       // Body bubble: chat-style rounded card holding the rendered markdown.

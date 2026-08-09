@@ -486,6 +486,13 @@
   margin-left: 6px;
   flex-shrink: 0;
   color: #4f46e5;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.jp-task-icon:hover {
+  transform: scale(1.15);
+  opacity: 0.8;
 }
 
 .jp-task-icon svg {
