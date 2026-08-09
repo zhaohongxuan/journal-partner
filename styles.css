@@ -499,12 +499,22 @@
   stroke-width: 2 !important;
 }
 
+.jp-timeline-dot--task.jp-task-completed svg {
+  color: #4f46e5 !important;
+  fill: #4f46e5 !important;
+}
+
 .theme-dark .jp-timeline-dot--task {
   color: #6366f1 !important;
 }
 
 .theme-dark .jp-timeline-dot--task svg {
   color: #6366f1 !important;
+}
+
+.theme-dark .jp-timeline-dot--task.jp-task-completed svg {
+  color: #6366f1 !important;
+  fill: #6366f1 !important;
 }
 .jp-timeline-dot--latest {
   width: 12px;

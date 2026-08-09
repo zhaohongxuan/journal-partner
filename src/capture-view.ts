@@ -1781,9 +1781,10 @@ export class JournalCaptureView extends ItemView {
         dot.empty();
         dot.addClass('jp-timeline-dot--task');
         if (entry.completed) {
-          setIcon(dot, 'circle-check');
+          dot.addClass('jp-task-completed');
+          setIcon(dot, 'circle-dot');  // 实心圆点
         } else {
-          setIcon(dot, 'circle');
+          setIcon(dot, 'circle');      // 空心圆
         }
       } else {
         // "Latest" highlight only applies on today's section (otherwise every
