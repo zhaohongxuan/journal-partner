@@ -43,6 +43,7 @@ import {
   appendToJournalSection,
   buildDecorations,
   buildEntryLine,
+  buildTaskLine,
   findSection,
   generateTimestamp,
   getTimestampRanges,
@@ -135,14 +136,26 @@ export default class JournalPartnerPlugin extends Plugin {
     if (trimmed.length === 0 && audioPath.length === 0) return false;
 
     const stamp = ts ?? generateTimestamp();
-    // Embed the audio as a wiki-link so Obsidian renders the inline player.
-    // Single-line entries get a trailing ` ![[path]]`; multi-line text uses
-    // buildEntryLine to keep markdown soft-breaks, then we append on the
-    // first line (which is the only one with the timestamp anchor).
-    const body = audioPath.length > 0
-      ? `${trimmed}${trimmed.length > 0 ? ' ' : ''}![[${audioPath}]]`
-      : trimmed;
-    const line = buildEntryLine(body.replace(/\r\n/g, '\n'), stamp);
+
+    // Check if this is a task entry (starts with [ ] or [x])
+    const taskMatch = /^\[([ xX])\]\s+(.*)$/.exec(trimmed);
+    let line: string;
+
+    if (taskMatch) {
+      // Task format: extract checkbox state and content
+      const isCompleted = taskMatch[1].toLowerCase() === 'x';
+      const taskContent = taskMatch[2];
+      const body = audioPath.length > 0
+        ? `${taskContent}${taskContent.length > 0 ? ' ' : ''}![[${audioPath}]]`
+        : taskContent;
+      line = buildTaskLine(body.replace(/\r\n/g, '\n'), stamp, isCompleted);
+    } else {
+      // Regular memo entry
+      const body = audioPath.length > 0
+        ? `${trimmed}${trimmed.length > 0 ? ' ' : ''}![[${audioPath}]]`
+        : trimmed;
+      line = buildEntryLine(body.replace(/\r\n/g, '\n'), stamp);
+    }
 
     try {
       let file = getDailyNote(moment(), getAllDailyNotes());

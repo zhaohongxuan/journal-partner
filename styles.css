@@ -225,7 +225,7 @@
 .jp-capture-clear-btn,
 .jp-capture-task-btn {
   background: transparent !important;
-  border: 1px solid transparent !important;
+  border: 1px solid var(--text-muted) !important;
   outline: none !important;
   box-shadow: none !important;
   color: var(--text-muted) !important;
@@ -249,12 +249,12 @@
 .jp-capture-task-btn:hover {
   color: var(--jp-tl-dot) !important;
   background-color: color-mix(in srgb, var(--jp-tl-dot) 12%, var(--background-primary)) !important;
-  border-color: color-mix(in srgb, var(--jp-tl-dot) 24%, transparent) !important;
+  border-color: var(--jp-tl-dot) !important;
 }
 .jp-capture-task-btn.is-active {
   color: #4f46e5 !important;
   background-color: color-mix(in srgb, #4f46e5 24%, var(--background-primary)) !important;
-  border-color: color-mix(in srgb, #4f46e5 32%, transparent) !important;
+  border-color: #4f46e5 !important;
 }
 .jp-capture-mic-btn.is-recording {
   color: var(--text-error);
@@ -457,6 +457,22 @@
   background: var(--background-primary);
   border: 2px solid var(--jp-tl-dot);
   box-sizing: border-box;
+}
+.jp-timeline-dot--task {
+  width: auto;
+  height: auto;
+  border: none;
+  background: transparent;
+  left: -20px;
+  top: 4px;
+  padding: 0;
+}
+.jp-timeline-dot--task input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: not-allowed;
+  accent-color: #4f46e5;
+  flex-shrink: 0;
 }
 .jp-timeline-dot--latest {
   width: 12px;

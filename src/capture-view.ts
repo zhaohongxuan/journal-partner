@@ -1769,13 +1769,29 @@ export class JournalCaptureView extends ItemView {
       }
 
       const dot = row.createDiv({ cls: 'jp-timeline-dot' });
-      // "Latest" highlight only applies on today's section (otherwise every
-      // historical day would have its own filled dot, which is noisy).
-      if (
-        day.date.isSame(moment().startOf('day'), 'day') &&
-        entry.timestamp === latestTs
-      ) {
-        dot.addClass('jp-timeline-dot--latest');
+
+      // For task entries, show a checkbox instead of a dot
+      if (entry.type === 'task') {
+        dot.addClass('jp-timeline-dot--task');
+        const checkbox = dot.createEl('input', {
+          type: 'checkbox',
+          attr: {
+            'aria-label': entry.text,
+            disabled: 'true'
+          }
+        });
+        if (entry.completed) {
+          checkbox.checked = true;
+        }
+      } else {
+        // "Latest" highlight only applies on today's section (otherwise every
+        // historical day would have its own filled dot, which is noisy).
+        if (
+          day.date.isSame(moment().startOf('day'), 'day') &&
+          entry.timestamp === latestTs
+        ) {
+          dot.addClass('jp-timeline-dot--latest');
+        }
       }
 
       // Header: timestamp pill anchored to the dot via a short connector line.
@@ -2604,9 +2620,9 @@ export class JournalCaptureView extends ItemView {
       // Format entry based on mode
       let text: string;
       if (this.isTaskMode) {
-        // Task format: "[ ] timestamp text" (Obsidian checkbox syntax)
-        const stamp = generateTimestamp();
-        text = `[ ] ${stamp} ${raw}`;
+        // Task format: "[ ] text" (Obsidian checkbox syntax)
+        // writeToTodayJournal will add the "- HH:MM" prefix
+        text = `[ ] ${raw}`;
       } else {
         text = raw;
       }
