@@ -1783,7 +1783,7 @@ export class JournalCaptureView extends ItemView {
         const checkboxEl = dot.createDiv({ cls: 'jp-task-checkbox' });
         if (entry.completed) {
           checkboxEl.addClass('jp-task-checkbox--checked');
-          setIcon(checkboxEl, 'check-square-2');
+          setIcon(checkboxEl, 'square-check');
         } else {
           setIcon(checkboxEl, 'square');
         }
