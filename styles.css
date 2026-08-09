@@ -224,11 +224,11 @@
 .jp-capture-mic-btn,
 .jp-capture-clear-btn,
 .jp-capture-task-btn {
-  background: color-mix(in srgb, var(--jp-tl-dot) 12%, var(--background-primary)) !important;
-  border: 1px solid color-mix(in srgb, var(--jp-tl-dot) 24%, transparent) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
   outline: none !important;
   box-shadow: none !important;
-  color: color-mix(in srgb, var(--jp-tl-dot) 70%, var(--text-muted)) !important;
+  color: var(--text-muted) !important;
   cursor: pointer;
   width: 28px !important;
   height: 28px !important;
@@ -248,8 +248,8 @@
 .jp-capture-clear-btn:hover,
 .jp-capture-task-btn:hover {
   color: var(--jp-tl-dot) !important;
-  background-color: color-mix(in srgb, var(--jp-tl-dot) 24%, var(--background-primary)) !important;
-  border-color: color-mix(in srgb, var(--jp-tl-dot) 32%, transparent) !important;
+  background-color: color-mix(in srgb, var(--jp-tl-dot) 12%, var(--background-primary)) !important;
+  border-color: color-mix(in srgb, var(--jp-tl-dot) 24%, transparent) !important;
 }
 .jp-capture-task-btn.is-active {
   color: #4f46e5 !important;
