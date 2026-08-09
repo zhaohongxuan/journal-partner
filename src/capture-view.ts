@@ -1815,27 +1815,31 @@ export class JournalCaptureView extends ItemView {
               newTaskLine,
             );
 
-            // Update the file
-            await this.app.vault.modify(file, newContent);
-
-            // Also update any open editor panes directly
+            // 1. First, update all open editors BEFORE modifying the file
+            // This prevents the modify event from reverting our changes
             this.app.workspace.iterateAllLeaves(leaf => {
               if (leaf.view instanceof MarkdownView) {
                 const view = leaf.view as MarkdownView;
                 if (view.file?.path === day.filePath) {
-                  // Force the editor to update by setting the content directly
                   const editor = view.editor;
                   if (editor) {
+                    // Update editor content directly
                     editor.setValue(newContent);
+                    // Mark as modified so Obsidian knows there are unsaved changes
+                    view.requestSave();
                   }
                 }
               }
             });
 
-            // Optimistically update the local entry state for immediate UI feedback
+            // 2. Then update the file in the vault
+            // Since the editor is already updated, the modify event won't revert it
+            await this.app.vault.modify(file, newContent);
+
+            // 3. Optimistically update the local entry state for immediate UI feedback
             entry.completed = !entry.completed;
 
-            // Refresh the icon immediately
+            // 4. Refresh the icon immediately
             checkbox.empty();
             if (entry.completed) {
               setIcon(checkbox, 'check-square-2');
