@@ -576,6 +576,63 @@ export function editEntryInSection(
 }
 
 /**
+ * Toggle the completion state of a task entry (identified by its `lineIndex`
+ * within the section body) by flipping its checkbox marker in place.
+ *
+ * Handles both entry layouts:
+ * - New:    `- [ ] HH:MM text`  ⇄  `- [x] HH:MM text`
+ * - Legacy: `- HH:MM [ ] text`  ⇄  `- HH:MM [x] text`
+ *
+ * Returns the new content, or the original content unchanged if the section is
+ * missing / `lineIndex` is out of range / the line isn't a recognised task
+ * head (e.g. the file changed under us).
+ */
+export function toggleTaskInSection(
+  content: string,
+  settings: JournalPartnerSettings,
+  lineIndex: number,
+  completed: boolean,
+): string {
+  const section = findSection(
+    content,
+    settings.targetHeading,
+    settings.headingLevel,
+  );
+  if (!section) return content;
+
+  const sectionText = content.slice(section.from, section.to);
+  const lines = sectionText.split('\n');
+  if (lineIndex < 0 || lineIndex >= lines.length) return content;
+
+  const box = completed ? '[x]' : '[ ]';
+  const line = lines[lineIndex];
+
+  // New format: `- [ ] HH:MM text` → replace the checkbox right after marker.
+  const newRe = /^([-*+]\s+)\[[ xX]\](\s+.*)$/;
+  const legacyRe = new RegExp(
+    `^([-*+]\\s+${settings.timestampPattern}\\s+)\\[[ xX]\\](\\s+.*)$`,
+  );
+
+  let updated: string;
+  const newMatch = newRe.exec(line);
+  if (newMatch) {
+    updated = `${newMatch[1]}${box}${newMatch[2]}`;
+  } else {
+    const legacyMatch = legacyRe.exec(line);
+    if (!legacyMatch) return content;
+    updated = `${legacyMatch[1]}${box}${legacyMatch[2]}`;
+  }
+
+  const newLines = [
+    ...lines.slice(0, lineIndex),
+    updated,
+    ...lines.slice(lineIndex + 1),
+  ];
+  const newSectionText = newLines.join('\n');
+  return content.slice(0, section.from) + newSectionText + content.slice(section.to);
+}
+
+/**
  * Strip all audio wiki-embeds from one entry, in place inside the section,
  * leaving the rest of the entry's text intact.
  *

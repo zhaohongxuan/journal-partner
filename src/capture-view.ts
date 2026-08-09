@@ -39,9 +39,9 @@ import {
 import {
   JournalEntry,
   buildEntryLine,
-  buildTaskLine,
   deleteEntryFromSection,
   editEntryInSection,
+  toggleTaskInSection,
   extractAudioEmbeds,
   findSection,
   generateTimestamp,
@@ -1815,12 +1815,11 @@ export class JournalCaptureView extends ItemView {
             if (!(file instanceof TFile)) return;
 
             const content = await this.app.vault.read(file);
-            const newTaskLine = buildTaskLine(entry.text, entry.timestamp, !entry.completed);
-            const newContent = editEntryInSection(
+            const newContent = toggleTaskInSection(
               content,
               this.plugin.settings,
               entry.lineIndex,
-              newTaskLine,
+              !entry.completed,
             );
 
             // Mark this file as being modified by us, so refreshDay skips re-render
