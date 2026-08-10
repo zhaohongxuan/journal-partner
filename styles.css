@@ -136,8 +136,13 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-bottom: 8px;
+  /* 8px 原有间距 + 12px 吸收掉 .jp-pane 的 gap，让背景一直盖到 timeline 顶部，
+     避免滚动时内容从 sticky 底部缝隙"漏头"。 */
+  padding-bottom: 20px;
   background: var(--background-secondary);
+  /* sticky 背景在 box 边缘有亚像素 paint 撕裂，timeline 文字会从 0-3px 缝隙漏出。
+     用同色 outline 把视觉覆盖向外扩 3px 盖住缝隙（同色，视觉不可见）。 */
+  outline: 3px solid var(--background-secondary);
 }
 
 /* Input card */
@@ -1128,6 +1133,11 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+/* Capture pane: 取消 sticky 头部与 timeline 之间的 gap，改由 .jp-capture-sticky 的
+   padding-bottom 承担，确保 sticky 背景无缝覆盖到 timeline 顶部。 */
+.jp-pane-capture {
+  gap: 0;
 }
 
 /* Floating "back to top" button — sticky to the bottom-right of the scroll
