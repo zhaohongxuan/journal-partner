@@ -1,0 +1,25 @@
+styles.css
+  s_5e0daf6d9d6233::t_6742ca93d71ae7 139-141
+  s_5e0daf6d9d6233::t_781461aa870376 1137-1141
+  s_5e0daf6d9d6233::t_2239026baa614d 143-145
+package.json
+  s_5e0daf6d9d6233::t_68ba4d94314e15 3
+manifest.json
+  s_5e0daf6d9d6233::t_6c62fbf5201bc4 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "66191d598e601a5ae22d194f57fdd2e0d7036995",
+  "prompts": {},
+  "sessions": {
+    "s_5e0daf6d9d6233": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0f636d1b-20e4-4f88-b3bc-ab120d9d33b5",
+        "model": "ep-bpcl3tow"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
