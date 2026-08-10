@@ -1,10 +1,10 @@
 {
   "name": "journal-partner",
-  "version": "2.11.0",
+  "version": "2.12.0",
   "description": "Obsidian plugin – Journal timestamp highlighter",
   "main": "dist/main.js",
   "scripts": {
-    "dev": "esbuild src/main.ts --bundle --external:obsidian --external:electron --external:@codemirror/* --external:@lezer/* --external:builtin-modules --format=cjs --target=es2018 --sourcemap=inline --log-level:info --watch --outfile:dist/main.js",
+    "dev": "esbuild src/main.ts --bundle --external:obsidian --external:electron --external:@codemirror/* --external:@lezer/* --external:builtin-modules --format=cjs --target=es2018 --sourcemap=inline --log-level=info --watch --outfile=dist/main.js",
     "build": "tsc -noEmit -skipLibCheck && esbuild src/main.ts --bundle --external:obsidian --external:electron --external:@codemirror/* --external:@lezer/* --external:builtin-modules --format=cjs --target=es2018 --sourcemap --tree-shaking --outfile=dist/main.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

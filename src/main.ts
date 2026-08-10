@@ -43,6 +43,7 @@ import {
   appendToJournalSection,
   buildDecorations,
   buildEntryLine,
+  buildTaskLine,
   findSection,
   generateTimestamp,
   getTimestampRanges,
@@ -135,14 +136,26 @@ export default class JournalPartnerPlugin extends Plugin {
     if (trimmed.length === 0 && audioPath.length === 0) return false;
 
     const stamp = ts ?? generateTimestamp();
-    // Embed the audio as a wiki-link so Obsidian renders the inline player.
-    // Single-line entries get a trailing ` ![[path]]`; multi-line text uses
-    // buildEntryLine to keep markdown soft-breaks, then we append on the
-    // first line (which is the only one with the timestamp anchor).
-    const body = audioPath.length > 0
-      ? `${trimmed}${trimmed.length > 0 ? ' ' : ''}![[${audioPath}]]`
-      : trimmed;
-    const line = buildEntryLine(body.replace(/\r\n/g, '\n'), stamp);
+
+    // Check if this is a task entry (starts with [ ] or [x])
+    const taskMatch = /^\[([ xX])\]\s+(.*)$/.exec(trimmed);
+    let line: string;
+
+    if (taskMatch) {
+      // Task format: extract checkbox state and content
+      const isCompleted = taskMatch[1].toLowerCase() === 'x';
+      const taskContent = taskMatch[2];
+      const body = audioPath.length > 0
+        ? `${taskContent}${taskContent.length > 0 ? ' ' : ''}![[${audioPath}]]`
+        : taskContent;
+      line = buildTaskLine(body.replace(/\r\n/g, '\n'), stamp, isCompleted);
+    } else {
+      // Regular memo entry
+      const body = audioPath.length > 0
+        ? `${trimmed}${trimmed.length > 0 ? ' ' : ''}![[${audioPath}]]`
+        : trimmed;
+      line = buildEntryLine(body.replace(/\r\n/g, '\n'), stamp);
+    }
 
     try {
       let file = getDailyNote(moment(), getAllDailyNotes());
@@ -473,21 +486,17 @@ export default class JournalPartnerPlugin extends Plugin {
     // styles would otherwise override the theme-scoped rules below.
     root.style.removeProperty('--jp-ts-color');
     root.style.removeProperty('--jp-ts-bg');
+    root.style.removeProperty('--jp-ts-color-dark');
+    root.style.removeProperty('--jp-ts-bg-dark');
 
-    // Inject a <style> element so the CSS variables can be scoped per theme.
-    // Obsidian toggles `.theme-dark` on <body>; the dark rule wins by source
-    // order (equal specificity), and applies automatically on theme switch.
-    const light = `--jp-ts-color: ${this.settings.timestampColor}; --jp-ts-bg: ${this.settings.timestampBgColor};`;
-    const dark = `--jp-ts-color: ${this.settings.timestampColorDark}; --jp-ts-bg: ${this.settings.timestampBgColorDark};`;
-    let styleEl = document.getElementById(
-      'jp-theme-vars',
-    ) as HTMLStyleElement | null;
-    if (!styleEl) {
-      styleEl = document.createElement('style');
-      styleEl.id = 'jp-theme-vars';
-      document.head.appendChild(styleEl);
-    }
-    styleEl.textContent = `:root{${light}}.theme-dark{${dark}}`;
+    // Set the timestamp colors as CSS variables on <html>. Light values
+    // define the defaults; the `.theme-dark` mapping in styles.css remaps
+    // `--jp-ts-color` to `--jp-ts-color-dark` on <body>, which wins via
+    // DOM inheritance when the dark theme is active.
+    root.style.setProperty('--jp-ts-color', this.settings.timestampColor);
+    root.style.setProperty('--jp-ts-bg', this.settings.timestampBgColor);
+    root.style.setProperty('--jp-ts-color-dark', this.settings.timestampColorDark);
+    root.style.setProperty('--jp-ts-bg-dark', this.settings.timestampBgColorDark);
   }
 
   async loadSettings() {

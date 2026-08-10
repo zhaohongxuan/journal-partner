@@ -140,9 +140,12 @@ export function getTimestampRanges(
   );
   if (!section) return [];
 
-  // Match optional list-marker prefix, then capture the timestamp
+  // Match optional list-marker prefix with optional checkbox, then capture the timestamp
+  // Handles both:
+  // - Memo: `- HH:MM text`
+  // - Task: `- [ ] HH:MM text` or `- [x] HH:MM text`
   const linePattern = new RegExp(
-    `^(?:[-*+]\\s+)?(${settings.timestampPattern})(?=\\s|$)`,
+    `^(?:[-*+]\\s+(?:\\[[\\sx]\\]\\s+)?)?(${settings.timestampPattern})(?=\\s|$)`,
   );
 
   const sectionText = doc.slice(section.from, section.to);
@@ -209,7 +212,6 @@ export function buildDecorations(
  *
  * Rules:
  * - Top-level list items (`- HH:MM ...`, `* HH:MM ...`, `+ HH:MM ...`) become entries
- * - Task format: `- HH:MM [ ] text` or `- HH:MM [x] text` for tasks
  * - Indented continuation lines (any leading whitespace) are appended to the
  *   previous entry's text, joined with a newline so the markdown renderer
  *   sees the original structure (soft breaks, lists, etc.)
@@ -219,9 +221,14 @@ export function parseJournalEntries(
   sectionText: string,
   pattern: string,
 ): JournalEntry[] {
+  // Match list items with optional checkbox: `- [ ] ...`, `- [x] ...`, or `- ...`
+  // Format 1 (new): `- [ ] HH:MM text` or `- [x] HH:MM text`
+  // Format 2 (legacy): `- HH:MM [ ] text` or `- HH:MM [x] text`
+  // Format 3 (memo): `- HH:MM text`
+  const taskListRe = /^[-*+]\s+\[([ xX])\]\s+(.*)$/;
   const tsRe = new RegExp(`^[-*+]\\s+(${pattern})\\s+(.*)$`);
-  // Task pattern: matches [ ] or [x] at the start of content
-  const taskRe = /^\s*\[([ xX])\]\s*(.*)$/;
+  const legacyTaskRe = /^\s*\[([ xX])\]\s*(.*)$/;
+
   // Normalize line endings (CRLF / lone CR → LF). Otherwise a trailing "\r"
   // breaks the `(.*)$` anchor below — `.` won't match CR and `$` (no `m`
   // flag) won't anchor before it, so every entry silently fails to parse on
@@ -242,16 +249,37 @@ export function parseJournalEntries(
       continue;
     }
 
+    // Try to match new task format first: `- [ ] HH:MM text`
+    const taskMatch = taskListRe.exec(raw);
+    if (taskMatch) {
+      const checkbox = taskMatch[1];
+      const content = taskMatch[2];
+      // Extract timestamp from the rest of content
+      const tsMatch = new RegExp(`^(${pattern})\\s+(.*)$`).exec(content);
+      if (tsMatch) {
+        entries.push({
+          timestamp: tsMatch[1],
+          text: tsMatch[2],
+          lineIndex: i,
+          type: 'task',
+          completed: checkbox.toLowerCase() === 'x',
+        });
+        continue;
+      }
+    }
+
+    // Try to match memo/legacy task format: `- HH:MM text`
     const m = tsRe.exec(raw);
     if (!m) continue;
 
     const content = m[2];
-    const taskMatch = taskRe.exec(content);
+    // Check for legacy task format: `HH:MM [ ] text` or `HH:MM [x] text`
+    const legacyMatch = legacyTaskRe.exec(content);
 
-    if (taskMatch) {
-      // This is a task entry
-      const checkbox = taskMatch[1];
-      const taskText = taskMatch[2];
+    if (legacyMatch) {
+      // This is a legacy task entry
+      const checkbox = legacyMatch[1];
+      const taskText = legacyMatch[2];
       entries.push({
         timestamp: m[1],
         text: taskText,
@@ -295,6 +323,31 @@ export function sortJournalEntries<T extends { timestamp: string; lineIndex: num
 }
 
 /**
+ * Construct a task entry line to append to the section.
+ *
+ * Format: `- [ ] HH:MM text` (incomplete) or `- [x] HH:MM text` (completed)
+ * This matches Obsidian's native task checkbox syntax.
+ */
+export function buildTaskLine(text: string, ts: string, completed: boolean, marker = '-'): string {
+  const checkbox = completed ? '[x]' : '[ ]';
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return `${marker} ${checkbox} ${ts} `;
+
+  const parts = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  if (parts.length === 1) {
+    return `${marker} ${checkbox} ${ts} ${parts[0]}`;
+  }
+
+  const head = `${marker} ${checkbox} ${ts} ${parts[0]}  `;
+  const tail = parts
+    .slice(1)
+    .map((line, idx) =>
+      idx === parts.length - 2 ? `  ${line}` : `  ${line}  `,
+    );
+  return [head, ...tail].join('\n');
+}
+
+/**
  * Construct a journal entry line to append to the section.
  *
  * Single-line input becomes `- HH:MM text`.
@@ -319,26 +372,6 @@ export function buildEntryLine(text: string, ts: string, marker = '-'): string {
   }
 
   const head = `${marker} ${ts} ${parts[0]}  `;
-  const tail = parts
-    .slice(1)
-    .map((line, idx) =>
-      idx === parts.length - 2 ? `  ${line}` : `  ${line}  `,
-    );
-  return [head, ...tail].join('\n');
-}
-
-/** Build a task entry line with checkbox. Format: `- HH:MM [ ] text` or `- HH:MM [x] text` */
-export function buildTaskLine(text: string, ts: string, completed: boolean, marker = '-'): string {
-  const checkbox = completed ? '[x]' : '[ ]';
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return `${marker} ${ts} ${checkbox} `;
-
-  const parts = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-  if (parts.length === 1) {
-    return `${marker} ${ts} ${checkbox} ${parts[0]}`;
-  }
-
-  const head = `${marker} ${ts} ${checkbox} ${parts[0]}  `;
   const tail = parts
     .slice(1)
     .map((line, idx) =>
@@ -537,6 +570,63 @@ export function editEntryInSection(
     ...lines.slice(0, lineIndex),
     ...replacement.split('\n'),
     ...lines.slice(end),
+  ];
+  const newSectionText = newLines.join('\n');
+  return content.slice(0, section.from) + newSectionText + content.slice(section.to);
+}
+
+/**
+ * Toggle the completion state of a task entry (identified by its `lineIndex`
+ * within the section body) by flipping its checkbox marker in place.
+ *
+ * Handles both entry layouts:
+ * - New:    `- [ ] HH:MM text`  ⇄  `- [x] HH:MM text`
+ * - Legacy: `- HH:MM [ ] text`  ⇄  `- HH:MM [x] text`
+ *
+ * Returns the new content, or the original content unchanged if the section is
+ * missing / `lineIndex` is out of range / the line isn't a recognised task
+ * head (e.g. the file changed under us).
+ */
+export function toggleTaskInSection(
+  content: string,
+  settings: JournalPartnerSettings,
+  lineIndex: number,
+  completed: boolean,
+): string {
+  const section = findSection(
+    content,
+    settings.targetHeading,
+    settings.headingLevel,
+  );
+  if (!section) return content;
+
+  const sectionText = content.slice(section.from, section.to);
+  const lines = sectionText.split('\n');
+  if (lineIndex < 0 || lineIndex >= lines.length) return content;
+
+  const box = completed ? '[x]' : '[ ]';
+  const line = lines[lineIndex];
+
+  // New format: `- [ ] HH:MM text` → replace the checkbox right after marker.
+  const newRe = /^([-*+]\s+)\[[ xX]\](\s+.*)$/;
+  const legacyRe = new RegExp(
+    `^([-*+]\\s+${settings.timestampPattern}\\s+)\\[[ xX]\\](\\s+.*)$`,
+  );
+
+  let updated: string;
+  const newMatch = newRe.exec(line);
+  if (newMatch) {
+    updated = `${newMatch[1]}${box}${newMatch[2]}`;
+  } else {
+    const legacyMatch = legacyRe.exec(line);
+    if (!legacyMatch) return content;
+    updated = `${legacyMatch[1]}${box}${legacyMatch[2]}`;
+  }
+
+  const newLines = [
+    ...lines.slice(0, lineIndex),
+    updated,
+    ...lines.slice(lineIndex + 1),
   ];
   const newSectionText = newLines.join('\n');
   return content.slice(0, section.from) + newSectionText + content.slice(section.to);

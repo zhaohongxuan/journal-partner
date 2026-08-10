@@ -18,6 +18,7 @@ import {
   Component,
   ItemView,
   MarkdownRenderer,
+  MarkdownView,
   Menu,
   Modal,
   Notice,
@@ -34,13 +35,17 @@ import {
   getDailyNote,
   getDateFromFile,
 } from 'obsidian-daily-notes-interface';
+import type { EditorView } from '@codemirror/view';
 
 import {
   JournalEntry,
+  buildEntryLine,
   deleteEntryFromSection,
   editEntryInSection,
+  toggleTaskInSection,
   extractAudioEmbeds,
   findSection,
+  generateTimestamp,
   parseJournalEntries,
   removeAudioEmbedsFromEntry,
   sortJournalEntries,
@@ -93,20 +98,22 @@ export class JournalCaptureView extends ItemView {
   private plugin: JournalPartnerPlugin;
 
   // Top-level tab state
-  private currentTab: 'capture' | 'stats' | 'search' | 'review' = 'capture';
+  private currentTab: 'capture' | 'stats' = 'capture';
   private tabBarEl!: HTMLElement;
   private capturePaneEl!: HTMLElement;
   private statsPaneEl!: HTMLElement;
-  private reviewPaneEl!: HTMLElement;
   private captureTabBtn!: HTMLButtonElement;
   private statsTabBtn!: HTMLButtonElement;
   private searchTabBtn!: HTMLButtonElement;
   private reviewTabBtn!: HTMLButtonElement;
 
+  // Timeline display mode — search and random-review render inline in the
+  // capture timeline instead of switching tabs.
+  private timelineMode: 'daily' | 'search' | 'review' = 'daily';
+
   // Search state
-  private searchBarEl!: HTMLElement;
-  private searchInputEl!: HTMLInputElement;
-  private searchActive = false;
+  private inlineSearchBarEl!: HTMLElement;
+  private inlineSearchInputEl!: HTMLInputElement;
   private searchDebounceTimer: number | null = null;
   private searchQuery = '';
   private searchVersion = 0;
@@ -114,6 +121,9 @@ export class JournalCaptureView extends ItemView {
   private searchFileQueue: TFile[] = [];
   /** Index into searchFileQueue: next file to scan in loadMoreSearchResults. */
   private searchCursor = 0;
+
+  // Inline random-review — the dice button in the toolbar toggles the mode
+  // and re-rolls to another random day.
 
   // DOM references (capture pane)
   private inputCardEl!: HTMLElement;
@@ -160,6 +170,15 @@ export class JournalCaptureView extends ItemView {
   private rerenderTimer: number | null = null;
   private intersectionObs: IntersectionObserver | null = null;
 
+  // Task toggle tracking - to prevent re-render when we modify the file ourselves
+  private taskModifyingFiles: Set<string> = new Set();
+
+  /** Timeline entry filter: show all, only tasks, or only memos. */
+  private entryFilter: 'all' | 'task' | 'memo' = 'all';
+  private timelineToolbarEl!: HTMLElement;
+  /** Floating "back to top" button, revealed once the stream is scrolled down. */
+  private scrollTopBtnEl: HTMLElement | null = null;
+
   // ── Quick-record via URL scheme ──────────────────────────────────────────
   /** Bound to the inner startRecording closure once buildInputCard runs. */
   private startRecordingFn: (() => Promise<void>) | null = null;
@@ -173,6 +192,9 @@ export class JournalCaptureView extends ItemView {
   public async beginRecording(): Promise<void> {
     // Make sure we're on the capture tab so the mic button is visible
     if (this.currentTab !== 'capture') this.switchTab('capture');
+    // Recording writes to today — show the daily timeline so the result lands
+    // somewhere visible.
+    if (this.timelineMode !== 'daily') this.restoreDailyMode();
 
     if (this.startRecordingFn) {
       await this.startRecordingFn();
@@ -221,25 +243,30 @@ export class JournalCaptureView extends ItemView {
 
     // Capture pane (default visible)
     this.capturePaneEl = (root as HTMLElement).createDiv({ cls: 'jp-pane jp-pane-capture' });
-    this.buildInputCard(this.capturePaneEl);
+    // Sticky header: input card + inline search/review UI + timeline toolbar
+    // stay pinned while the timeline stream scrolls underneath.
+    const stickyHeader = this.capturePaneEl.createDiv({ cls: 'jp-capture-sticky' });
+    this.buildInputCard(stickyHeader);
+    this.buildTimelineToolbar(stickyHeader);
+    this.buildInlineSearchBar(stickyHeader);
     this.buildTimeline(this.capturePaneEl);
 
     // Stats pane (hidden initially; built lazily on first switch)
     this.statsPaneEl = (root as HTMLElement).createDiv({ cls: 'jp-pane jp-pane-stats' });
     this.statsPaneEl.hide();
 
-    // Review pane (hidden initially)
-    this.reviewPaneEl = (root as HTMLElement).createDiv({ cls: 'jp-pane jp-pane-review' });
-    this.reviewPaneEl.hide();
-
     // ── Vault listeners ──
-    // modify: refresh the affected day's section in place (no full rebuild)
+    // modify: refresh the affected day's section in place (no full rebuild).
+    // Only applies in daily mode — search/review render snapshots and should
+    // not be mutated under the user.
     this.registerEvent(
       this.app.vault.on('modify', file => {
         if (!(file instanceof TFile)) return;
-        const day = this.days.find(d => d.filePath === file.path);
-        if (day) {
-          this.scheduleDayRefresh(day);
+        if (this.timelineMode === 'daily') {
+          const day = this.days.find(d => d.filePath === file.path);
+          if (day) {
+            this.scheduleDayRefresh(day);
+          }
         }
         if (file.extension === 'md') {
           this.scheduleStatsRefresh();
@@ -277,6 +304,19 @@ export class JournalCaptureView extends ItemView {
     await this.fullRebuild();
     this.setupIntersectionObserver();
     this.setupMobileToolbarAutoHide();
+    this.setupScrollTopButton();
+
+    // Escape while in search/review mode returns to the daily timeline.
+    this.registerDomEvent(root as HTMLElement, 'keydown', (evt: KeyboardEvent) => {
+      if (evt.key !== 'Escape' || this.timelineMode === 'daily') return;
+      const activeEl = document.activeElement;
+      if (activeEl === this.inlineSearchInputEl && this.inlineSearchInputEl.value.length > 0) {
+        return;
+      }
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.restoreDailyMode();
+    });
   }
 
   async onClose(): Promise<void> {
@@ -309,35 +349,11 @@ export class JournalCaptureView extends ItemView {
     this.captureTabBtn = this.makeTabBtn('feather', true, '快速记录');
     this.captureTabBtn.addEventListener('click', () => this.switchTab('capture'));
 
-    this.reviewTabBtn = this.makeTabBtn('calendar', false, '随机回顾');
-    this.reviewTabBtn.addEventListener('click', () => this.switchTab('review'));
-
-    this.searchTabBtn = this.makeTabBtn('search', false, '搜索日记');
-    this.searchTabBtn.addEventListener('click', () => this.switchTab('search'));
-
     this.statsTabBtn = this.makeTabBtn('bar-chart-2', false, '年度统计');
     this.statsTabBtn.addEventListener('click', () => this.switchTab('stats'));
 
-    // Search bar — collapsed by default, shown when search tab is active
-    this.searchBarEl = root.createDiv({ cls: 'jp-search-bar' });
-    this.searchBarEl.hide();
-
-    const searchIcon = this.searchBarEl.createSpan({ cls: 'jp-search-bar-icon' });
-    setIcon(searchIcon, 'search');
-
-    this.searchInputEl = this.searchBarEl.createEl('input', {
-      cls: 'jp-search-input',
-      attr: { placeholder: '搜索日记…', type: 'text' },
-    });
-    this.searchInputEl.addEventListener('input', () => {
-      const q = this.searchInputEl.value;
-      this.searchQuery = q;
-      if (this.searchDebounceTimer !== null) window.clearTimeout(this.searchDebounceTimer);
-      this.searchDebounceTimer = window.setTimeout(() => {
-        this.searchDebounceTimer = null;
-        void this.runSearch(q.trim());
-      }, 300);
-    });
+    // Note: 搜索日记 / 随机回顾 buttons live in the timeline toolbar
+    // (buildTimelineToolbar), not this top tab bar.
   }
 
   /** Build one icon-only tab button. */
@@ -351,69 +367,28 @@ export class JournalCaptureView extends ItemView {
     return btn;
   }
 
-  private switchTab(tab: 'capture' | 'stats' | 'search' | 'review') {
+  private switchTab(tab: 'capture' | 'stats') {
     if (this.currentTab === tab) return;
     const prevTab = this.currentTab;
     this.currentTab = tab;
 
     this.captureTabBtn.toggleClass('is-active', tab === 'capture');
-    this.reviewTabBtn.toggleClass('is-active', tab === 'review');
-    this.searchTabBtn.toggleClass('is-active', tab === 'search');
     this.statsTabBtn.toggleClass('is-active', tab === 'stats');
 
-    if (tab === 'search') {
+    if (tab === 'capture') {
       this.capturePaneEl.show();
       this.statsPaneEl.hide();
-      this.reviewPaneEl.hide();
-      this.inputCardEl.hide();
-      this.searchBarEl.show();
-      this.searchActive = true;
-
-      if (prevTab !== 'search') {
-        if (this.searchQuery.length === 0) {
-          this.disposeDays();
-          this.timelineEl.empty();
-          this.exhausted = false;
-          this.searchFileQueue = [];
-          this.searchCursor = 0;
-          this.renderTopLevelMessage('输入关键词开始搜索');
-        }
-        this.searchInputEl.value = this.searchQuery;
-        window.setTimeout(() => this.searchInputEl.focus(), 50);
-      }
-    } else if (tab === 'capture') {
-      this.capturePaneEl.show();
-      this.statsPaneEl.hide();
-      this.reviewPaneEl.hide();
       this.inputCardEl.show();
-      this.searchBarEl.hide();
 
-      // Always clean up search state when returning to capture
-      if (this.searchActive || prevTab === 'search') {
-        this.searchActive = false;
-        if (this.searchDebounceTimer !== null) {
-          window.clearTimeout(this.searchDebounceTimer);
-          this.searchDebounceTimer = null;
-        }
-      }
-      // Rebuild if coming from any non-capture tab, or if timeline looks stale
-      // (e.g. capture → search → review → capture leaves search content in timelineEl)
+      // Coming from stats — the timeline may be stale, rebuild it in daily mode
       if (prevTab !== 'capture') {
         void this.fullRebuild();
       }
-    } else if (tab === 'review') {
-      this.capturePaneEl.hide();
-      this.statsPaneEl.hide();
-      this.reviewPaneEl.show();
-      this.searchBarEl.hide();
-      void this.loadReview();
     } else {
       // stats tab
       this.capturePaneEl.hide();
       this.statsPaneEl.show();
-      this.reviewPaneEl.hide();
       this.inputCardEl.show();
-      this.searchBarEl.hide();
 
       if (this.statsPaneEl.childElementCount === 0) {
         this.buildStatsPane();
@@ -422,16 +397,8 @@ export class JournalCaptureView extends ItemView {
     }
   }
 
-  private toggleSearch() {
-    if (this.currentTab === 'search') {
-      this.switchTab('capture');
-    } else {
-      this.switchTab('search');
-    }
-  }
-
   private async runSearch(query: string) {
-    if (!this.searchActive) return;
+    if (this.timelineMode !== 'search') return;
 
     // Version stamp — any newer call invalidates this one
     const version = ++this.searchVersion;
@@ -473,7 +440,7 @@ export class JournalCaptureView extends ItemView {
 
   /** Scan the next batch of files in searchFileQueue and append matching days. */
   private async loadMoreSearchResults(): Promise<void> {
-    if (!this.searchActive || this.loadingMore) return;
+    if (this.timelineMode !== 'search' || this.loadingMore) return;
     // No queue built yet (user hasn't typed anything) — do nothing
     if (this.searchFileQueue.length === 0) return;
     this.loadingMore = true;
@@ -1306,27 +1273,21 @@ export class JournalCaptureView extends ItemView {
     // Stop button centered under the waveform.
     recStopBtn.addEventListener('click', () => void doStop());
 
-    // Clear button — wipes the textarea and trashes any embedded audio files.
-    const clearBtn = buttonRow.createEl('button', {
-      cls: 'jp-capture-clear-btn',
-      attr: { 'aria-label': '清空' },
-    });
-    setIcon(clearBtn, 'delete');
-    clearBtn.addEventListener('click', () => {
-      const value = this.textareaEl.value;
-      if (value.trim().length === 0) return; // nothing to clear
-      void this.confirmClearInput(value);
-    });
-
-    // Task button — toggle task mode for the next entry
+    // Task button
     const taskBtn = buttonRow.createEl('button', {
       cls: 'jp-capture-task-btn',
-      attr: { 'aria-label': '添加任务' },
+      attr: { 'aria-label': '切换任务模式' },
     });
-    setIcon(taskBtn, 'check-circle');
+    setIcon(taskBtn, 'list');
     taskBtn.addEventListener('click', () => {
       this.isTaskMode = !this.isTaskMode;
       taskBtn.toggleClass('is-active', this.isTaskMode);
+      // Change icon based on mode
+      if (this.isTaskMode) {
+        setIcon(taskBtn, 'square-check');
+      } else {
+        setIcon(taskBtn, 'list');
+      }
     });
 
     this.submitBtn = actions.createEl('button', {
@@ -1495,6 +1456,212 @@ export class JournalCaptureView extends ItemView {
     this.sentinelEl = root.createDiv({ cls: 'jp-timeline-sentinel' });
   }
 
+  /**
+   * Toolbar pinned (with the input card) above the timeline stream. Left: a
+   * label identifying the stream. Right: search + random-review tab switches
+   * and a filter dropdown (all entries / only tasks / only memos).
+   */
+  private buildTimelineToolbar(root: HTMLElement) {
+    const bar = root.createDiv({ cls: 'jp-timeline-toolbar' });
+    this.timelineToolbarEl = bar;
+
+    // Left — home button: click to return to the daily timeline
+    const homeBtn = bar.createEl('button', {
+      cls: 'jp-timeline-toolbar-label jp-timeline-toolbar-home',
+      attr: { 'aria-label': '回到时间线主页', title: '回到时间线主页' },
+    });
+    setIcon(homeBtn, 'history');
+    homeBtn.createSpan({ text: '时间线' });
+    homeBtn.addEventListener('click', () => this.restoreDailyMode());
+
+    bar.createDiv({ cls: 'jp-timeline-toolbar-spacer' });
+
+    // Right — action group: search + random-review + filter
+    const actions = bar.createDiv({ cls: 'jp-timeline-toolbar-actions' });
+
+    // 搜索日记 — toggles inline search mode
+    this.searchTabBtn = actions.createEl('button', {
+      cls: 'jp-timeline-toolbar-btn',
+      attr: { 'aria-label': '搜索日记', title: '搜索日记' },
+    });
+    setIcon(this.searchTabBtn, 'search');
+    this.searchTabBtn.addEventListener('click', () => this.toggleTimelineMode('search'));
+
+    // 随机回顾 — toggles inline review mode
+    this.reviewTabBtn = actions.createEl('button', {
+      cls: 'jp-timeline-toolbar-btn',
+      attr: { 'aria-label': '随机回顾', title: '随机回顾' },
+    });
+    setIcon(this.reviewTabBtn, 'dice');
+    this.reviewTabBtn.addEventListener('click', () => this.toggleTimelineMode('review'));
+
+    const filterBtn = actions.createEl('button', {
+      cls: 'jp-timeline-toolbar-btn jp-timeline-filter-btn',
+      attr: { 'aria-label': '过滤', title: '过滤' },
+    });
+    this.updateFilterBtn(filterBtn);
+    filterBtn.addEventListener('click', (evt) => {
+      const menu = new Menu();
+      const opts: Array<{ key: 'all' | 'task' | 'memo'; label: string; icon: string }> = [
+        { key: 'all', label: '全部', icon: 'list' },
+        { key: 'task', label: '仅任务', icon: 'square-check' },
+        { key: 'memo', label: '仅备忘', icon: 'sticky-note' },
+      ];
+      for (const o of opts) {
+        menu.addItem((item) =>
+          item
+            .setTitle(o.label)
+            .setIcon(o.icon)
+            .setChecked(this.entryFilter === o.key)
+            .onClick(() => {
+              this.entryFilter = o.key;
+              this.updateFilterBtn(filterBtn);
+              this.applyEntryFilter();
+            }),
+        );
+      }
+      menu.showAtMouseEvent(evt);
+    });
+  }
+
+  /** Sync the filter button's icon + active styling with `entryFilter`. */
+  private updateFilterBtn(btn: HTMLElement) {
+    const icon = this.entryFilter === 'task'
+      ? 'square-check'
+      : this.entryFilter === 'memo'
+        ? 'sticky-note'
+        : 'filter';
+    btn.empty();
+    setIcon(btn, icon);
+    btn.toggleClass('is-active', this.entryFilter !== 'all');
+  }
+
+  /**
+   * Apply the current entry filter across all rendered days via a class on
+   * the timeline root (CSS hides the non-matching rows). Purely presentational
+   * — no file reads or DOM rebuild, so it's instant and survives re-renders
+   * as long as renderDayContent re-applies it.
+   */
+  private applyEntryFilter() {
+    this.timelineEl.toggleClass('jp-filter-task', this.entryFilter === 'task');
+    this.timelineEl.toggleClass('jp-filter-memo', this.entryFilter === 'memo');
+  }
+
+  /**
+   * Toolbar search/review buttons toggle between the three timeline modes.
+   * Clicking the active mode's button returns to the daily timeline; clicking
+   * the other replaces the current snapshot mode. In review mode, re-clicking
+   * the dice re-rolls to another random day.
+   */
+  private toggleTimelineMode(mode: 'search' | 'review') {
+    if (this.timelineMode === mode) {
+      if (mode === 'review') {
+        void this.loadReview();
+      } else {
+        this.restoreDailyMode();
+      }
+      return;
+    }
+    this.setTimelineMode(mode);
+  }
+
+  /** Transition the capture timeline into `mode`, replacing any prior one. */
+  private setTimelineMode(mode: 'daily' | 'search' | 'review') {
+    const prev = this.timelineMode;
+    this.timelineMode = mode;
+
+    this.searchTabBtn.toggleClass('is-active', mode === 'search');
+    this.reviewTabBtn.toggleClass('is-active', mode === 'review');
+    this.inlineSearchBarEl.toggle(mode === 'search');
+
+    if (prev === 'search' && this.searchDebounceTimer !== null) {
+      window.clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
+    }
+
+    this.disposeDays();
+    this.timelineEl.empty();
+    this.restoreSentinel();
+
+    if (mode === 'daily') {
+      this.nextProbeDate = moment().startOf('day').subtract(1, 'day');
+      this.exhausted = false;
+      this.loadingMore = false;
+      void this.fullRebuild();
+    } else if (mode === 'search') {
+      this.exhausted = false;
+      this.searchFileQueue = [];
+      this.searchCursor = 0;
+      this.searchVersion = 0;
+      this.searchQuery = '';
+      this.inlineSearchInputEl.value = '';
+      this.renderTopLevelMessage('输入关键词开始搜索');
+      window.setTimeout(() => this.inlineSearchInputEl.focus(), 50);
+    } else {
+      // review — a single random day, no infinite scroll
+      this.exhausted = true;
+      this.loadingMore = false;
+      void this.loadReview();
+    }
+  }
+
+  /** Return the capture timeline to the normal daily stream. */
+  private restoreDailyMode() {
+    this.setTimelineMode('daily');
+  }
+
+  /** Build the inline search bar shown above the toolbar in search mode. */
+  private buildInlineSearchBar(root: HTMLElement) {
+    const bar = root.createDiv({ cls: 'jp-timeline-inline-search' });
+    this.inlineSearchBarEl = bar;
+    bar.hide();
+
+    const icon = bar.createSpan({ cls: 'jp-inline-search-icon' });
+    setIcon(icon, 'search');
+
+    this.inlineSearchInputEl = bar.createEl('input', {
+      cls: 'jp-inline-search-input',
+      attr: { placeholder: '搜索日记…', type: 'text' },
+    });
+    this.inlineSearchInputEl.addEventListener('input', () => {
+      const q = this.inlineSearchInputEl.value;
+      this.searchQuery = q;
+      if (this.searchDebounceTimer !== null) window.clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = window.setTimeout(() => {
+        this.searchDebounceTimer = null;
+        void this.runSearch(q.trim());
+      }, 300);
+    });
+  }
+
+  /**
+   * Floating "back to top" button. Appended to the capture pane, hidden until
+   * the user scrolls the stream down past a threshold, then fades in. Click
+   * smooth-scrolls back to the top (today's entries).
+   */
+  private setupScrollTopButton() {
+    const btn = this.capturePaneEl.createEl('button', {
+      cls: 'jp-scroll-top-btn',
+      attr: { 'aria-label': '回到顶部', title: '回到顶部' },
+    });
+    setIcon(btn, 'arrow-up');
+    btn.addEventListener('click', () => {
+      const scroller = this.containerEl.children[1] as HTMLElement;
+      scroller.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    this.scrollTopBtnEl = btn;
+
+    const scroller = this.containerEl.children[1] as HTMLElement;
+    if (!scroller) return;
+    const onScroll = () => {
+      const visible = scroller.scrollTop > 240;
+      btn.toggleClass('is-visible', visible);
+    };
+    this.registerDomEvent(scroller, 'scroll', onScroll);
+    onScroll();
+  }
+
+
   // ── Behaviour ───────────────────────────────────────────────────────────
 
   private refreshSubmitState() {
@@ -1566,8 +1733,9 @@ export class JournalCaptureView extends ItemView {
   }
 
   private scheduleFullRebuild() {
-    // Only skip when actively on the search tab — other tabs don't hold timeline state
-    if (this.currentTab === 'search') return;
+    // Search/review render snapshots — a full rebuild would wipe the query or
+    // the random day. Only rebuild in daily mode.
+    if (this.timelineMode !== 'daily') return;
     if (this.rerenderTimer !== null) return;
     this.rerenderTimer = window.setTimeout(() => {
       this.rerenderTimer = null;
@@ -1586,6 +1754,20 @@ export class JournalCaptureView extends ItemView {
   // ── Full rebuild ────────────────────────────────────────────────────────
 
   async fullRebuild(): Promise<void> {
+    // A full rebuild always restores the daily timeline — search/review are
+    // snapshots that are cleared by setTimelineMode instead.
+    this.timelineMode = 'daily';
+    this.searchTabBtn.toggleClass('is-active', false);
+    this.reviewTabBtn.toggleClass('is-active', false);
+    this.inlineSearchBarEl.hide();
+    if (this.searchDebounceTimer !== null) {
+      window.clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
+    }
+    this.searchQuery = '';
+    this.searchFileQueue = [];
+    this.searchCursor = 0;
+
     this.disposeDays();
     this.timelineEl.empty();
 
@@ -1620,8 +1802,13 @@ export class JournalCaptureView extends ItemView {
    * `nextProbeDate` and may flip `exhausted`.
    */
   private async loadMore(): Promise<void> {
-    if (this.searchActive) {
+    if (this.timelineMode === 'search') {
       await this.loadMoreSearchResults();
+      return;
+    }
+    if (this.timelineMode === 'review') {
+      // Review renders a single random day — nothing to load incrementally.
+      this.exhausted = true;
       return;
     }
     if (this.loadingMore || this.exhausted) return;
@@ -1708,6 +1895,11 @@ export class JournalCaptureView extends ItemView {
 
   /** Refresh just one day's section in place (used on vault.modify). */
   private async refreshDay(day: DaySection): Promise<void> {
+    // Skip re-render if this file is being modified by our task toggle
+    if (day.filePath && this.taskModifyingFiles.has(day.filePath)) {
+      return;
+    }
+
     let entries: JournalEntry[] = [];
     let file: TFile | null = null;
     try {
@@ -1750,7 +1942,11 @@ export class JournalCaptureView extends ItemView {
     const headerText = headerCard.createDiv({ cls: 'jp-timeline-header-text' });
     headerText.createDiv({ cls: 'jp-timeline-header-title', text: headerLabel.title });
     headerText.createDiv({ cls: 'jp-timeline-header-sub', text: headerLabel.subtitle });
-    this.addOpenNoteBtn(headerCard, day);
+    // Skip the per-day open-note (crosshair) button in review mode — the
+    // timeline is a random snapshot, so the daily-note shortcut is confusing.
+    if (this.timelineMode !== 'review') {
+      this.addOpenNoteBtn(headerCard, day);
+    }
 
     if (entries.length === 0) {
       // Today with no entries — soft hint only
@@ -1759,37 +1955,123 @@ export class JournalCaptureView extends ItemView {
     }
 
     // Sort entries within the day
-    const latestTs = entries.reduce<string>(
-      (acc, e) => (e.timestamp > acc ? e.timestamp : acc),
-      '',
-    );
     const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder);
 
     const sourcePath = day.filePath ?? '';
     for (const entry of sorted) {
       const row = day.el.createDiv({ cls: 'jp-timeline-entry' });
 
-      // Add task-related classes
+      // Add task-specific classes if this is a task entry
       if (entry.type === 'task') {
         row.addClass('jp-entry-task');
         if (entry.completed) {
           row.addClass('jp-task-completed');
         }
+      } else {
+        row.addClass('jp-entry-memo');
       }
 
       const dot = row.createDiv({ cls: 'jp-timeline-dot' });
-      // "Latest" highlight only applies on today's section (otherwise every
-      // historical day would have its own filled dot, which is noisy).
-      if (
-        day.date.isSame(moment().startOf('day'), 'day') &&
-        entry.timestamp === latestTs
-      ) {
-        dot.addClass('jp-timeline-dot--latest');
+
+      // Regular memos: always filled dot
+      if (entry.type === 'memo') {
+        dot.addClass('jp-timeline-dot--filled');
+      }
+      // Tasks: special outlined dot with ring
+      else if (entry.type === 'task') {
+        dot.addClass('jp-timeline-dot--task-marker');
       }
 
       // Header: timestamp pill anchored to the dot via a short connector line.
       const head = row.createDiv({ cls: 'jp-timeline-entry-head' });
       head.createSpan({ cls: 'jp-timestamp', text: entry.timestamp });
+
+      // Add checkbox icon after timestamp for task entries
+      if (entry.type === 'task') {
+        const checkbox = head.createDiv({ cls: 'jp-task-icon' });
+        if (entry.completed) {
+          setIcon(checkbox, 'check-square-2');
+        } else {
+          setIcon(checkbox, 'square');
+        }
+
+        // Make checkbox clickable to toggle completion status
+        checkbox.addEventListener('click', runAsync(async () => {
+          if (!day.filePath) return;
+          try {
+            const file = this.app.vault.getAbstractFileByPath(day.filePath);
+            if (!(file instanceof TFile)) return;
+
+            const content = await this.app.vault.read(file);
+            const newContent = toggleTaskInSection(
+              content,
+              this.plugin.settings,
+              entry.lineIndex,
+              !entry.completed,
+            );
+
+            // Mark this file as being modified by us, so refreshDay skips re-render
+            this.taskModifyingFiles.add(day.filePath);
+
+            // Find the editor FIRST
+            let editorModified = false;
+            this.app.workspace.iterateAllLeaves(leaf => {
+              if (!editorModified && leaf.view instanceof MarkdownView) {
+                if (leaf.view.file?.path === day.filePath) {
+                  const cm = (leaf.view.editor as unknown as { cm?: EditorView }).cm;
+                  if (cm) {
+                    // Directly modify the CodeMirror state
+                    cm.dispatch({
+                      changes: {
+                        from: 0,
+                        to: cm.state.doc.length,
+                        insert: newContent,
+                      },
+                    });
+
+                    // Trigger Obsidian to save this file
+                    this.app.vault.modify(file, newContent).catch(err => {
+                      console.error('[Journal Partner] Save failed:', err);
+                    });
+                    editorModified = true;
+                  }
+                }
+              }
+            });
+
+            // If editor was open and we modified it, don't also await vault.modify
+            if (!editorModified) {
+              await this.app.vault.modify(file, newContent);
+            }
+
+            // Update the local entry state
+            entry.completed = !entry.completed;
+
+            // Refresh the icon immediately
+            checkbox.empty();
+            if (entry.completed) {
+              setIcon(checkbox, 'check-square-2');
+              row.addClass('jp-task-completed');
+            } else {
+              setIcon(checkbox, 'square');
+              row.removeClass('jp-task-completed');
+            }
+
+            // Show success feedback
+            new Notice(entry.completed ? '✓ 任务已完成' : '○ 任务未完成');
+
+            // Clear the marking after a brief delay
+            window.setTimeout(() => {
+              this.taskModifyingFiles.delete(day.filePath);
+            }, 150);
+          } catch (err) {
+            console.error('[Journal Partner] toggle task failed:', err);
+            new Notice('切换任务状态失败');
+            // Clean up marking on error
+            this.taskModifyingFiles.delete(day.filePath);
+          }
+        }));
+      }
 
       // Body bubble: chat-style rounded card holding the rendered markdown.
       const bubble = row.createDiv({ cls: 'jp-timeline-bubble' });
@@ -1835,6 +2117,20 @@ export class JournalCaptureView extends ItemView {
     this.sentinelEl = end;
   }
 
+  /**
+   * Re-attach a fresh sentinel and observer when switching timeline modes.
+   * markEndOfTimeline replaces the sentinel with a static end marker, so the
+   * intersection observer must be pointed at a new sentinel before infinite
+   * scroll works again.
+   */
+  private restoreSentinel() {
+    if (this.sentinelEl.classList.contains('jp-timeline-sentinel')) return;
+    const fresh = createDiv({ cls: 'jp-timeline-sentinel' });
+    this.sentinelEl.replaceWith(fresh);
+    this.sentinelEl = fresh;
+    this.setupIntersectionObserver();
+  }
+
   private setupIntersectionObserver() {
     if (this.intersectionObs) this.intersectionObs.disconnect();
     const root = this.containerEl.children[1] as HTMLElement;
@@ -1857,14 +2153,14 @@ export class JournalCaptureView extends ItemView {
     this.days = [];
   }
 
-  // ── Review pane ─────────────────────────────────────────────────────────
+  // ── Review timeline mode ────────────────────────────────────────────────
 
-  /** Load a random past daily note and render its entries as a timeline. */
+  /** Load a random past daily note and render it into the shared timeline. */
   private async loadReview(): Promise<void> {
-    this.reviewPaneEl.empty();
+    this.timelineEl.empty();
 
     if (!appHasDailyNotesPluginLoaded()) {
-      this.reviewPaneEl.createDiv({ cls: 'jp-capture-empty', text: '请先启用 Obsidian 自带的「Daily Notes」核心插件' });
+      this.renderTopLevelMessage('请先启用 Obsidian 自带的「Daily Notes」核心插件');
       return;
     }
 
@@ -1877,7 +2173,7 @@ export class JournalCaptureView extends ItemView {
     });
 
     if (files.length === 0) {
-      this.reviewPaneEl.createDiv({ cls: 'jp-capture-empty', text: '还没有过去的日记可以回顾' });
+      this.renderTopLevelMessage('还没有过去的日记可以回顾');
       return;
     }
 
@@ -1885,28 +2181,8 @@ export class JournalCaptureView extends ItemView {
     const file = files[Math.floor(Math.random() * files.length)];
     const date = getDateFromFile(file, 'day').clone().startOf('day');
 
-    // Header with date + re-roll button
-    const header = this.reviewPaneEl.createDiv({ cls: 'jp-review-header' });
-    const dateEl = header.createDiv({ cls: 'jp-review-date' });
-    const weekdayZh = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][date.day()];
-    dateEl.setText(date.format('YYYY年M月D日') + ' · ' + weekdayZh);
-
-    const rerollBtn = header.createEl('button', {
-      cls: 'jp-review-reroll-btn',
-      attr: { 'aria-label': '换一天' },
-    });
-    setIcon(rerollBtn, 'dice');
-    rerollBtn.addEventListener('click', () => void this.loadReview());
-
-    const openBtn = header.createEl('button', {
-      cls: 'jp-review-reroll-btn',
-      attr: { 'aria-label': '打开日记' },
-    });
-    setIcon(openBtn, 'crosshair');
-    openBtn.addEventListener('click', () => void this.openDailyNoteByDate(date));
-
     // Parse entries
-    let entries: Array<{ timestamp: string; text: string; lineIndex: number }> = [];
+    let entries: JournalEntry[] = [];
     try {
       const content = await this.app.vault.cachedRead(file);
       const section = findSection(content, this.plugin.settings.targetHeading, this.plugin.settings.headingLevel);
@@ -1926,28 +2202,24 @@ export class JournalCaptureView extends ItemView {
     }
 
     if (entries.length === 0) {
-      this.reviewPaneEl.createDiv({ cls: 'jp-capture-empty', text: '这天没有日记内容' });
+      this.renderTopLevelMessage('这天没有日记内容');
       return;
     }
 
     // Respect the configured sort order (newest or oldest first)
     const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder);
 
-    const scope = new Component();
-    scope.load();
-    this.register(() => scope.unload());
-
-    const timeline = this.reviewPaneEl.createDiv({ cls: 'jp-timeline' });
-    const sourcePath = file.path;
-
-    for (const entry of sorted) {
-      const row = timeline.createDiv({ cls: 'jp-timeline-entry' });
-      row.createDiv({ cls: 'jp-timeline-dot' });
-      const head = row.createDiv({ cls: 'jp-timeline-entry-head' });
-      head.createSpan({ cls: 'jp-timestamp', text: entry.timestamp });
-      const bubble = row.createDiv({ cls: 'jp-timeline-bubble' });
-      void MarkdownRenderer.render(this.app, entry.text, bubble, sourcePath, scope);
-    }
+    // Render as a single day section in the shared timeline.
+    const day: DaySection = {
+      date: date.clone(),
+      el: createDiv({ cls: 'jp-timeline-day' }),
+      scope: new Component(),
+      filePath: file.path,
+    };
+    day.scope.load();
+    this.renderDayContent(day, sorted);
+    this.timelineEl.appendChild(day.el);
+    this.days = [day];
   }
 
   /**
@@ -2610,8 +2882,15 @@ export class JournalCaptureView extends ItemView {
     this.submitBtn.setText('写入中…');
 
     try {
-      // Format as task if task mode is enabled
-      const text = this.isTaskMode ? `[ ] ${raw}` : raw;
+      // Format entry based on mode
+      let text: string;
+      if (this.isTaskMode) {
+        // Task format: "[ ] text" (Obsidian checkbox syntax)
+        // writeToTodayJournal will add the "- HH:MM" prefix
+        text = `[ ] ${raw}`;
+      } else {
+        text = raw;
+      }
       const ok = await this.plugin.writeToTodayJournal(text);
       if (!ok) return;
 
@@ -3099,19 +3378,21 @@ class EditEntryModal extends Modal {
       cls: 'mod-cta jp-edit-entry-save',
       text: '保存',
     });
-    saveBtn.addEventListener('click', async () => {
-      const next = textarea.value;
-      if (next.trim().length === 0) {
-        new Notice('内容不能为空');
-        return;
-      }
-      saveBtn.disabled = true;
-      try {
-        await this.onSave(next);
-        this.close();
-      } finally {
-        saveBtn.disabled = false;
-      }
+    saveBtn.addEventListener('click', () => {
+      void (async () => {
+        const next = textarea.value;
+        if (next.trim().length === 0) {
+          new Notice('内容不能为空');
+          return;
+        }
+        saveBtn.disabled = true;
+        try {
+          await this.onSave(next);
+          this.close();
+        } finally {
+          saveBtn.disabled = false;
+        }
+      })();
     });
 
     // Enter to save, Shift+Enter for newline — matches the capture input.
