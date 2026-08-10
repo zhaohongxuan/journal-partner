@@ -35,6 +35,7 @@ import {
   getDailyNote,
   getDateFromFile,
 } from 'obsidian-daily-notes-interface';
+import type { EditorView } from '@codemirror/view';
 
 import {
   JournalEntry,
@@ -1954,10 +1955,6 @@ export class JournalCaptureView extends ItemView {
     }
 
     // Sort entries within the day
-    const latestTs = entries.reduce<string>(
-      (acc, e) => (e.timestamp > acc ? e.timestamp : acc),
-      '',
-    );
     const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder);
 
     const sourcePath = day.filePath ?? '';
@@ -2020,9 +2017,8 @@ export class JournalCaptureView extends ItemView {
             let editorModified = false;
             this.app.workspace.iterateAllLeaves(leaf => {
               if (!editorModified && leaf.view instanceof MarkdownView) {
-                const view = leaf.view as MarkdownView;
-                if (view.file?.path === day.filePath) {
-                  const cm = (view.editor as any).cm;
+                if (leaf.view.file?.path === day.filePath) {
+                  const cm = (leaf.view.editor as unknown as { cm?: EditorView }).cm;
                   if (cm) {
                     // Directly modify the CodeMirror state
                     cm.dispatch({
@@ -2066,13 +2062,13 @@ export class JournalCaptureView extends ItemView {
 
             // Clear the marking after a brief delay
             window.setTimeout(() => {
-              this.taskModifyingFiles.delete(day.filePath!);
+              this.taskModifyingFiles.delete(day.filePath);
             }, 150);
           } catch (err) {
             console.error('[Journal Partner] toggle task failed:', err);
             new Notice('切换任务状态失败');
             // Clean up marking on error
-            this.taskModifyingFiles.delete(day.filePath!);
+            this.taskModifyingFiles.delete(day.filePath);
           }
         }));
       }
@@ -3382,19 +3378,21 @@ class EditEntryModal extends Modal {
       cls: 'mod-cta jp-edit-entry-save',
       text: '保存',
     });
-    saveBtn.addEventListener('click', async () => {
-      const next = textarea.value;
-      if (next.trim().length === 0) {
-        new Notice('内容不能为空');
-        return;
-      }
-      saveBtn.disabled = true;
-      try {
-        await this.onSave(next);
-        this.close();
-      } finally {
-        saveBtn.disabled = false;
-      }
+    saveBtn.addEventListener('click', () => {
+      void (async () => {
+        const next = textarea.value;
+        if (next.trim().length === 0) {
+          new Notice('内容不能为空');
+          return;
+        }
+        saveBtn.disabled = true;
+        try {
+          await this.onSave(next);
+          this.close();
+        } finally {
+          saveBtn.disabled = false;
+        }
+      })();
     });
 
     // Enter to save, Shift+Enter for newline — matches the capture input.

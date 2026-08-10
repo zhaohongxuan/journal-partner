@@ -54,6 +54,16 @@
     inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
+/*
+  Dark-theme colors. Applied on <body> by the plugin at runtime (see
+  applyCSSVariables) — kept here so theme switching works purely via CSS
+  when the values are set.
+*/
+.theme-dark {
+  --jp-ts-color: var(--jp-ts-color-dark);
+  --jp-ts-bg: var(--jp-ts-bg-dark);
+}
+
 /* ── Reading view ─────────────────────────────────────────────────────────── */
 
 /* Non-interactive cursor in the rendered view */
