@@ -238,7 +238,9 @@ export class JournalCaptureView extends ItemView {
     root.empty();
     root.addClass('jp-capture-root');
 
-    // Top-level tab bar — switches between "快速记录" and "年度统计".
+    // Top-level tab bar — lives OUTSIDE both panes so it's visible on every
+    // tab. It's a normal block at the top of the scroll container, so it does
+    // not scroll away and needs no sticky.
     this.buildTabBar(root as HTMLElement);
 
     // Capture pane (default visible)
@@ -346,21 +348,27 @@ export class JournalCaptureView extends ItemView {
   private buildTabBar(root: HTMLElement) {
     this.tabBarEl = root.createDiv({ cls: 'jp-tab-bar' });
 
-    this.captureTabBtn = this.makeTabBtn('feather', true, '快速记录');
+    this.captureTabBtn = this.makeTabBtn('feather', '快速记录', true);
     this.captureTabBtn.addEventListener('click', () => this.switchTab('capture'));
 
-    this.statsTabBtn = this.makeTabBtn('bar-chart-2', false, '年度统计');
+    this.statsTabBtn = this.makeTabBtn('bar-chart-2', '年度统计', false);
     this.statsTabBtn.addEventListener('click', () => this.switchTab('stats'));
 
     // Note: 搜索日记 / 随机回顾 buttons live in the timeline toolbar
     // (buildTimelineToolbar), not this top tab bar.
   }
 
-  /** Build one icon-only tab button. */
-  private makeTabBtn(icon: string, active: boolean, tooltip?: string): HTMLButtonElement {
+  /**
+   * Build one icon-only tab button. Reuses Obsidian's native `.clickable-icon`
+   * class — the same class Obsidian uses for its sidebar tab headers and
+   * toolbar icon buttons — so the look (shape, hover, active state, colours)
+   * is owned entirely by the current theme and adapts to light/dark/custom
+   * themes automatically. We only add `.jp-tab-btn` for our own layout hooks.
+   */
+  private makeTabBtn(icon: string, label: string, active: boolean): HTMLButtonElement {
     const btn = this.tabBarEl.createEl('button', {
-      cls: 'jp-tab-btn' + (active ? ' is-active' : ''),
-      attr: tooltip ? { 'aria-label': tooltip, title: tooltip } : {},
+      cls: `clickable-icon jp-tab-btn${active ? ' is-active' : ''}`,
+      attr: { 'aria-label': label, 'aria-pressed': String(active), title: label },
     });
     const iconEl = btn.createSpan({ cls: 'jp-tab-btn-icon' });
     setIcon(iconEl, icon);
