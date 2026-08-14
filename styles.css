@@ -95,11 +95,22 @@
 
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 0;
+  /* gap 设 0：否则 tabBar 与 capturePane 之间会有 12px 间隙，移动端 card 离顶部
+     显得比 PC 远。间距改由各 pane/sticky 内部承担。 */
+  gap: 0;
+  /* padding 不能放在 root 上：sticky 吸附 top:0 时只覆盖到 content 区顶部，
+     其上 12px padding 区域会透出滚动经过的下层内容。顶部间距改由
+     .jp-capture-sticky 的 padding-top 提供，吸附时背景才能完整盖顶。 */
+  padding: 0;
   height: 100%;
   overflow-y: auto;
   background: var(--background-secondary);
+}
+/* 移动端 view 容器可能被外层 flex/滚动塌缩，保证 root 有确定高度才能让内部
+   sticky 有可吸附的滚动祖先。 */
+.is-mobile .jp-capture-root {
+  height: 100dvh;
+  min-height: 0;
 }
 
 /* Toolbar */
@@ -130,19 +141,27 @@
 /* Sticky header — input card + timeline toolbar stay pinned while the
    timeline stream scrolls underneath. */
 .jp-capture-sticky {
+  position: -webkit-sticky;
   position: sticky;
   top: 0;
   z-index: 5;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  /* 8px 原有间距 + 12px 吸收掉 .jp-pane 的 gap，让背景一直盖到 timeline 顶部，
-     避免滚动时内容从 sticky 底部缝隙"漏头"。 */
-  padding-bottom: 20px;
+  border-radius: 6px;
   background: var(--background-secondary);
-  /* sticky 背景在 box 边缘有亚像素 paint 撕裂，timeline 文字会从 0-3px 缝隙漏出。
-     用同色 outline 把视觉覆盖向外扩 3px 盖住缝隙（同色，视觉不可见）。 */
-  outline: 3px solid var(--background-secondary);
+  /* 粘性底部亚像素撕裂：滚动时 timeline 文字会从 sticky 底边 1px 缝隙漏出。
+     box-shadow 向下补 1px 同色背景盖住 —— 最小化的覆盖，不再像 outline:3px 那样
+     持续压住下方内容。呼吸间距由 .jp-timeline 的 margin-top 承担（随内容滚动），
+     不占 sticky 的 padding，所以滚动时不会把这段空白盖在文字上。 */
+  box-shadow: 0 1px 0 0 var(--background-secondary);
+}
+/* 桌面侧栏背景为 --background-secondary，sticky 与其同色融合。移动端主面板是
+   --background-primary，secondary 色块会显得突兀 —— 改用 primary 与其融合，
+   保持背景无缝。 */
+.is-mobile .jp-capture-sticky {
+  background: var(--background-primary);
+  box-shadow: 0 1px 0 0 var(--background-primary);
 }
 
 /* Input card */
@@ -587,6 +606,9 @@
 .jp-timeline {
   position: relative;
   padding-left: 24px;
+  /* 与 sticky 头部的呼吸间距。用 margin（随内容滚动）而不是 sticky 的
+     padding（静止时会被背景吞掉、滚动时盖住文字）。 */
+  margin-top: 12px;
 }
 .jp-timeline::before {
   content: '';
@@ -1034,13 +1056,38 @@
 /* Tabs sit at the very top of the view, above the input card / stats
    toolbar. Pill-shaped buttons with icon + short label; the active one
    wears a soft accent background to make the current pane obvious. */
+/* Tab bar — each button reuses Obsidian's native `.clickable-icon` class so
+   shape/hover/colour come from the current theme. We only own the strip
+   layout (left-aligned, separated) and the active-tab indicator. */
 .jp-tab-bar {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
-  gap: 4px;
-  padding: 0 2px;
+  gap: 2px;
+  padding: 12px 0 0;
   margin-bottom: 6px;
+}
+/* `.clickable-icon` already sizes the button and centres the icon; we just
+   pin a fixed height so the strip lines up with its bottom border. */
+.jp-tab-btn.clickable-icon {
+  height: 30px;
+  border-radius: 6px;
+}
+.jp-tab-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.jp-tab-btn-icon svg {
+  width: 17px;
+  height: 17px;
+}
+/* Active tab — tinted background + accent text, matching Obsidian's selected
+   sidebar-tab look (the coloured "pressed" icon state). */
+.jp-tab-btn.is-active {
+  color: var(--icon-color);
+  background: var(--background-modifier-hover);
+  box-shadow: inset 0 0 0 1px var(--background-modifier-border);
 }
 /* Search bar — appears below tab bar when search tab is active */
 .jp-search-bar {
@@ -1084,48 +1131,8 @@
   padding: 0 1px;
   font-weight: 600;
 }
-.jp-tab-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 50%;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-.jp-tab-btn-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 15px;
-  height: 15px;
-}
-.jp-tab-btn-icon svg {
-  width: 15px;
-  height: 15px;
-}
-/* Text label is no longer used, hidden if accidentally present */
-.jp-tab-btn-text {
-  display: none;
-}
-.jp-tab-btn:hover {
-  color: var(--text-normal);
-  background: var(--background-modifier-hover);
-}
-.jp-tab-btn.is-active {
-  background: color-mix(in srgb, var(--jp-ts-color, #7c3aed) 14%, transparent);
-  color: var(--jp-ts-color, #7c3aed);
-  border-color: color-mix(in srgb, var(--jp-ts-color, #7c3aed) 22%, transparent);
-}
-.theme-dark .jp-tab-btn.is-active {
-  background: color-mix(in srgb, var(--jp-ts-color, #7c3aed) 22%, transparent);
-  border-color: color-mix(in srgb, var(--jp-ts-color, #7c3aed) 32%, transparent);
-}
+/* Tab buttons are styled together with .jp-tab-bar above (native underline
+   style). The old icon-only circular variant is fully replaced. */
 
 /* Pane containers — capture pane keeps its existing layout; stats pane
    stacks toolbar + body vertically. */
@@ -1133,6 +1140,11 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+/* Stats pane sits below the tab bar (which owns the top padding); give it a
+   little breathing room so the toolbar doesn't hug the tab bar. */
+.jp-pane-stats {
+  padding-top: 12px;
 }
 /* Capture pane: 取消 sticky 头部与 timeline 之间的 gap，改由 .jp-capture-sticky 的
    padding-bottom 承担，确保 sticky 背景无缝覆盖到 timeline 顶部。 */
