@@ -5,6 +5,18 @@ All notable changes to **Journal Partner** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.3] — 2026-08-17
+
+### Changed
+
+- **去掉 capture 视图顶部的滚动吸附**：输入卡片 + 时间线工具栏此前固定在滚动容器顶部（sticky），现改为随内容一起滚动。
+- **回到顶部按钮位置**：桌面端保持贴近底部；移动端上移到导航栏之上，避免被遮挡（导航栏自动隐藏后按钮贴近底部）。
+
+### Fixed
+
+- **移动端底部导航栏自动隐藏失效**：CSS 选择器误用 `.mobile-toolbar`（Obsidian 移动端底栏真实类名是 `.mobile-navbar`），导致导航栏一直展示。已修正选择器，滚动时导航栏随方向隐藏/显示。
+- **顶部 tab 与视图顶部的缝隙**：移除为 sticky 头部预留的 12px 顶部内边距（sticky 已去掉，不再需要）。
+
 ## [2.10.0] — 2026-08-06
 
 ### Added

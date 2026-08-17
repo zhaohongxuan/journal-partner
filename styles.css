@@ -96,21 +96,12 @@
   display: flex;
   flex-direction: column;
   /* gap 设 0：否则 tabBar 与 capturePane 之间会有 12px 间隙，移动端 card 离顶部
-     显得比 PC 远。间距改由各 pane/sticky 内部承担。 */
+     显得比 PC 远。间距改由各 pane/头部内部承担。 */
   gap: 0;
-  /* padding 不能放在 root 上：sticky 吸附 top:0 时只覆盖到 content 区顶部，
-     其上 12px padding 区域会透出滚动经过的下层内容。顶部间距改由
-     .jp-capture-sticky 的 padding-top 提供，吸附时背景才能完整盖顶。 */
   padding: 0;
   height: 100%;
   overflow-y: auto;
   background: var(--background-secondary);
-}
-/* 移动端 view 容器可能被外层 flex/滚动塌缩，保证 root 有确定高度才能让内部
-   sticky 有可吸附的滚动祖先。 */
-.is-mobile .jp-capture-root {
-  height: 100dvh;
-  min-height: 0;
 }
 
 /* Toolbar */
@@ -138,30 +129,19 @@
   color: var(--text-normal);
 }
 
-/* Sticky header — input card + timeline toolbar stay pinned while the
-   timeline stream scrolls underneath. */
+/* 输入卡片 + 时间线工具栏头部。此前用 sticky 吸附在滚动容器顶部，用户要求去掉
+   滚动吸附 —— 现在随内容一起滚动，作为普通块。背景色跟随所在 pane。 */
 .jp-capture-sticky {
-  position: -webkit-sticky;
-  position: sticky;
-  top: 0;
-  z-index: 5;
   display: flex;
   flex-direction: column;
   gap: 10px;
   border-radius: 6px;
   background: var(--background-secondary);
-  /* 粘性底部亚像素撕裂：滚动时 timeline 文字会从 sticky 底边 1px 缝隙漏出。
-     box-shadow 向下补 1px 同色背景盖住 —— 最小化的覆盖，不再像 outline:3px 那样
-     持续压住下方内容。呼吸间距由 .jp-timeline 的 margin-top 承担（随内容滚动），
-     不占 sticky 的 padding，所以滚动时不会把这段空白盖在文字上。 */
-  box-shadow: 0 1px 0 0 var(--background-secondary);
 }
-/* 桌面侧栏背景为 --background-secondary，sticky 与其同色融合。移动端主面板是
-   --background-primary，secondary 色块会显得突兀 —— 改用 primary 与其融合，
-   保持背景无缝。 */
+/* 桌面侧栏背景为 --background-secondary。移动端主面板是 --background-primary，
+   secondary 色块会显得突兀 —— 改用 primary 与其融合。 */
 .is-mobile .jp-capture-sticky {
   background: var(--background-primary);
-  box-shadow: 0 1px 0 0 var(--background-primary);
 }
 
 /* Input card */
@@ -940,15 +920,18 @@
   letter-spacing: 0.05em;
 }
 
-/* ── Mobile toolbar auto-hide ─────────────────────────────────────────────
-   Slides Obsidian's bottom toolbar out of view when the user scrolls down
+/* ── Mobile navbar auto-hide ──────────────────────────────────────────────
+   Slides Obsidian's bottom navbar out of view when the user scrolls down
    inside the capture timeline, restoring it on scroll up. The class is
    toggled on <body> by capture-view.ts only on mobile + while the view is
-   active, and is always cleared on view close. */
-.is-mobile .mobile-toolbar {
+   active, and is always cleared on view close.
+   NOTE: Obsidian's mobile bottom bar is `.mobile-navbar` (not
+   `.mobile-toolbar`) — the earlier selector never matched, so the bar stayed
+   visible; that is the bug this block fixes. */
+.is-mobile .mobile-navbar {
   transition: transform 0.22s ease, opacity 0.22s ease;
 }
-.is-mobile.jp-hide-mobile-toolbar .mobile-toolbar {
+.is-mobile.jp-hide-mobile-toolbar .mobile-navbar {
   transform: translateY(100%);
   opacity: 0;
   pointer-events: none;
@@ -1064,7 +1047,9 @@
   justify-content: flex-start;
   align-items: center;
   gap: 2px;
-  padding: 12px 0 0;
+  /* 顶部内边距：此前的 12px 是为 sticky 头部让路（避免吸附时滚动内容从 root
+     顶部 padding 区漏出）。sticky 已移除，这里只留一点呼吸空间。 */
+  padding: 6px 0 0;
   margin-bottom: 6px;
 }
 /* `.clickable-icon` already sizes the button and centres the icon; we just
@@ -1146,8 +1131,8 @@
 .jp-pane-stats {
   padding-top: 12px;
 }
-/* Capture pane: 取消 sticky 头部与 timeline 之间的 gap，改由 .jp-capture-sticky 的
-   padding-bottom 承担，确保 sticky 背景无缝覆盖到 timeline 顶部。 */
+/* Capture pane: 头部与 timeline 之间无 gap，呼吸间距由 .jp-timeline 的
+   margin-top 承担。 */
 .jp-pane-capture {
   gap: 0;
 }
@@ -1188,6 +1173,11 @@
 .jp-scroll-top-btn svg {
   width: 18px;
   height: 18px;
+}
+/* 移动端：底部导航栏(.mobile-navbar)会自动隐藏，不再需要为其预留 48px 避让，
+   按钮贴近底部即可。仅保留底部间距 + 安全区（Home indicator）。 */
+.is-mobile .jp-scroll-top-btn {
+  bottom: calc(12px + env(safe-area-inset-bottom));
 }
 
 /* ── Random review pane ───────────────────────────────────────────────────── */
