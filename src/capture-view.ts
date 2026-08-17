@@ -2574,12 +2574,12 @@ export class JournalCaptureView extends ItemView {
     }
   }
 
-  // ── Mobile toolbar auto-hide ────────────────────────────────────────────
+  // ── Mobile navbar auto-hide ─────────────────────────────────────────────
 
   /**
-   * On mobile, hide Obsidian's bottom toolbar (`.mobile-toolbar`) when the
+   * On mobile, hide Obsidian's bottom navbar (`.mobile-navbar`) when the
    * user scrolls down (looking at older entries) and reveal it when they
-   * scroll up. Restores the toolbar on view close so we never leave it in
+   * scroll up. Restores the navbar on view close so we never leave it in
    * a hidden state when the user navigates away.
    */
   private setupMobileToolbarAutoHide() {
@@ -2620,7 +2620,7 @@ export class JournalCaptureView extends ItemView {
     }
     this.scrollEl = null;
     this.onScrollBound = null;
-    // Always restore on close — never leave the user without their toolbar.
+    // Always restore on close — never leave the user without their navbar.
     this.setToolbarHidden(false);
   }
 
