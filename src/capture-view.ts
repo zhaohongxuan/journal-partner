@@ -44,6 +44,7 @@ import {
   editEntryInSection,
   toggleTaskInSection,
   extractAudioEmbeds,
+  extractTags,
   findSection,
   generateTimestamp,
   parseJournalEntries,
@@ -133,6 +134,14 @@ export class JournalCaptureView extends ItemView {
   private submitBtn!: HTMLButtonElement;
   private isTaskMode = false;
 
+  // Quick-tag picker (preset tags in the input card's left button row)
+  private tagBtn!: HTMLButtonElement;
+  private tagPickerEl!: HTMLElement;
+  private tagPickerActive = false;
+  /** Tags selected for the entry being composed, shown as chips above the textarea. */
+  private selectedTags: string[] = [];
+  private tagChipsRowEl!: HTMLElement;
+
   // Autocomplete state
   private autocompletePopupEl!: HTMLElement;
   private autocompleteItemsEl!: HTMLElement;
@@ -175,7 +184,21 @@ export class JournalCaptureView extends ItemView {
 
   /** Timeline entry filter: show all, only tasks, or only memos. */
   private entryFilter: 'all' | 'task' | 'memo' = 'all';
+  /** Active tag filter: only entries carrying this tag (no # prefix) are shown. Null = no tag filter. */
+  private activeTagFilter: string | null = null;
   private timelineToolbarEl!: HTMLElement;
+  /** Toolbar button that opens the tag-filter menu. */
+  private tagFilterBtn!: HTMLButtonElement;
+  /**
+   * Tags found across ALL daily notes (scanned from each file's Journal
+   * section), minus the preset tags. Null = not scanned yet. Each entry tracks
+   * usage count and recency so the tag menu can rank "frequent" + "recent"
+   * tags instead of dumping every historical tag.
+   */
+  private diaryTagsCache: Map<string, { count: number; lastUsed: number }> | null = null;
+  private diaryTagsLoading = false;
+  /** Max diary tags shown in the menu — the rest are too niche/historical. */
+  private readonly maxDiaryTagsShown = 15;
   /** Floating "back to top" button, revealed once the stream is scrolled down. */
   private scrollTopBtnEl: HTMLElement | null = null;
 
@@ -272,6 +295,7 @@ export class JournalCaptureView extends ItemView {
         }
         if (file.extension === 'md') {
           this.scheduleStatsRefresh();
+          this.invalidateDiaryTags();
         }
       }),
     );
@@ -281,6 +305,7 @@ export class JournalCaptureView extends ItemView {
         if (file instanceof TFile && file.extension === 'md') {
           this.scheduleFullRebuild();
           this.scheduleStatsRefresh();
+          this.invalidateDiaryTags();
         }
       }),
     );
@@ -292,6 +317,7 @@ export class JournalCaptureView extends ItemView {
         }
         if (file instanceof TFile && file.extension === 'md') {
           this.scheduleStatsRefresh();
+          this.invalidateDiaryTags();
         }
       }),
     );
@@ -308,6 +334,10 @@ export class JournalCaptureView extends ItemView {
     this.setupMobileToolbarAutoHide();
     this.setupScrollTopButton();
 
+    // Pre-warm the full-vault tag scan so the tag-filter menu is complete the
+    // first time it opens (the rendered timeline alone only covers recent days).
+    void this.ensureDiaryTags();
+
     // Escape while in search/review mode returns to the daily timeline.
     this.registerDomEvent(root as HTMLElement, 'keydown', (evt: KeyboardEvent) => {
       if (evt.key !== 'Escape' || this.timelineMode === 'daily') return;
@@ -318,6 +348,18 @@ export class JournalCaptureView extends ItemView {
       evt.preventDefault();
       evt.stopPropagation();
       this.restoreDailyMode();
+    });
+
+    // Close the tag picker when clicking anywhere outside the input card.
+    // The tag button stops propagation on its own click, so toggling still
+    // works; this only closes when the user clicks elsewhere.
+    this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
+      if (!this.tagPickerActive) return;
+      const target = evt.target as HTMLElement;
+      if (this.inputCardEl.contains(target)) return;
+      this.tagPickerEl.hide();
+      this.tagBtn.removeClass('is-active');
+      this.tagPickerActive = false;
     });
   }
 
@@ -510,6 +552,8 @@ export class JournalCaptureView extends ItemView {
           this.markEndOfTimeline();
         }
       }
+      // Re-apply the active filter to newly-appended search rows.
+      this.applyEntryFilter();
     } finally {
       this.loadingMore = false;
     }
@@ -544,6 +588,10 @@ export class JournalCaptureView extends ItemView {
 
     for (const entry of sorted) {
       const row = day.el.createDiv({ cls: 'jp-timeline-entry' });
+      const entryTags = extractTags(entry.text);
+      if (entryTags.length > 0) {
+        row.setAttr('data-tags', entryTags.join(' '));
+      }
       row.createDiv({ cls: 'jp-timeline-dot' });
 
       const head = row.createDiv({ cls: 'jp-timeline-entry-head' });
@@ -598,8 +646,23 @@ export class JournalCaptureView extends ItemView {
   private buildInputCard(root: HTMLElement) {
     this.inputCardEl = root.createDiv({ cls: 'jp-capture-card' });
 
-    // Wrapper for textarea
+    // Wrapper for textarea — also the positioning context for the preset-tag
+    // picker, which floats just below the textarea (above the action row).
     const inputWrapper = this.inputCardEl.createDiv({ cls: 'jp-capture-input-wrapper' });
+
+    // Tag chips row — sits above the textarea and shows which preset tags are
+    // selected for the entry being composed. Built once; items are re-rendered
+    // by refreshTagChips as the selection changes.
+    this.tagChipsRowEl = inputWrapper.createDiv({ cls: 'jp-tag-chips' });
+    // Seed the selection with the configured default tags (empty by default).
+    // refreshTagChips inside handles show/hide based on whether any are set.
+    this.resetSelectedTags();
+
+    // Quick-tag picker panel. Positioned below the textarea, above the action
+    // row; hidden until the tag button toggles it.
+    this.tagPickerEl = inputWrapper.createDiv({ cls: 'jp-tag-picker' });
+    this.buildTagPickerItems();
+    this.tagPickerEl.hide();
 
     this.textareaEl = inputWrapper.createEl('textarea', {
       cls: 'jp-capture-input',
@@ -1236,8 +1299,20 @@ export class JournalCaptureView extends ItemView {
 
     const actions = this.inputCardEl.createDiv({ cls: 'jp-capture-actions' });
 
-    // Left icon group: image + mic
+    // Left icon group: tag + image + mic
     const buttonRow = actions.createDiv({ cls: 'jp-capture-button-row' });
+
+    // Quick-tag button — toggles the preset-tag picker. Positioned leftmost
+    // in the button row so it sits at the input's bottom-left corner.
+    this.tagBtn = buttonRow.createEl('button', {
+      cls: 'jp-capture-tag-btn',
+      attr: { 'aria-label': '插入预设标签' },
+    });
+    setIcon(this.tagBtn, 'tag');
+    this.tagBtn.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      this.toggleTagPicker();
+    });
 
     // Image upload button
     const imageBtn = buttonRow.createEl('button', {
@@ -1530,6 +1605,191 @@ export class JournalCaptureView extends ItemView {
       }
       menu.showAtMouseEvent(evt);
     });
+
+    // Tag filter — its own button + menu so tag filtering is discoverable
+    // independently of the task/memo type filter.
+    this.tagFilterBtn = actions.createEl('button', {
+      cls: 'jp-timeline-toolbar-btn jp-timeline-tagfilter-btn',
+      attr: { 'aria-label': '按标签筛选', title: '按标签筛选' },
+    });
+    setIcon(this.tagFilterBtn, 'tag');
+    this.updateTagFilterBtn();
+    this.tagFilterBtn.addEventListener('click', (evt) => {
+      const menu = new Menu();
+
+      // Group 1: preset tags configured in settings.
+      const presetTags = this.collectPresetTags();
+      const diaryTags = this.collectDiaryTags();
+
+      const addTagItem = (tag: string) => {
+        menu.addItem((item) =>
+          item
+            .setTitle(`#${tag}`)
+            .setIcon('tag')
+            .setChecked(this.activeTagFilter === tag)
+            .onClick(() => {
+              this.activeTagFilter = this.activeTagFilter === tag ? null : tag;
+              this.updateTagFilterBtn();
+              this.applyEntryFilter();
+            }),
+        );
+      };
+
+      if (presetTags.length > 0) {
+        for (const tag of presetTags) addTagItem(tag);
+      }
+      // Diary-derived tags only shown when they're not already in presets
+      // (a tag in both groups would be redundant). A separator line splits
+      // the two groups visually.
+      if (diaryTags.length > 0) {
+        menu.addSeparator();
+        for (const tag of diaryTags) addTagItem(tag);
+      }
+      if (presetTags.length === 0 && diaryTags.length === 0) {
+        menu.addItem((item) =>
+          item
+            .setTitle('暂无标签')
+            .setIcon('tag')
+            .setDisabled(true),
+        );
+      }
+
+      menu.showAtMouseEvent(evt);
+    });
+  }
+
+  /** Preset tags from settings (no `#` prefix), sorted. */
+  private collectPresetTags(): string[] {
+    const out = new Set<string>();
+    for (const tag of this.plugin.settings.presetTags ?? []) {
+      const t = tag.trim().replace(/^#/, '');
+      if (t.length > 0) out.add(t);
+    }
+    return [...out].sort((a, b) => a.localeCompare(b));
+  }
+
+  /**
+   * Tags actually used in the currently-rendered timeline (from rows'
+   * `data-tags`), excluding any that are already covered by preset tags,
+   * sorted. This is the "from the journal" group in the tag menu.
+   *
+   * When the full-vault scan (`ensureDiaryTags`) has completed, its cache is
+   * used so the menu reflects every daily note, not just the days currently
+   * rendered in the scrolling timeline.
+   */
+  /**
+   * The "from the journal" tags shown in the tag menu — a ranked shortlist,
+   * not every historical tag. Uses the full-vault scan cache when ready:
+   * union of the most-frequently-used and most-recently-used tags (up to
+   * `maxDiaryTagsShown`). While the cache isn't ready, falls back to tags on
+   * the currently-rendered rows and kicks off the full scan for next time.
+   */
+  private collectDiaryTags(): string[] {
+    const preset = new Set(this.collectPresetTags());
+
+    if (this.diaryTagsCache) {
+      const entries = [...this.diaryTagsCache.entries()]
+        .filter(([tag]) => tag.length > 0 && !preset.has(tag));
+
+      // Rank by frequency, then by recency (both directions preserved).
+      const byFreq = [...entries].sort((a, b) => {
+        const c = b[1].count - a[1].count;
+        return c !== 0 ? c : a[1].lastUsed - b[1].lastUsed;
+      });
+      const byRecent = [...entries].sort((a, b) => {
+        const c = a[1].lastUsed - b[1].lastUsed;
+        return c !== 0 ? c : b[1].count - a[1].count;
+      });
+
+      // Keep the top half from each ranking so both frequent AND recent tags
+      // surface, then fill any remaining slots from the frequency list.
+      const ranked = new Set<string>();
+      const half = Math.ceil(this.maxDiaryTagsShown / 2);
+      for (const [tag] of byFreq.slice(0, half)) ranked.add(tag);
+      for (const [tag] of byRecent.slice(0, half)) ranked.add(tag);
+      for (const [tag] of byFreq) {
+        if (ranked.size >= this.maxDiaryTagsShown) break;
+        ranked.add(tag);
+      }
+      // Preserve ranking order (frequent/recent first) — an alphabetical sort
+      // would bury the tags the user actually uses.
+      return [...ranked];
+    }
+
+    // Cache not ready — fallback to what's rendered, then trigger the scan.
+    const out = new Set<string>();
+    this.timelineEl.querySelectorAll<HTMLElement>('[data-tags]').forEach(row => {
+      const raw = row.getAttribute('data-tags');
+      if (!raw) return;
+      for (const t of raw.split(/\s+/)) {
+        if (t.length > 0 && !preset.has(t)) out.add(t);
+      }
+    });
+    void this.ensureDiaryTags();
+    return [...out].sort((a, b) => a.localeCompare(b));
+  }
+
+  /**
+   * Scan every daily note's Journal section and collect every tag found,
+   * minus preset tags. Async — reads each file via `cachedRead`. Each tag
+   * records its total usage count and how recently it was last used (0 =
+   * today), so the menu can rank frequent/recent tags. Results are cached in
+   * `diaryTagsCache`; the cache is reset when a daily note changes.
+   */
+  private async ensureDiaryTags(): Promise<void> {
+    if (this.diaryTagsLoading) return;
+    if (!appHasDailyNotesPluginLoaded()) return;
+
+    this.diaryTagsLoading = true;
+    try {
+      const preset = new Set(this.collectPresetTags());
+      const collected = new Map<string, { count: number; lastUsed: number }>();
+      const today = moment().startOf('day');
+
+      const allNotes = getAllDailyNotes();
+      for (const file of Object.values(allNotes)) {
+        if (!(file instanceof TFile)) continue;
+        // Days since this note was written — used as the tag's "recency".
+        const date = getDateFromFile(file, 'day');
+        const daysAgo = date ? today.diff(date.startOf('day'), 'days') : Infinity;
+        try {
+          const content = await this.app.vault.cachedRead(file);
+          const section = findSection(
+            content,
+            this.plugin.settings.targetHeading,
+            this.plugin.settings.headingLevel,
+          );
+          if (!section) continue;
+          for (const tag of extractTags(content.slice(section.from, section.to))) {
+            if (preset.has(tag)) continue;
+            const stat = collected.get(tag);
+            if (stat) {
+              stat.count++;
+              if (daysAgo < stat.lastUsed) stat.lastUsed = daysAgo;
+            } else {
+              collected.set(tag, { count: 1, lastUsed: daysAgo });
+            }
+          }
+        } catch {
+          // skip unreadable files
+        }
+      }
+      this.diaryTagsCache = collected;
+    } catch (err) {
+      console.error('[Journal Partner] scan diary tags failed', err);
+    } finally {
+      this.diaryTagsLoading = false;
+    }
+  }
+
+  /** Drop the diary-tag cache so the next tag-menu open rescans the vault. */
+  private invalidateDiaryTags() {
+    this.diaryTagsCache = null;
+  }
+
+  /** Sync the tag-filter button's active styling with `activeTagFilter`. */
+  private updateTagFilterBtn() {
+    this.tagFilterBtn.toggleClass('is-active', this.activeTagFilter !== null);
   }
 
   /** Sync the filter button's icon + active styling with `entryFilter`. */
@@ -1545,14 +1805,43 @@ export class JournalCaptureView extends ItemView {
   }
 
   /**
-   * Apply the current entry filter across all rendered days via a class on
-   * the timeline root (CSS hides the non-matching rows). Purely presentational
-   * — no file reads or DOM rebuild, so it's instant and survives re-renders
-   * as long as renderDayContent re-applies it.
+   * Apply the current filters across all rendered days.
+   *
+   * Type filter (task/memo) is presentational via a class on the timeline
+   * root — CSS hides the non-matching rows. The tag filter needs to match by
+   * value, so it toggles `display` per-row in JS and hides any day that ends
+   * up with no visible rows (checked via the day header's sibling rows).
+   *
+   * Both compose: a row is visible only if it survives the type filter AND
+   * (no tag filter, or it carries the active tag).
    */
   private applyEntryFilter() {
     this.timelineEl.toggleClass('jp-filter-task', this.entryFilter === 'task');
     this.timelineEl.toggleClass('jp-filter-memo', this.entryFilter === 'memo');
+
+    const tag = this.activeTagFilter;
+    this.timelineEl.querySelectorAll<HTMLElement>('.jp-timeline-day').forEach(dayEl => {
+      const rows = Array.from(dayEl.querySelectorAll<HTMLElement>('.jp-timeline-entry'));
+      let visibleCount = 0;
+      for (const row of rows) {
+        if (row.classList.contains('jp-timeline-entry--header')) continue;
+        // Type filter already handled by CSS — but we still need to know if
+        // the row survives it for the day-level hide. Match what CSS does:
+        const hiddenByType =
+          (this.entryFilter === 'task' && !row.classList.contains('jp-entry-task')) ||
+          (this.entryFilter === 'memo' && !row.classList.contains('jp-entry-memo'));
+        const hiddenByTag =
+          tag !== null &&
+          (row.getAttribute('data-tags')?.split(/\s+/).includes(tag) ?? false) === false;
+
+        const hidden = hiddenByType || hiddenByTag;
+        row.style.display = hidden ? 'none' : '';
+        if (!hidden) visibleCount++;
+      }
+      // Hide the whole day when no entry row survives, so a bare date header
+      // doesn't float with nothing beneath it.
+      dayEl.style.display = visibleCount === 0 ? 'none' : '';
+    });
   }
 
   /**
@@ -1676,6 +1965,107 @@ export class JournalCaptureView extends ItemView {
     const hasContent = this.textareaEl.value.trim().length > 0;
     this.submitBtn.toggleClass('jp-capture-submit--disabled', !hasContent);
     this.submitBtn.disabled = !hasContent;
+  }
+
+  // ── Quick-tag picker ────────────────────────────────────────────────────
+
+  /** Re-render the preset-tag items inside the picker from settings. */
+  private buildTagPickerItems() {
+    this.tagPickerEl.empty();
+    // Skip empty entries — a tag the user typed then cleared shouldn't show
+    // as a blank row in the picker.
+    const tags = (this.plugin.settings.presetTags ?? []).filter(t => t.trim().length > 0);
+    if (tags.length === 0) {
+      this.tagPickerEl.createDiv({
+        cls: 'jp-tag-picker-empty',
+        text: '还没有预设标签，可在插件设置中添加',
+      });
+      return;
+    }
+    for (const rawTag of tags) {
+      // Same normalisation as togglePresetTag, so the selected highlight
+      // matches even when the setting value omits the leading #.
+      const tag = rawTag.startsWith('#') ? rawTag : `#${rawTag}`;
+      const item = this.tagPickerEl.createDiv({
+        cls: 'jp-tag-picker-item' + (this.selectedTags.includes(tag) ? ' is-selected' : ''),
+      });
+      const icon = item.createSpan({ cls: 'jp-tag-picker-item-icon' });
+      setIcon(icon, 'tag');
+      const text = item.createSpan({ cls: 'jp-tag-picker-item-text' });
+      text.setText(tag);
+      item.addEventListener('click', () => {
+        this.togglePresetTag(tag);
+      });
+    }
+  }
+
+  /** Toggle the picker's visibility; re-syncs items in case settings changed. */
+  private toggleTagPicker() {
+    this.tagPickerActive = !this.tagPickerActive;
+    if (this.tagPickerActive) {
+      // Rebuild so newly-added settings tags appear without reloading.
+      this.buildTagPickerItems();
+      this.tagPickerEl.show();
+      this.tagBtn.addClass('is-active');
+    } else {
+      this.tagPickerEl.hide();
+      this.tagBtn.removeClass('is-active');
+    }
+  }
+
+  /**
+   * Toggle a preset tag in/out of the selected set. Selected tags are shown
+   * as chips above the textarea (not in the text itself) and are prepended to
+   * the entry's text only at submit time — so the tag isn't editable while
+   * composing, and the textarea stays clean.
+   */
+  private togglePresetTag(rawTag: string) {
+    // Normalise to a valid hashtag token for stable identity.
+    const tag = rawTag.startsWith('#') ? rawTag : `#${rawTag}`;
+    const idx = this.selectedTags.indexOf(tag);
+    if (idx >= 0) {
+      this.selectedTags.splice(idx, 1);
+    } else {
+      this.selectedTags.push(tag);
+    }
+    this.refreshTagChips();
+    this.buildTagPickerItems();
+  }
+
+  /** Re-render the chips row above the textarea from `selectedTags`. */
+  private refreshTagChips() {
+    this.tagChipsRowEl.empty();
+    if (this.selectedTags.length === 0) {
+      this.tagChipsRowEl.hide();
+      return;
+    }
+    this.tagChipsRowEl.show();
+    for (const tag of this.selectedTags) {
+      const chip = this.tagChipsRowEl.createDiv({ cls: 'jp-tag-chip' });
+      chip.createSpan({ cls: 'jp-tag-chip-text', text: tag });
+      // Remove button — clicking it deselects the tag.
+      const remove = chip.createEl('button', {
+        cls: 'jp-tag-chip-remove',
+        attr: { 'aria-label': `移除 ${tag}` },
+      });
+      setIcon(remove, 'x');
+      remove.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        this.togglePresetTag(tag);
+      });
+    }
+  }
+
+  /**
+   * Reset the tag selection to the configured defaults (called after a
+   * successful submit). If `settings.defaultTags` is set, those tags come
+   * back automatically so the user doesn't re-select them every entry;
+   * otherwise the selection clears to nothing.
+   */
+  public resetSelectedTags() {
+    const defaults = (this.plugin.settings.defaultTags ?? []).filter(t => t.trim().length > 0);
+    this.selectedTags = defaults.map(t => (t.startsWith('#') ? t : `#${t}`));
+    this.refreshTagChips();
   }
 
   /**
@@ -1802,6 +2192,9 @@ export class JournalCaptureView extends ItemView {
 
     // Then load the first batch of historical non-empty days.
     await this.loadMore();
+    // Re-apply the active filter to freshly-rendered rows (in-DOM display
+    // state is lost on rebuild).
+    this.applyEntryFilter();
   }
 
   /**
@@ -1847,6 +2240,8 @@ export class JournalCaptureView extends ItemView {
       if (this.exhausted) {
         this.markEndOfTimeline();
       }
+      // Re-apply the active filter to newly-appended rows.
+      this.applyEntryFilter();
     } finally {
       this.loadingMore = false;
     }
@@ -1936,6 +2331,9 @@ export class JournalCaptureView extends ItemView {
     day.el.empty();
 
     this.renderDayContent(day, entries);
+    // Fresh rows carry no in-DOM filter state — re-apply so a day refreshed
+    // while a tag filter is active doesn't leak hidden/shown rows.
+    this.applyEntryFilter();
   }
 
   /** Render the date header + entry rows for one day into `day.el`. */
@@ -1968,6 +2366,13 @@ export class JournalCaptureView extends ItemView {
     const sourcePath = day.filePath ?? '';
     for (const entry of sorted) {
       const row = day.el.createDiv({ cls: 'jp-timeline-entry' });
+
+      // Tag filter hook — expose this entry's hashtags on the row so the
+      // tag filter (applyEntryFilter) can match rows without re-parsing.
+      const entryTags = extractTags(entry.text);
+      if (entryTags.length > 0) {
+        row.setAttr('data-tags', entryTags.join(' '));
+      }
 
       // Add task-specific classes if this is a task entry
       if (entry.type === 'task') {
@@ -2877,7 +3282,9 @@ export class JournalCaptureView extends ItemView {
 
   private async handleSubmit(): Promise<void> {
     const raw = this.textareaEl.value;
-    if (raw.trim().length === 0) return;
+    // An entry needs either text or a selected tag — tags alone are a valid
+    // entry (e.g. a note that's just `#log/code`).
+    if (raw.trim().length === 0 && this.selectedTags.length === 0) return;
 
     if (!appHasDailyNotesPluginLoaded()) {
       new Notice('请先启用 Obsidian 自带的「Daily Notes」核心插件');
@@ -2890,20 +3297,29 @@ export class JournalCaptureView extends ItemView {
     this.submitBtn.setText('写入中…');
 
     try {
+      // Selected tags are prepended to the entry's text here (and only here),
+      // so the textarea stays clean while composing and the tags render at the
+      // very front of the timeline entry (`- HH:MM #log/fitness 内容`).
+      const tagsPrefix = this.selectedTags.length > 0
+        ? `${this.selectedTags.join(' ')} `
+        : '';
+
       // Format entry based on mode
       let text: string;
       if (this.isTaskMode) {
-        // Task format: "[ ] text" (Obsidian checkbox syntax)
-        // writeToTodayJournal will add the "- HH:MM" prefix
-        text = `[ ] ${raw}`;
+        // Task format: "[ ] tags text" — writeToTodayJournal will add the
+        // "- HH:MM" prefix. Tags go AFTER the checkbox so task detection in
+        // writeToTodayJournal still sees the leading "[ ]" marker.
+        text = `[ ] ${tagsPrefix}${raw}`;
       } else {
-        text = raw;
+        text = `${tagsPrefix}${raw}`;
       }
       const ok = await this.plugin.writeToTodayJournal(text);
       if (!ok) return;
 
       this.textareaEl.value = '';
       this.isTaskMode = false;
+      this.resetSelectedTags();
       this.autoResizeTextarea();
 
       // vault.modify will catch-up the today section automatically; if
