@@ -190,6 +190,52 @@
 .jp-capture-input-wrapper {
   position: relative;
 }
+
+/* ── Selected-tag chips (status strip above the textarea) ──────────────── */
+.jp-tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.jp-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--jp-tl-dot) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--jp-tl-dot) 28%, transparent);
+  color: var(--jp-tl-dot);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.jp-tag-chip-text {
+  font-weight: 600;
+}
+.jp-tag-chip-remove {
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  color: inherit !important;
+  opacity: 0.7;
+  width: 16px !important;
+  height: 16px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+}
+.jp-tag-chip-remove:hover {
+  opacity: 1;
+  background-color: color-mix(in srgb, var(--jp-tl-dot) 18%, transparent) !important;
+}
 /* ── Autocomplete popup ──────────────────────────────────────────────────── */
 .jp-autocomplete-popup {
   position: absolute;
@@ -241,6 +287,59 @@
   flex: 1;
 }
 
+/* ── Preset-tag picker ──────────────────────────────────────────────────── */
+/* Floats just below the textarea (input wrapper is the positioning context),
+   so it sits above the action row regardless of textarea height. */
+.jp-tag-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  max-width: 280px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  z-index: 1000;
+}
+
+.jp-tag-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9em;
+  color: var(--text-normal);
+  transition: background-color 0.15s ease;
+}
+.jp-tag-picker-item:hover {
+  background-color: var(--background-modifier-hover);
+}
+.jp-tag-picker-item.is-selected {
+  background-color: color-mix(in srgb, var(--jp-tl-dot) 14%, transparent);
+  color: var(--jp-tl-dot);
+  font-weight: 600;
+}
+.jp-tag-picker-item.is-selected .jp-tag-picker-item-icon {
+  opacity: 1;
+}
+.jp-tag-picker-item-icon {
+  opacity: 0.6;
+  font-size: 0.85em;
+  flex-shrink: 0;
+}
+.jp-tag-picker-item-text {
+  word-break: break-all;
+}
+.jp-tag-picker-empty {
+  padding: 8px 10px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
 .jp-capture-button-row {
   display: inline-flex;
   flex-direction: row;
@@ -250,7 +349,8 @@
 .jp-capture-image-btn,
 .jp-capture-mic-btn,
 .jp-capture-clear-btn,
-.jp-capture-task-btn {
+.jp-capture-task-btn,
+.jp-capture-tag-btn {
   background: transparent !important;
   border: none !important;
   outline: none !important;
@@ -273,7 +373,12 @@
 .jp-capture-image-btn:hover,
 .jp-capture-mic-btn:hover,
 .jp-capture-clear-btn:hover,
-.jp-capture-task-btn:hover {
+.jp-capture-task-btn:hover,
+.jp-capture-tag-btn:hover {
+  color: var(--jp-tl-dot) !important;
+  background-color: color-mix(in srgb, var(--jp-tl-dot) 10%, transparent) !important;
+}
+.jp-capture-tag-btn.is-active {
   color: var(--jp-tl-dot) !important;
   background-color: color-mix(in srgb, var(--jp-tl-dot) 10%, transparent) !important;
 }
@@ -1695,4 +1800,82 @@
   padding: 1px 4px;
   border-radius: 3px;
   background: var(--background-primary-alt);
+}
+
+/* ── Settings tab: preset-tag list ──────────────────────────────────────── */
+.jp-settings-tag-list {
+  margin: 4px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.jp-settings-empty-hint {
+  padding: 6px 2px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+.jp-settings-tag-list .setting-item {
+  border: none;
+  padding: 4px 2px;
+}
+
+/* ── Settings tab: default-tag multi-select (tag chips) ────────────────── */
+.jp-settings-tag-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+.jp-settings-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.jp-settings-tag-chip:hover {
+  border-color: color-mix(in srgb, var(--jp-tl-dot) 40%, transparent);
+  color: var(--text-normal);
+}
+.jp-settings-tag-chip.is-selected {
+  background: color-mix(in srgb, var(--jp-tl-dot) 14%, transparent);
+  border-color: color-mix(in srgb, var(--jp-tl-dot) 32%, transparent);
+  color: var(--jp-tl-dot);
+  font-weight: 600;
+}
+.jp-settings-tag-chip-check {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.9;
+}
+.jp-settings-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+}
+.jp-settings-tag-row .setting-item {
+  border: none;
+  padding: 2px;
+}
+.jp-settings-tag-row .setting-item-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.jp-settings-tag-row input {
+  min-width: 180px;
 }

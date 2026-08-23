@@ -15,6 +15,7 @@ import {
   TextComponent,
   WorkspaceLeaf,
   moment,
+  setIcon,
 } from 'obsidian';
 import {
   EditorState,
@@ -531,12 +532,30 @@ export default class JournalPartnerPlugin extends Plugin {
       }
     }
   }
+
+  /**
+   * Re-seed the tag-chip selection on every open capture view from the
+   * current `defaultTags` setting — used when the default-tag setting changes
+   * so the chips update immediately without a full timeline rebuild.
+   */
+  refreshDefaultTagsOnCaptureViews(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(CAPTURE_VIEW_TYPE)) {
+      if (leaf.view instanceof JournalCaptureView) {
+        leaf.view.resetSelectedTags();
+      }
+    }
+  }
 }
 
 // ── Settings tab ────────────────────────────────────────────────────────────
 
 class JournalPartnerSettingTab extends PluginSettingTab {
   plugin: JournalPartnerPlugin;
+
+  /** Container for the preset-tag input rows in the settings tab. */
+  private presetTagListEl!: HTMLElement;
+  /** Container for the default-tag toggle rows in the settings tab. */
+  private defaultTagListEl!: HTMLElement;
 
   constructor(app: App, plugin: JournalPartnerPlugin) {
     super(app, plugin);
@@ -666,6 +685,125 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     return new FolderSuggestModal(this.app, folders, onSelect);
   }
 
+  /**
+   * Render one text row per preset tag: an input bound to
+   * `settings.presetTags[i]` plus a delete button. Rows are rebuilt whenever
+   * the list length changes (add / delete). A blank row is kept while the
+   * user types; empty entries are pruned on save.
+   */
+  private renderPresetTagInputs(): void {
+    this.presetTagListEl.empty();
+    const tags = this.plugin.settings.presetTags;
+
+    // Keep exactly one trailing blank row (the open input the user can type
+    // into). "添加标签" pushes a new empty row; if a run of blanks has
+    // accumulated (e.g. adding twice without typing), collapse it to one so
+    // the list doesn't grow with invisible rows.
+    while (tags.length > 1 && tags[tags.length - 1].trim().length === 0 && tags[tags.length - 2].trim().length === 0) {
+      tags.pop();
+    }
+    if (tags.length === 0) tags.push('');
+
+    tags.forEach((tag, index) => {
+      const row = this.presetTagListEl.createDiv({ cls: 'jp-settings-tag-row' });
+
+      new Setting(row)
+        .addText(text =>
+          text
+            .setPlaceholder('#log/fitness')
+            .setValue(tag)
+            .onChange(async value => {
+              this.plugin.settings.presetTags[index] = value.trim();
+              await this.plugin.saveSettings();
+            }),
+        )
+        .addExtraButton(btn =>
+          btn
+            .setIcon('trash')
+            .setTooltip('删除该标签')
+            .onClick(() => {
+              const removedTag = tag.startsWith('#') ? tag : `#${tag}`;
+              this.plugin.settings.presetTags.splice(index, 1);
+              if (this.plugin.settings.presetTags.length === 0) {
+                this.plugin.settings.presetTags.push('');
+              }
+              void this.plugin.saveSettings().then(() => {
+                // Keep defaultTags in sync — a deleted preset tag can no
+                // longer be a default, so drop it from the selection too.
+                const dIdx = this.plugin.settings.defaultTags.indexOf(removedTag);
+                if (dIdx !== -1) {
+                  this.plugin.settings.defaultTags.splice(dIdx, 1);
+                  void this.plugin.saveSettings();
+                }
+                this.renderPresetTagInputs();
+                this.renderDefaultTagToggles();
+                this.plugin.refreshDefaultTagsOnCaptureViews();
+              });
+            }),
+        );
+    });
+  }
+
+  /**
+   * Render the default-tag selector as a clickable tag-group: every preset
+   * tag is a chip; clicking toggles it in/out of `settings.defaultTags`.
+   * Selected chips are highlighted — reads like a multi-select of tags
+   * instead of a row of toggles.
+   */
+  private renderDefaultTagToggles(): void {
+    // (Re)create the container only when needed: after display() empties the
+    // tab, the old element is detached — reuse it otherwise so chip clicks
+    // re-render in place instead of stacking containers.
+    if (!this.defaultTagListEl || !this.defaultTagListEl.isConnected) {
+      this.defaultTagListEl = this.containerEl.createDiv({ cls: 'jp-settings-tag-select' });
+    }
+    this.defaultTagListEl.empty();
+
+    const presetTags = (this.plugin.settings.presetTags ?? [])
+      .map(t => t.trim())
+      .filter(t => t.length > 0);
+
+    if (presetTags.length === 0) {
+      this.defaultTagListEl.createDiv({
+        cls: 'jp-settings-empty-hint',
+        text: '请先在「预设标签」中添加标签。',
+      });
+      return;
+    }
+
+    const defaults = new Set(this.plugin.settings.defaultTags ?? []);
+
+    for (const rawTag of presetTags) {
+      const tag = rawTag.startsWith('#') ? rawTag : `#${rawTag}`;
+      const isSelected = defaults.has(tag);
+      const chip = this.defaultTagListEl.createDiv({
+        cls: 'jp-settings-tag-chip' + (isSelected ? ' is-selected' : ''),
+      });
+      chip.createSpan({ cls: 'jp-settings-tag-chip-text', text: tag });
+      // Small check icon on selected chips for extra affordance.
+      if (isSelected) {
+        const check = chip.createSpan({ cls: 'jp-settings-tag-chip-check' });
+        setIcon(check, 'check');
+      }
+      // Toggle the tag in/out of defaultTags. saveSettings is async; the
+      // re-render + capture-view refresh happen after it resolves.
+      chip.addEventListener('click', () => {
+        const list = this.plugin.settings.defaultTags ?? [];
+        const idx = list.indexOf(tag);
+        if (idx === -1) {
+          list.push(tag);
+        } else {
+          list.splice(idx, 1);
+        }
+        this.plugin.settings.defaultTags = list;
+        void this.plugin.saveSettings().then(() => {
+          this.renderDefaultTagToggles();
+          this.plugin.refreshDefaultTagsOnCaptureViews();
+        });
+      });
+    }
+  }
+
   display() {
     const { containerEl } = this;
     containerEl.empty();
@@ -762,6 +900,31 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     previewEl.createSpan({ cls: 'jp-settings-preview-label', text: '预览：' });
     previewEl.createSpan({ cls: 'jp-timestamp', text: '07:31' });
     previewEl.createSpan({ text: '这里是日记内容…' });
+
+    // ── Tag Settings ──────────────────────────────────────────────────────
+    new Setting(containerEl).setName('标签设置').setHeading();
+
+    new Setting(containerEl)
+      .setName('预设标签')
+      .setDesc('快速插入的标签，点击输入框左下角的 # 图标即可选择。每个标签独占一行。')
+      .addButton(btn =>
+        btn
+          .setButtonText('+ 添加标签')
+          .setTooltip('添加一个预设标签')
+          .onClick(() => {
+            this.plugin.settings.presetTags.push('');
+            this.renderPresetTagInputs();
+            this.renderDefaultTagToggles();
+          }),
+      );
+
+    this.presetTagListEl = containerEl.createDiv({ cls: 'jp-settings-tag-list' });
+    this.renderPresetTagInputs();
+
+    new Setting(containerEl)
+      .setName('默认标签')
+      .setDesc('每次打开输入框时自动带上的标签（显示为输入框顶部的状态标签）。不选则默认为无。');
+    this.renderDefaultTagToggles();
 
     // ── Color Settings ───────────────────────────────────────────────────
     new Setting(containerEl).setName('颜色设置').setHeading();

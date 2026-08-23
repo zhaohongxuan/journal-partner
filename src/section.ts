@@ -48,6 +48,10 @@ export interface JournalPartnerSettings {
   submitShortcut: string;
   /** Entry display order in the timeline: 'desc' (newest first, default) | 'asc' (oldest first) */
   sortOrder: 'desc' | 'asc';
+  /** Preset tags shown in the capture input's quick-tag picker. Each entry is a raw tag token, e.g. '#log/fitness'. */
+  presetTags: string[];
+  /** Tags auto-selected (shown as chips) every time the capture input opens. Empty = none. Subset of presetTags. */
+  defaultTags: string[];
 }
 
 export const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -69,9 +73,36 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   imageFolder: '',
   submitShortcut: 'shift+enter',
   sortOrder: 'desc',
+  presetTags: ['#log/fitness', '#log/code'],
+  defaultTags: [],
 };
 
 export type Rng = { from: number; to: number };
+
+/**
+ * Extract Obsidian hashtag tokens from entry text. Matches `#tag`,
+ * `#parent/child`, `#中文标签`, `#with_underscore`, `#with-dash` — the
+ * characters Obsidian treats as valid inside a tag (Unicode letters, digits,
+ * `_`, `-`, `/`). Returns tags WITHOUT the leading `#`, so the result can be
+ * used directly in a space-separated `data-tags` attribute.
+ *
+ * A `#` must be preceded by whitespace or line start to count — this skips
+ * "C#", `#section` mid-word URLs, and markdown headings (`# ` at line start
+ * doesn't match because a space isn't in the tag charset anyway).
+ */
+export function extractTags(text: string): string[] {
+  const out: string[] = [];
+  // Built via string so the `/` and `-` inside the tag charset don't trip up
+  // literal-regex parsing. Tag charset mirrors Obsidian: Unicode letters,
+  // digits, `_`, `-`, `/`.
+  const re = new RegExp('(?:^|\\s)#([\\p{L}\\p{N}_/-]+)', 'gu');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const tag = m[1];
+    if (!out.includes(tag)) out.push(tag);
+  }
+  return out;
+}
 
 /** A single parsed timeline entry from the journal section. */
 export interface JournalEntry {
