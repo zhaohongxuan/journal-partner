@@ -108,9 +108,9 @@ export class JournalCaptureView extends ItemView {
   private searchTabBtn!: HTMLButtonElement;
   private reviewTabBtn!: HTMLButtonElement;
 
-  // Timeline display mode — search and random-review render inline in the
-  // capture timeline instead of switching tabs.
-  private timelineMode: 'daily' | 'search' | 'review' = 'daily';
+  // Timeline display mode — search, tag-filter and random-review render inline
+  // in the capture timeline instead of switching tabs.
+  private timelineMode: 'daily' | 'search' | 'tag' | 'review' = 'daily';
 
   // Search state
   private inlineSearchBarEl!: HTMLElement;
@@ -120,7 +120,7 @@ export class JournalCaptureView extends ItemView {
   private searchVersion = 0;
   /** All daily note files sorted newest→oldest, set at search start. */
   private searchFileQueue: TFile[] = [];
-  /** Index into searchFileQueue: next file to scan in loadMoreSearchResults. */
+  /** Index into searchFileQueue: next file to scan in loadMoreFilteredScan. */
   private searchCursor = 0;
 
   // Inline random-review — the dice button in the toolbar toggles the mode
@@ -475,32 +475,30 @@ export class JournalCaptureView extends ItemView {
     this.renderTopLevelMessage('搜索中…');
 
     // Build the sorted file queue (newest → oldest) once, then scan lazily
-    const allNotes = getAllDailyNotes();
-    const queue: Array<{ date: moment.Moment; file: TFile }> = [];
-    for (const file of Object.values(allNotes)) {
-      if (!(file instanceof TFile)) continue;
-      const date = getDateFromFile(file, 'day');
-      if (date) queue.push({ date: date.clone().startOf('day'), file });
-    }
-    queue.sort((a, b) => (a.date.isBefore(b.date) ? 1 : -1));
-    this.searchFileQueue = queue.map(q => q.file);
+    this.buildFilteredScanQueue();
 
     if (this.searchVersion !== version) return;
 
     // Kick off the first batch — sentinel / intersection observer handles the rest
-    await this.loadMoreSearchResults();
+    await this.loadMoreFilteredScan();
   }
 
-  /** Scan the next batch of files in searchFileQueue and append matching days. */
-  private async loadMoreSearchResults(): Promise<void> {
-    if (this.timelineMode !== 'search' || this.loadingMore) return;
-    // No queue built yet (user hasn't typed anything) — do nothing
+  /**
+   * Scan the next batch of files in the filtered-scan queue and append
+   * matching days. Shared by search mode (keyword) and tag mode (hashtag):
+   * both lazily scan all daily notes newest→oldest and render matching
+   * entries, so the user can keep scrolling to load more.
+   */
+  private async loadMoreFilteredScan(): Promise<void> {
+    if ((this.timelineMode !== 'search' && this.timelineMode !== 'tag') || this.loadingMore) return;
+    // No queue built yet — nothing to scan.
     if (this.searchFileQueue.length === 0) return;
     this.loadingMore = true;
 
     const version = this.searchVersion;
     const query = this.searchQuery;
     const lower = query.toLowerCase();
+    const mode = this.timelineMode;
     const batchSize = 20;
     let found = 0;
 
@@ -522,10 +520,12 @@ export class JournalCaptureView extends ItemView {
           if (!section) continue;
           const text = content.slice(section.from, section.to);
           const entries = parseJournalEntries(text, this.plugin.settings.timestampPattern);
-          const matched = entries.filter(e => this.entryMatchesQuery(e.text, lower));
+          const matched = mode === 'search'
+            ? entries.filter(e => this.entryMatchesQuery(e.text, lower))
+            : entries.filter(e => this.entryTagsInclude(e.text, this.activeTagFilter));
           if (matched.length === 0) continue;
 
-          // Remove "搜索中…" placeholder on first hit
+          // Remove the "搜索中…" / "筛选中…" placeholder on first hit.
           if (this.days.length === 0) this.timelineEl.empty();
 
           const day: DaySection = {
@@ -550,16 +550,27 @@ export class JournalCaptureView extends ItemView {
         this.exhausted = true;
         if (this.days.length === 0) {
           this.timelineEl.empty();
-          this.renderTopLevelMessage(`未找到包含「${query}」的记录`);
+          this.renderTopLevelMessage(
+            mode === 'tag'
+              ? `没有找到带 #${this.activeTagFilter} 的日记`
+              : `未找到包含「${query}」的记录`,
+          );
         } else {
           this.markEndOfTimeline();
         }
       }
-      // Re-apply the active filter to newly-appended search rows.
+      // Re-apply the active filter to newly-appended rows (for the tag mode
+      // this is a no-op since rows were already matched by tag).
       this.applyEntryFilter();
     } finally {
       this.loadingMore = false;
     }
+  }
+
+  /** True when an entry's text carries the given tag (no `#` prefix). */
+  private entryTagsInclude(text: string, tag: string | null): boolean {
+    if (tag === null) return false;
+    return extractTags(text).includes(tag);
   }
 
   /**
@@ -601,9 +612,10 @@ export class JournalCaptureView extends ItemView {
       head.createSpan({ cls: 'jp-timestamp', text: entry.timestamp });
 
       const bubble = row.createDiv({ cls: 'jp-timeline-bubble jp-search-bubble' });
-      // Render markdown first, then highlight keywords in the resulting DOM text nodes
+      // Render markdown first, then highlight keywords in the resulting DOM
+      // text nodes. Empty query (tag mode) skips highlighting.
       void MarkdownRenderer.render(this.app, entry.text, bubble, sourcePath, day.scope).then(() => {
-        this.highlightKeyword(bubble, query);
+        if (query.length > 0) this.highlightKeyword(bubble, query);
       });
 
       const openMenu = (evt: MouseEvent) => {
@@ -617,6 +629,7 @@ export class JournalCaptureView extends ItemView {
 
   /** Walk DOM text nodes and wrap keyword occurrences in highlight spans. */
   private highlightKeyword(el: HTMLElement, query: string) {
+    if (query.length === 0) return; // empty query would loop forever
     const lower = query.toLowerCase();
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     const nodes: Text[] = [];
@@ -1631,9 +1644,7 @@ export class JournalCaptureView extends ItemView {
             .setIcon('tag')
             .setChecked(this.activeTagFilter === tag)
             .onClick(() => {
-              this.activeTagFilter = this.activeTagFilter === tag ? null : tag;
-              this.updateTagFilterBtn();
-              this.applyEntryFilter();
+              this.setTagFilter(tag);
             }),
         );
       };
@@ -1654,6 +1665,21 @@ export class JournalCaptureView extends ItemView {
             .setTitle('暂无标签')
             .setIcon('tag')
             .setDisabled(true),
+        );
+      }
+
+      // When a tag filter is active, offer a way back to the full timeline.
+      if (this.activeTagFilter !== null) {
+        menu.addSeparator();
+        menu.addItem((item) =>
+          item
+            .setTitle('清除标签筛选')
+            .setIcon('x')
+            .onClick(() => {
+              this.activeTagFilter = null;
+              this.updateTagFilterBtn();
+              this.restoreDailyMode();
+            }),
         );
       }
 
@@ -1822,7 +1848,10 @@ export class JournalCaptureView extends ItemView {
     this.timelineEl.toggleClass('jp-filter-task', this.entryFilter === 'task');
     this.timelineEl.toggleClass('jp-filter-memo', this.entryFilter === 'memo');
 
-    const tag = this.activeTagFilter;
+    // Tag hiding only applies in tag-filter mode. In daily mode the active tag
+    // is stale (the user left the tag view) and must NOT hide rows — the full
+    // timeline is restored via restoreDailyMode which clears nothing here.
+    const tag = this.timelineMode === 'tag' ? this.activeTagFilter : null;
     this.timelineEl.querySelectorAll<HTMLElement>('.jp-timeline-day').forEach(dayEl => {
       const rows = Array.from(dayEl.querySelectorAll<HTMLElement>('.jp-timeline-entry'));
       let visibleCount = 0;
@@ -1866,7 +1895,7 @@ export class JournalCaptureView extends ItemView {
   }
 
   /** Transition the capture timeline into `mode`, replacing any prior one. */
-  private setTimelineMode(mode: 'daily' | 'search' | 'review') {
+  private setTimelineMode(mode: 'daily' | 'search' | 'tag' | 'review') {
     const prev = this.timelineMode;
     this.timelineMode = mode;
 
@@ -1884,6 +1913,13 @@ export class JournalCaptureView extends ItemView {
     this.restoreSentinel();
 
     if (mode === 'daily') {
+      // Leaving tag-filter mode clears the stale filter so the full timeline
+      // shows and the tag button de-highlights. (setTagFilter's toggle path
+      // also clears it — this is idempotent.)
+      if (prev === 'tag' && this.activeTagFilter !== null) {
+        this.activeTagFilter = null;
+        this.updateTagFilterBtn();
+      }
       this.nextProbeDate = moment().startOf('day').subtract(1, 'day');
       this.exhausted = false;
       this.loadingMore = false;
@@ -1897,12 +1933,56 @@ export class JournalCaptureView extends ItemView {
       this.inlineSearchInputEl.value = '';
       this.renderTopLevelMessage('输入关键词开始搜索');
       window.setTimeout(() => this.inlineSearchInputEl.focus(), 50);
+    } else if (mode === 'tag') {
+      // Tag-filter mode: lazily scan all daily notes for the active tag.
+      this.exhausted = false;
+      this.loadingMore = false;
+      this.searchFileQueue = [];
+      this.searchCursor = 0;
+      // Bump the version so any in-flight scan is invalidated.
+      this.searchVersion++;
+      this.buildFilteredScanQueue();
+      this.renderTopLevelMessage(`筛选中 #${this.activeTagFilter} …`);
+      void this.loadMoreFilteredScan();
     } else {
       // review — a single random day, no infinite scroll
       this.exhausted = true;
       this.loadingMore = false;
       void this.loadReview();
     }
+  }
+
+  /**
+   * Build the newest→oldest queue of all daily notes, used by both search and
+   * tag-filter lazy scans.
+   */
+  private buildFilteredScanQueue() {
+    const allNotes = getAllDailyNotes();
+    const queue: Array<{ date: moment.Moment; file: TFile }> = [];
+    for (const file of Object.values(allNotes)) {
+      if (!(file instanceof TFile)) continue;
+      const date = getDateFromFile(file, 'day');
+      if (date) queue.push({ date: date.clone().startOf('day'), file });
+    }
+    queue.sort((a, b) => (a.date.isBefore(b.date) ? 1 : -1));
+    this.searchFileQueue = queue.map(q => q.file);
+  }
+
+  /**
+   * Enter tag-filter mode for `tag` (no `#` prefix). Re-selecting the same
+   * tag returns to the daily timeline (toggle behaviour).
+   */
+  private setTagFilter(tag: string) {
+    if (this.timelineMode === 'tag' && this.activeTagFilter === tag) {
+      // Toggling the same tag off → back to daily.
+      this.activeTagFilter = null;
+      this.updateTagFilterBtn();
+      this.restoreDailyMode();
+      return;
+    }
+    this.activeTagFilter = tag;
+    this.updateTagFilterBtn();
+    this.setTimelineMode('tag');
   }
 
   /** Return the capture timeline to the normal daily stream. */
@@ -2206,8 +2286,8 @@ export class JournalCaptureView extends ItemView {
    * `nextProbeDate` and may flip `exhausted`.
    */
   private async loadMore(): Promise<void> {
-    if (this.timelineMode === 'search') {
-      await this.loadMoreSearchResults();
+    if (this.timelineMode === 'search' || this.timelineMode === 'tag') {
+      await this.loadMoreFilteredScan();
       return;
     }
     if (this.timelineMode === 'review') {
