@@ -926,6 +926,20 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       .setDesc('每次打开输入框时自动带上的标签（显示为输入框顶部的状态标签）。不选则默认为无。');
     this.renderDefaultTagToggles();
 
+    new Setting(containerEl)
+      .setName('日记标签展示数量')
+      .setDesc('标签筛选菜单里「日记汇总」展示的标签数量上限（按高频+近期排名）。设为 0 则展示全部。')
+      .addSlider(slider =>
+        slider
+          .setLimits(0, 50, 1)
+          .setValue(this.plugin.settings.maxDiaryTags ?? 15)
+          .setDynamicTooltip()
+          .onChange(async value => {
+            this.plugin.settings.maxDiaryTags = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
     // ── Color Settings ───────────────────────────────────────────────────
     new Setting(containerEl).setName('颜色设置').setHeading();
 

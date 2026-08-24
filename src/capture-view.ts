@@ -197,8 +197,11 @@ export class JournalCaptureView extends ItemView {
    */
   private diaryTagsCache: Map<string, { count: number; lastUsed: number }> | null = null;
   private diaryTagsLoading = false;
-  /** Max diary tags shown in the menu — the rest are too niche/historical. */
-  private readonly maxDiaryTagsShown = 15;
+  /** Max diary tags shown in the menu — configured in settings (maxDiaryTags). */
+  private get maxDiaryTagsShown(): number {
+    const n = this.plugin.settings.maxDiaryTags ?? 15;
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : Infinity;
+  }
   /** Floating "back to top" button, revealed once the stream is scrolled down. */
   private scrollTopBtnEl: HTMLElement | null = null;
 
