@@ -3,3 +3,4 @@ dist/
 main.js
 *.js.map
 .superpowers/
+.genius-config.yaml
