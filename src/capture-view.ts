@@ -683,7 +683,7 @@ export class JournalCaptureView extends ItemView {
     this.textareaEl = inputWrapper.createEl('textarea', {
       cls: 'jp-capture-input',
       attr: {
-        placeholder: '记录这一刻吧，使用 @ 或 [[ 引入文件，# 添加标签',
+        placeholder: '记录这一刻吧，使用 @ 或 [[ 引入文件',
         rows: '3',
       },
     });
