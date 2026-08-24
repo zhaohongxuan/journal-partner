@@ -1,0 +1,30 @@
+src/capture-view.ts
+  s_fedb69fc15e504::t_f568ed00e48741 632
+  s_fedb69fc15e504::t_83a78aa9ef58f5 2289-2290
+  s_fedb69fc15e504::t_b4274a2cdbf916 1916-1922
+  s_fedb69fc15e504::t_a3421825284b48 483
+  s_fedb69fc15e504::t_0e1314a2e92eb3 1851-1854
+  s_fedb69fc15e504::t_d7fa411edd5795 1898,1936-1946,1955-1985
+  s_fedb69fc15e504::t_2c2a299467e10c 478
+  s_fedb69fc15e504::t_fab68d5431c0e1 111-113
+  s_fedb69fc15e504::t_4bc4a7c6b140d5 123
+  s_fedb69fc15e504::t_0cad5f272ce77f 1647,1671-1682
+  s_fedb69fc15e504::t_8efe0b15d6e9ff 615-616,618
+  s_fedb69fc15e504::t_084f5cf30e6b07 486-494,501,523-525,528,553-557,562-563,570-573
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "ad3c8cf2befdb599737ec483ab6f711bc3bb9b03",
+  "prompts": {},
+  "sessions": {
+    "s_fedb69fc15e504": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9105f984-26e2-49ee-a991-22050f98567c",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
