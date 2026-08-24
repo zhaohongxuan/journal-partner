@@ -236,6 +236,69 @@
   opacity: 1;
   background-color: color-mix(in srgb, var(--jp-tl-dot) 18%, transparent) !important;
 }
+
+/* ── Pending-image strip (below the textarea) ───────────────────────────── */
+.jp-pending-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.jp-pending-image {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  flex-shrink: 0;
+}
+.jp-pending-image-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.jp-pending-image-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+}
+.jp-pending-image:hover .jp-pending-image-remove {
+  opacity: 1;
+}
+.jp-pending-image-badge {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  font-size: 9px;
+  line-height: 1.2;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: #fff;
+}
+.jp-pending-image-badge.is-local {
+  background: rgba(16, 185, 129, 0.85);
+}
+.jp-pending-image-badge.is-remote {
+  background: rgba(99, 102, 241, 0.85);
+}
 /* ── Autocomplete popup ──────────────────────────────────────────────────── */
 .jp-autocomplete-popup {
   position: absolute;
