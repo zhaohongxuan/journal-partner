@@ -126,15 +126,23 @@ export default class JournalPartnerPlugin extends Plugin {
    * @returns        true on success, false if Daily Notes plugin is missing
    *                 or the write fails.
    */
-  async writeToTodayJournal(text: string, ts?: string, audio?: string): Promise<boolean> {
+  async writeToTodayJournal(text: string, ts?: string, audio?: string, images?: string[]): Promise<boolean> {
     if (!appHasDailyNotesPluginLoaded()) {
       new Notice('请先启用 Obsidian 自带的「Daily Notes」核心插件');
       return false;
     }
     const trimmed = text.trim();
     const audioPath = audio?.trim() ?? '';
-    // Require at least one of text / audio — an entry with neither is junk.
-    if (trimmed.length === 0 && audioPath.length === 0) return false;
+    const imageList = (images ?? []).filter(Boolean);
+    // Require at least one of text / audio / images — an entry with none is junk.
+    if (trimmed.length === 0 && audioPath.length === 0 && imageList.length === 0) return false;
+
+    // Images append at the very END, after all text, each on its own line.
+    const imagesText = imageList.join('\n');
+    const withImages = (body: string) => {
+      const parts = [body, imagesText].filter(Boolean);
+      return parts.join('\n\n');
+    };
 
     const stamp = ts ?? generateTimestamp();
 
@@ -149,13 +157,13 @@ export default class JournalPartnerPlugin extends Plugin {
       const body = audioPath.length > 0
         ? `${taskContent}${taskContent.length > 0 ? ' ' : ''}![[${audioPath}]]`
         : taskContent;
-      line = buildTaskLine(body.replace(/\r\n/g, '\n'), stamp, isCompleted);
+      line = buildTaskLine(withImages(body).replace(/\r\n/g, '\n'), stamp, isCompleted);
     } else {
       // Regular memo entry
       const body = audioPath.length > 0
         ? `${trimmed}${trimmed.length > 0 ? ' ' : ''}![[${audioPath}]]`
         : trimmed;
-      line = buildEntryLine(body.replace(/\r\n/g, '\n'), stamp);
+      line = buildEntryLine(withImages(body).replace(/\r\n/g, '\n'), stamp);
     }
 
     try {

@@ -39,14 +39,12 @@ import type { EditorView } from '@codemirror/view';
 
 import {
   JournalEntry,
-  buildEntryLine,
   deleteEntryFromSection,
   editEntryInSection,
   toggleTaskInSection,
   extractAudioEmbeds,
   extractTags,
   findSection,
-  generateTimestamp,
   parseJournalEntries,
   removeAudioEmbedsFromEntry,
   sortJournalEntries,
@@ -95,6 +93,22 @@ interface DaySection {
   filePath: string | null;
 }
 
+/**
+ * An image attached to the entry being composed. The markdown link stays OUT
+ * of the textarea; it's shown as a thumbnail in the pending-images strip below
+ * the input and appended at the end of the entry text on submit.
+ */
+interface PendingImage {
+  /** Final markdown to append at submit, e.g. `![](path)` or `![image](https://...)`. */
+  markdown: string;
+  /** URL used for the thumbnail and local/remote detection. Local = vault path. */
+  url: string;
+  /** Derived from url: http(s) = remote. */
+  isRemote: boolean;
+  /** Vault path (local only); used to resolve a thumbnail src via getResourcePath. */
+  vaultPath?: string;
+}
+
 export class JournalCaptureView extends ItemView {
   private plugin: JournalPartnerPlugin;
 
@@ -141,6 +155,16 @@ export class JournalCaptureView extends ItemView {
   /** Tags selected for the entry being composed, shown as chips above the textarea. */
   private selectedTags: string[] = [];
   private tagChipsRowEl!: HTMLElement;
+
+  // Pending images — attached to the entry, previewed below the textarea,
+  // appended at the END of the text on submit.
+  private pendingImages: PendingImage[] = [];
+  private pendingImagesRowEl!: HTMLElement;
+  /** True while we're mutating textarea.value during image extraction — guards
+   *  against the synchronous `input` event re-entering extractImageLinksFromText. */
+  private extractingImages = false;
+  /** Dedupe keys for images already in the pending strip: `r:<url>` remote, `l:<path>` local. */
+  private knownImageUrls = new Set<string>();
 
   // Autocomplete state
   private autocompletePopupEl!: HTMLElement;
@@ -687,7 +711,18 @@ export class JournalCaptureView extends ItemView {
         rows: '3',
       },
     });
+
+    // Pending-image strip — below the textarea, shows thumbnails of images
+    // attached to the entry (links stay out of the textarea).
+    this.pendingImagesRowEl = inputWrapper.createDiv({ cls: 'jp-pending-images' });
+    this.refreshPendingImages();
+
     this.textareaEl.addEventListener('input', () => {
+      // github-image-uploader inserts markdown image links by setting
+      // textarea.value directly and dispatching a bubbling `input` event.
+      // We listen for that here and pull any image link out of the text into
+      // the pending-image strip — the two plugins stay fully decoupled.
+      if (!this.extractingImages) this.extractImageLinksFromText();
       this.refreshSubmitState();
       this.autoResizeTextarea();
       this.updateAutocompleteSuggestions();
@@ -726,38 +761,10 @@ export class JournalCaptureView extends ItemView {
         void this.handleSubmit();
       }
     });
-    // Image paste: intercept at document level (capture phase) for reliability
-    this.registerDomEvent(document, 'paste', async (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      // Only intercept if focus is inside our textarea
-      if (!this.inputCardEl.contains(document.activeElement)) return;
-      for (const item of Array.from(items)) {
-        if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        const blob = item.getAsFile();
-        if (!blob) continue;
-        try {
-          const result = await this.saveImageToVault(blob);
-          const textarea = this.textareaEl;
-          const start = textarea.selectionStart;
-          const end = textarea.selectionEnd;
-          const before = textarea.value.substring(0, start);
-          const after = textarea.value.substring(end);
-          textarea.value = before + result + ' ' + after;
-          const newPos = start + result.length + 1;
-          textarea.setSelectionRange(newPos, newPos);
-          this.refreshSubmitState();
-          this.autoResizeTextarea();
-        } catch (err) {
-          new Notice(`图片保存失败：${err instanceof Error ? err.message : String(err)}`);
-        }
-        return;
-      }
-    }, true);
-    // Image drag & drop
+    // Image paste is handled exclusively by github-image-uploader (it is the
+    // sole image-paste interceptor at document level). We only *detect* the
+    // markdown links it inserts — via the input handler + extractImageLinksFromText.
+    // Image drag & drop is not supported — tell the user to paste instead.
     this.textareaEl.addEventListener('drop', runAsync(async (e: DragEvent) => {
       const files = e.dataTransfer?.files;
       if (!files) return;
@@ -765,20 +772,7 @@ export class JournalCaptureView extends ItemView {
         if (!file.type.startsWith('image/')) continue;
         e.preventDefault();
         e.stopPropagation();
-        try {
-          const result = await this.saveImageToVault(file);
-          const start = this.textareaEl.selectionStart;
-          const end = this.textareaEl.selectionEnd;
-          const before = this.textareaEl.value.substring(0, start);
-          const after = this.textareaEl.value.substring(end);
-          this.textareaEl.value = before + result + ' ' + after;
-          const newPos = start + result.length + 1;
-          this.textareaEl.setSelectionRange(newPos, newPos);
-          this.refreshSubmitState();
-          this.autoResizeTextarea();
-        } catch (err) {
-          new Notice(`图片保存失败：${err instanceof Error ? err.message : String(err)}`);
-        }
+        new Notice('图片不支持拖拽，请在输入框内直接粘贴图片（Ctrl/Cmd+V）');
         return;
       }
     }));
@@ -799,38 +793,6 @@ export class JournalCaptureView extends ItemView {
       }
     });
 
-
-    // Hidden file input for image upload
-    const fileInput = this.inputCardEl.createEl('input', {
-      cls: 'jp-capture-image-input',
-      attr: {
-        type: 'file',
-        accept: 'image/*',
-      },
-    });
-    fileInput.hide();
-    fileInput.addEventListener('change', runAsync(async () => {
-      const files = fileInput.files;
-      if (!files || files.length === 0) return;
-      const file = files[0];
-      if (!file.type.startsWith('image/')) return;
-      fileInput.value = '';
-      try {
-        const result = await this.saveImageToVault(file);
-        const textarea = this.textareaEl;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const before = textarea.value.substring(0, start);
-        const after = textarea.value.substring(end);
-        textarea.value = before + result + ' ' + after;
-        const newPos = start + result.length + 1;
-        textarea.setSelectionRange(newPos, newPos);
-        this.refreshSubmitState();
-        this.autoResizeTextarea();
-      } catch (err) {
-        new Notice(`图片保存失败：${err instanceof Error ? err.message : String(err)}`);
-      }
-    }));
 
     // Hidden file input for image upload
     const recBar = this.inputCardEl.createDiv({ cls: 'jp-recording-bar' });
@@ -1330,15 +1292,45 @@ export class JournalCaptureView extends ItemView {
       this.toggleTagPicker();
     });
 
-    // Image upload button
+    // Image button — opens the hidden file picker. The selected file is
+    // handled by github-image-uploader when it's installed: it registers a
+    // capture-phase `change` listener on document that runs BEFORE this
+    // input's own target-phase listener and calls stopImmediatePropagation,
+    // so its upload/local-save modal takes over. When the uploader is NOT
+    // installed, our own listener below fires instead and saves the image to
+    // the vault — the button works for everyone.
     const imageBtn = buttonRow.createEl('button', {
       cls: 'jp-capture-image-btn',
       attr: { 'aria-label': '上传图片' },
     });
     setIcon(imageBtn, 'image');
     imageBtn.addEventListener('click', () => {
-      fileInput.click();
+      imageFileInput.click();
     });
+
+    // Hidden file input for image upload — triggers the file picker only.
+    const imageFileInput = this.inputCardEl.createEl('input', {
+      cls: 'jp-capture-image-input',
+      attr: {
+        type: 'file',
+        accept: 'image/*',
+      },
+    });
+    imageFileInput.hide();
+    // Fallback handler when github-image-uploader isn't installed (see above).
+    imageFileInput.addEventListener('change', runAsync(async () => {
+      const files = imageFileInput.files;
+      if (!files || files.length === 0) return;
+      const file = files[0];
+      imageFileInput.value = '';
+      if (!file.type.startsWith('image/')) return;
+      try {
+        const saved = await this.saveImageLocallyForPending(file);
+        if (saved) new Notice('图片已保存到本地，提交时写入日记');
+      } catch (err) {
+        new Notice(`图片保存失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    }));
 
     // Microphone button
     const micBtn = buttonRow.createEl('button', {
@@ -1461,20 +1453,6 @@ export class JournalCaptureView extends ItemView {
     }
   }
 
-  private async saveImageToVault(blob: Blob): Promise<string> {
-    const ext = blob.type === 'image/png' ? 'png'
-      : blob.type === 'image/gif' ? 'gif'
-      : blob.type === 'image/webp' ? 'webp'
-      : blob.type === 'image/jpeg' ? 'jpg' : 'png';
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const baseName = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.${ext}`;
-    const filePath = await this.resolveAttachmentPath(this.plugin.settings.imageFolder, baseName);
-    const buffer = await blob.arrayBuffer();
-    const file = await this.app.vault.createBinary(filePath, buffer);
-    return `![](${file.path})`;
-  }
-
   private async saveAudioToVault(blob: Blob): Promise<string> {
     const ext = blob.type === 'audio/mp4' ? 'm4a' : 'webm';
     const now = new Date();
@@ -1484,6 +1462,240 @@ export class JournalCaptureView extends ItemView {
     const buffer = await blob.arrayBuffer();
     const file = await this.app.vault.createBinary(filePath, buffer);
     return `![[${file.path}]]`;
+  }
+
+  // ── Pending-image helpers ────────────────────────────────────────────────
+
+  /**
+   * Re-render the pending-image strip from `pendingImages`. Each image gets a
+   * small thumbnail, a local/remote badge, and a remove button. Hidden when
+   * there are no pending images.
+   */
+  private refreshPendingImages(): void {
+    this.pendingImagesRowEl.empty();
+    if (this.pendingImages.length === 0) {
+      this.pendingImagesRowEl.hide();
+      return;
+    }
+    this.pendingImagesRowEl.show();
+
+    this.pendingImages.forEach((img, index) => {
+      const thumb = this.pendingImagesRowEl.createDiv({ cls: 'jp-pending-image' });
+
+      // Local vault files need getResourcePath to produce a displayable src.
+      let src = img.url;
+      if (!img.isRemote && img.vaultPath) {
+        const file = this.app.vault.getAbstractFileByPath(img.vaultPath);
+        if (file instanceof TFile) src = this.app.vault.getResourcePath(file);
+      }
+      thumb.createEl('img', { cls: 'jp-pending-image-thumb', attr: { src, alt: '' } });
+
+      const remove = thumb.createEl('button', {
+        cls: 'jp-pending-image-remove',
+        attr: { 'aria-label': '移除图片' },
+      });
+      setIcon(remove, 'x');
+      remove.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        this.pendingImages.splice(index, 1);
+        // Forget the dedupe key so the same link can be pasted again later.
+        const key = img.isRemote ? `r:${img.url}` : `l:${img.vaultPath ?? img.url}`;
+        this.knownImageUrls.delete(key);
+        this.refreshPendingImages();
+        this.refreshSubmitState();
+      });
+
+      const badge = thumb.createDiv({
+        cls: 'jp-pending-image-badge' + (img.isRemote ? ' is-remote' : ' is-local'),
+      });
+      badge.setText(img.isRemote ? '远程' : '本地');
+    });
+  }
+
+  /**
+   * Fallback used when github-image-uploader isn't installed: save the picked
+   * image to the vault (imageFolder) and register it with the pending strip.
+   * Returns false if the image was already in the pending list (dedupe).
+   */
+  private async saveImageLocallyForPending(file: File): Promise<boolean> {
+    const ext = file.type === 'image/png' ? 'png'
+      : file.type === 'image/gif' ? 'gif'
+      : file.type === 'image/webp' ? 'webp'
+      : file.type === 'image/jpeg' ? 'jpg' : 'png';
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const baseName = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.${ext}`;
+    const filePath = await this.resolveAttachmentPath(this.plugin.settings.imageFolder, baseName);
+    const buffer = await file.arrayBuffer();
+    const vaultFile = await this.app.vault.createBinary(filePath, buffer);
+
+    const url = vaultFile.path;
+    const key = `l:${url}`;
+    if (this.knownImageUrls.has(key)) return false;
+    this.knownImageUrls.add(key);
+    this.pendingImages.push({
+      markdown: `![](${url})`,
+      url,
+      vaultPath: url,
+      isRemote: false,
+    });
+    this.refreshPendingImages();
+    this.refreshSubmitState();
+    return true;
+  }
+
+  /**
+   * Pull image links out of the textarea and into the pending strip.
+   *
+   * github-image-uploader writes `![alt](url)` into our textarea (via
+   * textarea.value + a bubbling `input` event) — we detect it here and move
+   * it out of the text, keeping the input box clean. We also recognise:
+   *   - `![[path.png]]` wikilink embeds of image files (local thumbnails)
+   *   - bare `https://…` URLs ending in an image extension (remote)
+   * Anything else (audio embeds, plain notes, non-image URLs) is left alone.
+   *
+   * Decoupling note: this never uploads or saves anything itself — it only
+   * reads what's in the textarea. Two plugins stay independent.
+   */
+  private extractImageLinksFromText(): void {
+    const ta = this.textareaEl;
+    const value = ta.value;
+    if (value.length === 0) return;
+
+    const imageExt = '(?:png|jpe?g|gif|webp|svg|avif|bmp|ico)';
+    // `![alt](url)` — any URL: http(s) = remote, otherwise local vault path.
+    const reMd = new RegExp('!\\[([^\\]]*)\\]\\(([^)\\s]+)\\)', 'g');
+    // `![[path]]` wikilink — only extracted when the target has an image extension.
+    const reWiki = new RegExp('!\\[\\[([^\\]|#]+?)(?:\\|.*?)?\\]\\]', 'g');
+    // Bare http(s) URL ending in an image extension. The URL body excludes
+    // `?`/`#` so the required `.<ext>` stays anchored to the filename, then an
+    // optional `?query`/`#fragment` may follow (e.g. `…p.jpg?w=100&h=200`).
+    const reBare = new RegExp(`(?<![\\w./-])(https?:\\/\\/[^\\s<>"')\\]?#]+)(?:\\.${imageExt})(?:[?#][^\\s<>"')\\]]*)?(?![\\w-])`, 'g');
+
+    interface Found {
+      start: number;
+      end: number;
+      token: string;
+      kind: 'md' | 'wiki' | 'bare';
+    }
+
+    const found: Found[] = [];
+
+    const scan = (re: RegExp, kind: Found['kind']): void => {
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(value)) !== null) {
+        found.push({ start: m.index, end: m.index + m[0].length, token: m[0], kind });
+      }
+    };
+
+    // Scan all three forms on the ORIGINAL value (positions stay valid).
+    scan(reMd, 'md');
+    scan(reWiki, 'wiki');
+    scan(reBare, 'bare');
+
+    // A bare-URL match can sit inside a markdown-image match (`![x](https://…)`).
+    // Keep the enclosing markdown/wikilink match, drop the nested bare one.
+    const bareOnly = found.filter(f => f.kind === 'bare');
+    const nestedIn = (f: Found): boolean =>
+      found.some(o => o.kind !== 'bare' && o.start <= f.start && f.end <= o.end);
+    const keepBare = bareOnly.filter(f => !nestedIn(f));
+
+    const spans = found.filter(f => f.kind !== 'bare').concat(keepBare);
+    if (spans.length === 0) return;
+
+    // Rebuild the text minus every span, then register each image. Spans are
+    // sorted by start; because they never overlap after the bare-nesting
+    // filter, removing them left-to-right keeps positions consistent.
+    spans.sort((a, b) => a.start - b.start);
+    let cleaned = '';
+    let cursor = 0;
+    for (const span of spans) {
+      cleaned += value.slice(cursor, span.start);
+      // Wikilinks only when the target is an image file (audio embeds stay).
+      const keep = span.kind === 'wiki' && !this.isImageExt(span.token);
+      if (keep) {
+        cleaned += span.token; // non-image embeds (e.g. audio) stay in the text
+      } else {
+        this.addDetectedImage(span.token, span.kind);
+      }
+      cursor = span.end;
+    }
+    cleaned += value.slice(cursor);
+
+    // Rewrite the textarea and push the cursor to the end. Guard against the
+    // synchronous `input` event re-entering this method.
+    this.extractingImages = true;
+    ta.value = cleaned;
+    const len = ta.value.length;
+    ta.setSelectionRange(len, len);
+    this.extractingImages = false;
+
+    this.autoResizeTextarea();
+    this.refreshPendingImages();
+    this.refreshSubmitState();
+  }
+
+  /**
+   * Register a detected image token with the pending strip. `kind` tells us
+   * how to resolve it:
+   *   - 'md'   : markdown image — http(s) URL = remote, anything else = local vault path
+   *   - 'wiki' : wikilink embed — always a local vault file path
+   *   - 'bare' : bare image URL — always remote
+   * Dedupes by the resolved key (`r:<url>` / `l:<path>`), so pasting the same
+   * link twice yields a single thumbnail and both text occurrences are removed.
+   */
+  private addDetectedImage(token: string, kind: 'md' | 'wiki' | 'bare'): void {
+    let markdown: string;
+    let url: string;
+    let vaultPath: string | undefined;
+    let isRemote: boolean;
+
+    if (kind === 'md') {
+      const inner = /^!\[([^\]]*)\]\(([^)\s]+)\)$/.exec(token);
+      const target = inner ? inner[2] : '';
+      if (target.startsWith('http://') || target.startsWith('https://')) {
+        markdown = token;
+        url = target;
+        isRemote = true;
+      } else {
+        // Local vault path — validate it exists before showing a thumbnail.
+        const file = this.app.vault.getAbstractFileByPath(decodeURIComponent(target));
+        if (!(file instanceof TFile)) return;
+        markdown = token;
+        url = target;
+        vaultPath = file.path;
+        isRemote = false;
+      }
+    } else if (kind === 'wiki') {
+      const inner = /^!\[\[([^\]|#]+?)(?:\|.*?)?\]\]$/.exec(token);
+      const target = inner ? inner[1] : '';
+      const file = this.app.vault.getAbstractFileByPath(decodeURIComponent(target));
+      if (!(file instanceof TFile)) return;
+      markdown = token;
+      url = target;
+      vaultPath = file.path;
+      isRemote = false;
+    } else {
+      // Bare URL — always remote.
+      markdown = `![image](${token})`;
+      url = token;
+      isRemote = true;
+    }
+
+    const key = isRemote ? `r:${url}` : `l:${vaultPath ?? url}`;
+    if (this.knownImageUrls.has(key)) return;
+    this.knownImageUrls.add(key);
+    this.pendingImages.push({ markdown, url, isRemote, vaultPath });
+  }
+
+  /** True when a `![[…]]` token targets an image file (vs audio/other embeds). */
+  private isImageExt(token: string): boolean {
+    const inner = /^!\[\[([^\]|#]+?)(?:\|.*?)?\]\]$/.exec(token);
+    const path = inner ? inner[1] : '';
+    const extMatch = /\.[A-Za-z0-9]+$/.exec(path);
+    const ext = extMatch ? extMatch[0].slice(1).toLowerCase() : '';
+    return /^(?:png|jpe?g|gif|webp|svg|avif|bmp|ico)$/.test(ext);
   }
 
   /**
@@ -2045,7 +2257,9 @@ export class JournalCaptureView extends ItemView {
   // ── Behaviour ───────────────────────────────────────────────────────────
 
   private refreshSubmitState() {
-    const hasContent = this.textareaEl.value.trim().length > 0;
+    // A pending image alone makes the entry submittable (image-only entry).
+    const hasContent =
+      this.textareaEl.value.trim().length > 0 || this.pendingImages.length > 0;
     this.submitBtn.toggleClass('jp-capture-submit--disabled', !hasContent);
     this.submitBtn.disabled = !hasContent;
   }
@@ -2195,6 +2409,9 @@ export class JournalCaptureView extends ItemView {
         }
       }
       this.textareaEl.value = '';
+      // Clear pending images too — a cleared draft shouldn't carry them.
+      this.pendingImages = [];
+      this.refreshPendingImages();
       this.refreshSubmitState();
       this.autoResizeTextarea();
       new Notice(
@@ -3365,9 +3582,9 @@ export class JournalCaptureView extends ItemView {
 
   private async handleSubmit(): Promise<void> {
     const raw = this.textareaEl.value;
-    // An entry needs either text or a selected tag — tags alone are a valid
-    // entry (e.g. a note that's just `#log/code`).
-    if (raw.trim().length === 0 && this.selectedTags.length === 0) return;
+    // An entry needs text, a selected tag, or pending images — any one makes
+    // it a valid entry (e.g. a pure image or a note that's just `#log/code`).
+    if (raw.trim().length === 0 && this.selectedTags.length === 0 && this.pendingImages.length === 0) return;
 
     if (!appHasDailyNotesPluginLoaded()) {
       new Notice('请先启用 Obsidian 自带的「Daily Notes」核心插件');
@@ -3397,12 +3614,20 @@ export class JournalCaptureView extends ItemView {
       } else {
         text = `${tagsPrefix}${raw}`;
       }
-      const ok = await this.plugin.writeToTodayJournal(text);
+      // Images append at the END of the entry, after all text.
+      const ok = await this.plugin.writeToTodayJournal(
+        text,
+        undefined,
+        undefined,
+        this.pendingImages.map(img => img.markdown),
+      );
       if (!ok) return;
 
       this.textareaEl.value = '';
       this.isTaskMode = false;
       this.resetSelectedTags();
+      this.pendingImages = [];
+      this.refreshPendingImages();
       this.autoResizeTextarea();
 
       // vault.modify will catch-up the today section automatically; if
