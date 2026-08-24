@@ -52,6 +52,8 @@ export interface JournalPartnerSettings {
   presetTags: string[];
   /** Tags auto-selected (shown as chips) every time the capture input opens. Empty = none. Subset of presetTags. */
   defaultTags: string[];
+  /** How many journal-derived tags (ranked by frequency + recency) the tag-filter menu shows. 0 = no limit. */
+  maxDiaryTags: number;
 }
 
 export const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -75,6 +77,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   sortOrder: 'desc',
   presetTags: ['#log/fitness', '#log/code'],
   defaultTags: [],
+  maxDiaryTags: 15,
 };
 
 export type Rng = { from: number; to: number };
