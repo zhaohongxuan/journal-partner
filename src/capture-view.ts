@@ -282,7 +282,7 @@ export class JournalCaptureView extends ItemView {
   }
 
   getDisplayText(): string {
-    return '快速记录';
+    return 'Journal Partner';
   }
 
   getIcon(): string {
@@ -423,12 +423,13 @@ export class JournalCaptureView extends ItemView {
   private buildTabBar(root: HTMLElement) {
     this.tabBarEl = root.createDiv({ cls: 'jp-tab-bar' });
 
-    this.captureTabBtn = this.makeTabBtn('feather', '快速记录', true);
+    this.captureTabBtn = this.makeTabBtn('feather', 'Journal Partner', true);
     this.captureTabBtn.addEventListener('click', () => {
       this.switchTab('capture');
       // Leaving any non-daily timeline mode (review/search/tag) back to the
-      // home timeline when the user taps 快速记录. switchTab('capture') is a
-      // no-op when already on capture, so this is what actually exits review.
+      // home timeline when the user taps Journal Partner. switchTab('capture')
+      // is a no-op when already on capture, so this is what actually exits
+      // review/search/tag mode.
       if (this.timelineMode !== 'daily') this.restoreDailyMode();
     });
 

@@ -75,10 +75,10 @@ export default class JournalPartnerPlugin extends Plugin {
     );
     this.addCommand({
       id: 'open-capture-view',
-      name: '打开快速记录侧边栏',
+      name: '打开 Journal Partner 侧边栏',
       callback: () => void this.activateCaptureView(),
     });
-    this.addRibbonIcon('feather', '快速记录', () => void this.activateCaptureView());
+    this.addRibbonIcon('feather', 'Journal Partner', () => void this.activateCaptureView());
 
     // ── URL protocol handler (Path B: Action Button + Shortcuts) ──
     // Registers obsidian://journal-partner so that an iOS Shortcut (or any
