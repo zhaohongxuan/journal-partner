@@ -1,0 +1,36 @@
+src/capture-view.ts
+  s_fedb69fc15e504::t_b2fb9ea95129c7 427-433
+  s_fedb69fc15e504::t_097ef3fe22f89d 3396,3401-3422,3424,3430
+  s_fedb69fc15e504::t_b64a2881fb2aa3 3423
+  s_fedb69fc15e504::t_826497b9ecc151 3377,3380-3385,3388
+  s_fedb69fc15e504::t_e9c539957fb331 435-442,447
+  s_fedb69fc15e504::t_180d2787bf9f18 3389-3395,3397-3400
+styles.css
+  s_fedb69fc15e504::t_a01f1bcde82afd 1249,1253
+  s_fedb69fc15e504::t_345415d7f4a838 1273-1274
+  s_fedb69fc15e504::t_440dceb6b62663 1254,1263,1268,1275
+  s_fedb69fc15e504::t_0145454b2c09e8 1252,1279
+  s_fedb69fc15e504::t_82749aa3b7b125 1290,1292-1293,1300-1308,1311-1314
+  s_fedb69fc15e504::t_33bd08ddd8c6f9 1418-1419
+  s_fedb69fc15e504::t_db9c05539d5bf5 1255,1257-1259,1265-1267,1269-1272,1276,1294-1298,1315-1316
+  s_fedb69fc15e504::t_07b30078f6f67b 1241-1247,1251,1280,1291
+  s_fedb69fc15e504::t_a6377f9cac9d64 1420
+  s_fedb69fc15e504::t_3c17d38a6d213f 1299
+  s_fedb69fc15e504::t_884f4f2f08d700 1277-1278,1281-1288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "9607940e9473ac07a286b34e3e1fdf871c5e0e76",
+  "prompts": {},
+  "sessions": {
+    "s_fedb69fc15e504": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9105f984-26e2-49ee-a991-22050f98567c",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
