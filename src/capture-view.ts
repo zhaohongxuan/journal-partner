@@ -775,9 +775,33 @@ export class JournalCaptureView extends ItemView {
         void this.handleSubmit();
       }
     });
-    // Image paste is handled exclusively by github-image-uploader (it is the
-    // sole image-paste interceptor at document level). We only *detect* the
-    // markdown links it inserts — via the input handler + extractImageLinksFromText.
+    // Image paste — handled by github-image-uploader when it's installed and
+    // enabled: its document CAPTURE-phase listener runs first and calls
+    // stopImmediatePropagation, so this bubble-phase listener below never
+    // fires. Without the uploader we fall back to staging the pasted image
+    // locally (saved to the vault at submit time).
+    this.registerDomEvent(document, 'paste', (evt: ClipboardEvent) => {
+      // Only intercept when focus is inside our textarea.
+      if (!this.inputCardEl.contains(document.activeElement)) return;
+      const items = evt.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
+        evt.preventDefault();
+        evt.stopPropagation();
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        void (async () => {
+          try {
+            const saved = await this.saveImageLocallyForPending(blob);
+            if (saved) new Notice('图片已暂存，提交时写入日记');
+          } catch (err) {
+            new Notice(`图片处理失败：${err instanceof Error ? err.message : String(err)}`);
+          }
+        })();
+        return;
+      }
+    });
     // Image drag & drop is not supported — tell the user to paste instead.
     this.textareaEl.addEventListener('drop', runAsync(async (e: DragEvent) => {
       const files = e.dataTransfer?.files;
