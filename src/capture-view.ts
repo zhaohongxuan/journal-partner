@@ -193,7 +193,6 @@ export class JournalCaptureView extends ItemView {
   // DOM references (stats pane)
   private statsToolbarEl!: HTMLElement;
   private statsBodyEl!: HTMLElement;
-  private statsYearLabelEl!: HTMLElement;
 
   // Stats state
   private statsLoading = false;
@@ -282,7 +281,7 @@ export class JournalCaptureView extends ItemView {
   }
 
   getDisplayText(): string {
-    return '快速记录';
+    return 'Journal Partner';
   }
 
   getIcon(): string {
@@ -423,12 +422,13 @@ export class JournalCaptureView extends ItemView {
   private buildTabBar(root: HTMLElement) {
     this.tabBarEl = root.createDiv({ cls: 'jp-tab-bar' });
 
-    this.captureTabBtn = this.makeTabBtn('feather', '快速记录', true);
+    this.captureTabBtn = this.makeTabBtn('feather', 'Journal Partner', true);
     this.captureTabBtn.addEventListener('click', () => {
       this.switchTab('capture');
       // Leaving any non-daily timeline mode (review/search/tag) back to the
-      // home timeline when the user taps 快速记录. switchTab('capture') is a
-      // no-op when already on capture, so this is what actually exits review.
+      // home timeline when the user taps Journal Partner. switchTab('capture')
+      // is a no-op when already on capture, so this is what actually exits
+      // review/search/tag mode.
       if (this.timelineMode !== 'daily') this.restoreDailyMode();
     });
 
@@ -469,9 +469,6 @@ export class JournalCaptureView extends ItemView {
     const prevTab = this.currentTab;
     this.currentTab = tab;
 
-    this.captureTabBtn.toggleClass('is-active', tab === 'capture');
-    this.statsTabBtn.toggleClass('is-active', tab === 'stats');
-
     if (tab === 'capture') {
       this.capturePaneEl.show();
       this.statsPaneEl.hide();
@@ -492,6 +489,28 @@ export class JournalCaptureView extends ItemView {
       }
       void this.loadAllStats();
     }
+
+    this.updateTabBtnStates();
+  }
+
+  /**
+   * Keep the dock/tab-bar active-state in sync with the current tab AND the
+   * capture timeline mode — a single source of truth so at most ONE dock
+   * button is highlighted at any time.
+   *
+   * The capture tab's button is highlighted only in its "home" state
+   * (capture tab + daily timeline). Snapshot modes (review/search/tag) are
+   * capture-pane sub-modes and highlight their own button instead — so the
+   * capture button must NOT stay lit while e.g. review is active. The stats
+   * tab is its own highlight; review/search belong to the capture pane, so
+   * they are cleared whenever the user is on the stats tab.
+   */
+  private updateTabBtnStates() {
+    const isStats = this.currentTab === 'stats';
+    this.captureTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'daily');
+    this.reviewTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'review');
+    this.searchTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'search');
+    this.statsTabBtn.toggleClass('is-active', isStats);
   }
 
   private async runSearch(query: string) {
@@ -2202,9 +2221,11 @@ export class JournalCaptureView extends ItemView {
     const prev = this.timelineMode;
     this.timelineMode = mode;
 
-    this.searchTabBtn.toggleClass('is-active', mode === 'search');
-    this.reviewTabBtn.toggleClass('is-active', mode === 'review');
     this.inlineSearchBarEl.toggle(mode === 'search');
+
+    // In snapshot modes (review/search/tag) the capture tab button steps
+    // aside so only the active mode's button stays lit.
+    this.updateTabBtnStates();
 
     if (prev === 'search' && this.searchDebounceTimer !== null) {
       window.clearTimeout(this.searchDebounceTimer);
@@ -2550,8 +2571,7 @@ export class JournalCaptureView extends ItemView {
     // A full rebuild always restores the daily timeline — search/review are
     // snapshots that are cleared by setTimelineMode instead.
     this.timelineMode = 'daily';
-    this.searchTabBtn.toggleClass('is-active', false);
-    this.reviewTabBtn.toggleClass('is-active', false);
+    this.updateTabBtnStates();
     this.inlineSearchBarEl.hide();
     if (this.searchDebounceTimer !== null) {
       window.clearTimeout(this.searchDebounceTimer);
@@ -3061,11 +3081,6 @@ export class JournalCaptureView extends ItemView {
 
     this.statsToolbarEl.createDiv({ cls: 'jp-stats-toolbar-spacer' });
 
-    this.statsYearLabelEl = this.statsToolbarEl.createDiv({
-      cls: 'jp-stats-year-label',
-      text: '全量数据',
-    });
-
     // Body container
     this.statsBodyEl = this.statsPaneEl.createDiv({ cls: 'jp-stats-body' });
   }
@@ -3089,7 +3104,6 @@ export class JournalCaptureView extends ItemView {
     if (this.statsLoading) return;
     this.statsLoading = true;
 
-    this.statsYearLabelEl.setText('全量数据');
     this.renderStatsLoading();
 
     try {
@@ -3183,9 +3197,9 @@ export class JournalCaptureView extends ItemView {
     const numLine = top.createDiv({ cls: 'jp-stats-hero-number' });
     const formatted = formatChineseWordCount(allTime.totalWords);
     if (formatted.includes('万')) {
-      const [num, unit] = formatted.split(' ');
+      const [num] = formatted.split(' ');
       numLine.createSpan({ cls: 'jp-stats-hero-num', text: num });
-      numLine.createSpan({ cls: 'jp-stats-hero-unit', text: unit });
+      numLine.createSpan({ cls: 'jp-stats-hero-unit', text: '万字' });
     } else {
       numLine.createSpan({ cls: 'jp-stats-hero-num', text: formatted });
       numLine.createSpan({ cls: 'jp-stats-hero-unit', text: '字' });
@@ -3198,7 +3212,7 @@ export class JournalCaptureView extends ItemView {
     sub.createSpan({ text: yearsStr });
 
     const grid = hero.createDiv({ cls: 'jp-stats-hero-kpis' });
-    this.makeStatsKPI(grid, 'file-text', `${allTime.writingDays}`, '天', '写作天数');
+    this.makeStatsKPI(grid, 'file-text', `${allTime.writingDays}`, '天', '记录天数');
     this.makeStatsKPI(grid, 'pencil', `${allTime.totalEntries}`, '条', '总条数');
     this.makeStatsKPI(grid, 'mic', `${allTime.totalAudios}`, '段', '录音数');
     this.makeStatsKPI(grid, 'flame', `${allTime.longestStreak}`, '天', '最长连续');
@@ -3386,13 +3400,11 @@ export class JournalCaptureView extends ItemView {
    */
   private setupMobileToolbarAutoHide() {
     // Mobile only: keep Obsidian's native navbar hidden while this view is
-    // open — the view's own floating tab bar replaces it. Guarded so we only
-    // hide when this view is actually the active one.
-    if (Platform.isMobile) {
-      const activeView = this.app.workspace.getActiveViewOfType(JournalCaptureView);
-      if (activeView !== this) return;
-      this.setToolbarHidden(true);
-    }
+    // open — the view's own floating tab bar replaces it. Not gated on the
+    // active-view check: on mobile the capture view can be the foreground
+    // view without getActiveViewOfType reporting it, which would leave the
+    // native navbar visible.
+    if (Platform.isMobile) this.setToolbarHidden(true);
 
     // Scroll-direction driven hide/show for the floating tab bar itself. This
     // runs on every platform (mobile + desktop) and must NOT be gated on the
@@ -3422,6 +3434,19 @@ export class JournalCaptureView extends ItemView {
     };
     // registerDomEvent auto-removes the listener when the view closes.
     this.registerDomEvent(scroller, 'scroll', onScrollBound);
+
+    // Mobile keyboard: when the input gains focus the on-screen keyboard
+    // covers the bottom of the viewport, so hide the dock. Restore it on blur
+    // (unless we're scrolled down — the scroll handler takes over again).
+    if (Platform.isMobile && this.textareaEl) {
+      this.registerDomEvent(this.textareaEl, 'focusin', () => {
+        this.tabBarEl?.toggleClass('jp-tab-bar-hidden', true);
+      });
+      this.registerDomEvent(this.textareaEl, 'focusout', () => {
+        const atTop = (this.containerEl.children[1] as HTMLElement)?.scrollTop <= 8;
+        this.tabBarEl?.toggleClass('jp-tab-bar-hidden', !atTop);
+      });
+    }
   }
 
   private teardownMobileToolbarAutoHide() {
