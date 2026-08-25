@@ -1265,9 +1265,9 @@
   width: fit-content;
   max-width: 92vw;
   padding: 6px 10px;
-  background: color-mix(in srgb, var(--background-primary) 82%, transparent);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--background-primary) 65%, transparent);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
   border: 1px solid var(--background-modifier-border);
   /* Half-height radius: a rounded rectangle that hugs the circular buttons,
      so the bar's corner matches the button circles (no pill-vs-circle clash). */
