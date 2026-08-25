@@ -107,6 +107,13 @@ interface PendingImage {
   isRemote: boolean;
   /** Vault path (local only); used to resolve a thumbnail src via getResourcePath. */
   vaultPath?: string;
+  /**
+   * Set only for locally-picked images (no github-image-uploader installed)
+   * that haven't been written to the vault yet. Saved at submit time.
+   */
+  file?: File;
+  /** objectURL for previewing an unsaved local file (no vault write yet). */
+  previewUrl?: string;
 }
 
 export class JournalCaptureView extends ItemView {
@@ -1483,8 +1490,11 @@ export class JournalCaptureView extends ItemView {
       const thumb = this.pendingImagesRowEl.createDiv({ cls: 'jp-pending-image' });
 
       // Local vault files need getResourcePath to produce a displayable src.
+      // Unsaved picked files use their objectURL preview.
       let src = img.url;
-      if (!img.isRemote && img.vaultPath) {
+      if (img.previewUrl) {
+        src = img.previewUrl;
+      } else if (!img.isRemote && img.vaultPath) {
         const file = this.app.vault.getAbstractFileByPath(img.vaultPath);
         if (file instanceof TFile) src = this.app.vault.getResourcePath(file);
       }
@@ -1498,8 +1508,12 @@ export class JournalCaptureView extends ItemView {
       remove.addEventListener('click', (evt) => {
         evt.stopPropagation();
         this.pendingImages.splice(index, 1);
+        // Revoke the object URL for unsaved local files.
+        if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
         // Forget the dedupe key so the same link can be pasted again later.
-        const key = img.isRemote ? `r:${img.url}` : `l:${img.vaultPath ?? img.url}`;
+        const key = img.file
+          ? `l:${img.file.name}:${img.file.size}`
+          : img.isRemote ? `r:${img.url}` : `l:${img.vaultPath ?? img.url}`;
         this.knownImageUrls.delete(key);
         this.refreshPendingImages();
         this.refreshSubmitState();
@@ -1513,35 +1527,60 @@ export class JournalCaptureView extends ItemView {
   }
 
   /**
-   * Fallback used when github-image-uploader isn't installed: save the picked
-   * image to the vault (imageFolder) and register it with the pending strip.
-   * Returns false if the image was already in the pending list (dedupe).
+   * Fallback used when github-image-uploader isn't installed: register the
+   * picked image with the pending strip WITHOUT writing to the vault yet.
+   * The File is held on the pending entry and saved to the vault only at
+   * submit time (see handleSubmit). Returns false if already pending (dedupe).
    */
   private async saveImageLocallyForPending(file: File): Promise<boolean> {
-    const ext = file.type === 'image/png' ? 'png'
-      : file.type === 'image/gif' ? 'gif'
-      : file.type === 'image/webp' ? 'webp'
-      : file.type === 'image/jpeg' ? 'jpg' : 'png';
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const baseName = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.${ext}`;
-    const filePath = await this.resolveAttachmentPath(this.plugin.settings.imageFolder, baseName);
-    const buffer = await file.arrayBuffer();
-    const vaultFile = await this.app.vault.createBinary(filePath, buffer);
-
-    const url = vaultFile.path;
-    const key = `l:${url}`;
+    const key = `l:${file.name}:${file.size}`;
     if (this.knownImageUrls.has(key)) return false;
     this.knownImageUrls.add(key);
+    const previewUrl = URL.createObjectURL(file);
     this.pendingImages.push({
-      markdown: `![](${url})`,
-      url,
-      vaultPath: url,
+      markdown: '', // filled in at submit once the vault path is known
+      url: previewUrl,
+      previewUrl,
       isRemote: false,
+      file,
     });
     this.refreshPendingImages();
     this.refreshSubmitState();
     return true;
+  }
+
+  /**
+   * Write a deferred local image (picked but not yet saved) to the vault at
+   * submit time. Returns the final markdown link, or null on failure (the
+   * caller skips the image rather than aborting the whole entry).
+   */
+  private async savePendingFileToVault(img: PendingImage): Promise<string | null> {
+    if (!img.file) return null;
+    const ext = img.file.type === 'image/png' ? 'png'
+      : img.file.type === 'image/gif' ? 'gif'
+      : img.file.type === 'image/webp' ? 'webp'
+      : img.file.type === 'image/jpeg' ? 'jpg' : 'png';
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const baseName = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.${ext}`;
+    try {
+      const filePath = await this.resolveAttachmentPath(this.plugin.settings.imageFolder, baseName);
+      const buffer = await img.file.arrayBuffer();
+      const vaultFile = await this.app.vault.createBinary(filePath, buffer);
+      img.vaultPath = vaultFile.path;
+      img.url = vaultFile.path;
+      img.markdown = `![](${vaultFile.path})`;
+      // Free the object URL — the thumbnail now renders via getResourcePath.
+      if (img.previewUrl) {
+        URL.revokeObjectURL(img.previewUrl);
+        img.previewUrl = undefined;
+      }
+      return img.markdown;
+    } catch (err) {
+      console.error('[Journal Partner] save pending image failed', err);
+      new Notice(`图片保存失败：${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
   }
 
   /**
@@ -2410,7 +2449,11 @@ export class JournalCaptureView extends ItemView {
       }
       this.textareaEl.value = '';
       // Clear pending images too — a cleared draft shouldn't carry them.
+      for (const img of this.pendingImages) {
+        if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+      }
       this.pendingImages = [];
+      this.knownImageUrls.clear();
       this.refreshPendingImages();
       this.refreshSubmitState();
       this.autoResizeTextarea();
@@ -3614,19 +3657,34 @@ export class JournalCaptureView extends ItemView {
       } else {
         text = `${tagsPrefix}${raw}`;
       }
-      // Images append at the END of the entry, after all text.
+      // Images append at the END of the entry, after all text. Locally-picked
+      // files that weren't saved yet are written to the vault here.
+      const imageMarkdowns: string[] = [];
+      for (const img of this.pendingImages) {
+        if (img.file) {
+          const saved = await this.savePendingFileToVault(img);
+          if (saved) imageMarkdowns.push(saved);
+        } else if (img.markdown) {
+          imageMarkdowns.push(img.markdown);
+        }
+      }
       const ok = await this.plugin.writeToTodayJournal(
         text,
         undefined,
         undefined,
-        this.pendingImages.map(img => img.markdown),
+        imageMarkdowns,
       );
       if (!ok) return;
 
       this.textareaEl.value = '';
       this.isTaskMode = false;
       this.resetSelectedTags();
+      // Free object URLs for any deferred local images (already saved above).
+      for (const img of this.pendingImages) {
+        if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+      }
       this.pendingImages = [];
+      this.knownImageUrls.clear();
       this.refreshPendingImages();
       this.autoResizeTextarea();
 
