@@ -1238,36 +1238,82 @@
   box-shadow: inset 0 0 0 1px var(--background-modifier-border);
 }
 
-/* ── Mobile: bottom floating tab bar ───────────────────────────────────────
-   On mobile the tab bar floats centered at the bottom of the viewport (the
-   native `.mobile-navbar` is hidden — see above). `position: sticky; bottom`
-   keeps it pinned to the viewport bottom while `.jp-capture-root` scrolls;
-   this works because root is the single scroll container (flex column). */
-.is-mobile .jp-capture-root {
+/* ── Floating bottom dock (tab bar) ────────────────────────────────────────
+   On ALL platforms the tab bar floats centered at the bottom of the viewport.
+   On mobile the native `.mobile-navbar` is hidden (see above); desktop has
+   none. `position: fixed` pins it to the viewport bottom; it slides away on
+   scroll down (via `.jp-tab-bar-hidden`, toggled by capture-view.ts) and
+   returns on scroll up. */
+.jp-capture-root {
   /* Let the scroller reach content under the floating tab bar. */
-  scroll-padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  padding-bottom: calc(88px + env(safe-area-inset-bottom));
 }
-.is-mobile .jp-tab-bar {
-  position: sticky;
-  bottom: 0;
+.jp-tab-bar {
+  position: fixed;
+  /* Floating, not docked to the edge — hover above the bottom. */
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  left: 50%;
   z-index: 7; /* above the back-to-top button (6) */
+  /* Center horizontally via translateX(-50%); the hide animation reuses the
+     X offset and adds Y — see .jp-tab-bar-hidden below. */
+  transform: translateX(-50%);
   display: flex;
   justify-content: center; /* centered */
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   margin: 0;
-  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
-  background: var(--background-primary);
-  border-top: 1px solid var(--background-modifier-border);
+  /* Dock-style pill: compact, floating, translucent with a frosted blur. */
+  width: fit-content;
+  max-width: 92vw;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--background-primary) 82%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--background-modifier-border);
+  /* Half-height radius: a rounded rectangle that hugs the circular buttons,
+     so the bar's corner matches the button circles (no pill-vs-circle clash). */
+  border-radius: 26px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+  transition: transform 0.22s ease, opacity 0.22s ease, visibility 0.22s ease;
+  will-change: transform, opacity;
 }
-/* Progressive enhancement: borrow Obsidian's native mobile nav-button look
-   (the class themes define for `.mobile-navbar` buttons). Falls back to
-   `.clickable-icon` styling when a theme doesn't define it. */
+.jp-tab-bar.jp-tab-bar-hidden {
+  /* Root fix: transform alone can't guarantee full off-screen removal — the
+     bar floats above the bottom (16px + safe-area inset), so a percentage
+     translate may leave part of it visible. `visibility: hidden` + opacity 0
+     removes it from rendering entirely, however much it needs to move. */
+  transform: translate(-50%, 110%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+/* Dock buttons — circular touch targets. Compact on desktop. */
+.jp-tab-btn.clickable-icon.nav-action-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  max-width: none;
+}
+/* Bigger icons inside the dock buttons. */
+.jp-tab-btn-icon svg {
+  width: 18px;
+  height: 18px;
+}
+/* Mobile: roomier dock + touch targets. */
+.is-mobile .jp-tab-bar {
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 34px;
+}
 .is-mobile .jp-tab-btn.clickable-icon.nav-action-button {
-  flex: 1;
-  max-width: 140px;
-  height: 44px; /* mobile touch target */
-  border-radius: 8px;
+  width: 52px;
+  height: 52px;
+}
+.is-mobile .jp-tab-btn-icon svg {
+  width: 22px;
+  height: 22px;
 }
 /* Search bar — appears below tab bar when search tab is active */
 .jp-search-bar {
@@ -1369,10 +1415,9 @@
   width: 18px;
   height: 18px;
 }
-/* 移动端：原生底部导航栏(.mobile-navbar)已被常驻隐藏，底部改为悬浮的
-   tab 栏。scroll-top 按钮浮在 tab 栏上方（视口底部之上 8px）。 */
-.is-mobile .jp-scroll-top-btn {
-  bottom: calc(100% + 8px);
+/* 底部悬浮 dock tab 栏约 68px 高。scroll-top 按钮浮在 tab 栏上方。 */
+.jp-scroll-top-btn {
+  bottom: calc(92px + env(safe-area-inset-bottom));
 }
 
 /* ── Random review pane ───────────────────────────────────────────────────── */

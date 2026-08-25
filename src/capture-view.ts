@@ -424,13 +424,27 @@ export class JournalCaptureView extends ItemView {
     this.tabBarEl = root.createDiv({ cls: 'jp-tab-bar' });
 
     this.captureTabBtn = this.makeTabBtn('feather', '快速记录', true);
-    this.captureTabBtn.addEventListener('click', () => this.switchTab('capture'));
+    this.captureTabBtn.addEventListener('click', () => {
+      this.switchTab('capture');
+      // Leaving any non-daily timeline mode (review/search/tag) back to the
+      // home timeline when the user taps 快速记录. switchTab('capture') is a
+      // no-op when already on capture, so this is what actually exits review.
+      if (this.timelineMode !== 'daily') this.restoreDailyMode();
+    });
+
+    // 随机回顾 — random-day review. Lives here (top tab bar) so it appears
+    // in the mobile dock AND the desktop top tab bar. It switches to the
+    // capture pane first, then enters review mode.
+    this.reviewTabBtn = this.makeTabBtn('dice', '随机回顾', false);
+    this.reviewTabBtn.addEventListener('click', () => {
+      if (this.currentTab !== 'capture') this.switchTab('capture');
+      this.toggleTimelineMode('review');
+    });
 
     this.statsTabBtn = this.makeTabBtn('bar-chart-2', '年度统计', false);
     this.statsTabBtn.addEventListener('click', () => this.switchTab('stats'));
 
-    // Note: 搜索日记 / 随机回顾 buttons live in the timeline toolbar
-    // (buildTimelineToolbar), not this top tab bar.
+    // Note: 搜索日记 lives in the timeline toolbar (buildTimelineToolbar).
   }
 
   /**
@@ -1882,14 +1896,6 @@ export class JournalCaptureView extends ItemView {
     });
     setIcon(this.searchTabBtn, 'search');
     this.searchTabBtn.addEventListener('click', () => this.toggleTimelineMode('search'));
-
-    // 随机回顾 — toggles inline review mode
-    this.reviewTabBtn = actions.createEl('button', {
-      cls: 'jp-timeline-toolbar-btn',
-      attr: { 'aria-label': '随机回顾', title: '随机回顾' },
-    });
-    setIcon(this.reviewTabBtn, 'dice');
-    this.reviewTabBtn.addEventListener('click', () => this.toggleTimelineMode('review'));
 
     const filterBtn = actions.createEl('button', {
       cls: 'jp-timeline-toolbar-btn jp-timeline-filter-btn',
@@ -3368,25 +3374,60 @@ export class JournalCaptureView extends ItemView {
     }
   }
 
-  // ── Mobile navbar auto-hide ─────────────────────────────────────────────
+  // ── Floating tab bar (bottom dock) + navbar auto-hide ───────────────────
 
   /**
-   * On mobile, hide Obsidian's bottom navbar (`.mobile-navbar`) for the whole
-   * time this view is open — the view's own bottom tab bar replaces it. The
-   * navbar is restored in teardown (on view close) so we never leave the user
-   * without their native navigation. Guarded so we only hide when this view
-   * is actually the active one.
+   * The view shows its own floating tab bar fixed at the bottom of the
+   * viewport on ALL platforms (mobile + desktop). On mobile it replaces
+   * Obsidian's native `.mobile-navbar` (kept hidden while this view is open);
+   * desktop has no native bottom navbar. The tab bar slides away when the
+   * user scrolls down and comes back on scroll up, so reading long timelines
+   * isn't blocked by it.
    */
   private setupMobileToolbarAutoHide() {
-    if (!Platform.isMobile) return;
-    const activeView = this.app.workspace.getActiveViewOfType(JournalCaptureView);
-    if (activeView !== this) return;
-    this.setToolbarHidden(true);
+    // Mobile only: keep Obsidian's native navbar hidden while this view is
+    // open — the view's own floating tab bar replaces it. Guarded so we only
+    // hide when this view is actually the active one.
+    if (Platform.isMobile) {
+      const activeView = this.app.workspace.getActiveViewOfType(JournalCaptureView);
+      if (activeView !== this) return;
+      this.setToolbarHidden(true);
+    }
+
+    // Scroll-direction driven hide/show for the floating tab bar itself. This
+    // runs on every platform (mobile + desktop) and must NOT be gated on the
+    // active-view check — in a desktop right sidebar the view may not be the
+    // active leaf while the user scrolls inside it.
+    const scroller = this.containerEl.children[1] as HTMLElement;
+    if (!scroller || !this.tabBarEl) return;
+
+    let lastScrollTop = scroller.scrollTop;
+    const onScrollBound = () => {
+      const top = scroller.scrollTop;
+      const delta = top - lastScrollTop;
+
+      // Always show near the top — feels less abrupt when the user lands
+      // back on today's entries.
+      if (top <= 8) {
+        this.tabBarEl.toggleClass('jp-tab-bar-hidden', false);
+      } else if (delta > 0) {
+        // Scrolling down → hide the tab bar
+        this.tabBarEl.toggleClass('jp-tab-bar-hidden', true);
+      } else if (delta < 0) {
+        // Scrolling up → show it again
+        this.tabBarEl.toggleClass('jp-tab-bar-hidden', false);
+      }
+
+      lastScrollTop = top;
+    };
+    // registerDomEvent auto-removes the listener when the view closes.
+    this.registerDomEvent(scroller, 'scroll', onScrollBound);
   }
 
   private teardownMobileToolbarAutoHide() {
     // Always restore on close — never leave the user without their navbar.
     this.setToolbarHidden(false);
+    this.tabBarEl?.toggleClass('jp-tab-bar-hidden', false);
   }
 
   private setToolbarHidden(hidden: boolean) {
