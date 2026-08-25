@@ -193,7 +193,6 @@ export class JournalCaptureView extends ItemView {
   // DOM references (stats pane)
   private statsToolbarEl!: HTMLElement;
   private statsBodyEl!: HTMLElement;
-  private statsYearLabelEl!: HTMLElement;
 
   // Stats state
   private statsLoading = false;
@@ -470,9 +469,6 @@ export class JournalCaptureView extends ItemView {
     const prevTab = this.currentTab;
     this.currentTab = tab;
 
-    this.captureTabBtn.toggleClass('is-active', tab === 'capture');
-    this.statsTabBtn.toggleClass('is-active', tab === 'stats');
-
     if (tab === 'capture') {
       this.capturePaneEl.show();
       this.statsPaneEl.hide();
@@ -493,6 +489,28 @@ export class JournalCaptureView extends ItemView {
       }
       void this.loadAllStats();
     }
+
+    this.updateTabBtnStates();
+  }
+
+  /**
+   * Keep the dock/tab-bar active-state in sync with the current tab AND the
+   * capture timeline mode — a single source of truth so at most ONE dock
+   * button is highlighted at any time.
+   *
+   * The capture tab's button is highlighted only in its "home" state
+   * (capture tab + daily timeline). Snapshot modes (review/search/tag) are
+   * capture-pane sub-modes and highlight their own button instead — so the
+   * capture button must NOT stay lit while e.g. review is active. The stats
+   * tab is its own highlight; review/search belong to the capture pane, so
+   * they are cleared whenever the user is on the stats tab.
+   */
+  private updateTabBtnStates() {
+    const isStats = this.currentTab === 'stats';
+    this.captureTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'daily');
+    this.reviewTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'review');
+    this.searchTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'search');
+    this.statsTabBtn.toggleClass('is-active', isStats);
   }
 
   private async runSearch(query: string) {
@@ -2203,9 +2221,11 @@ export class JournalCaptureView extends ItemView {
     const prev = this.timelineMode;
     this.timelineMode = mode;
 
-    this.searchTabBtn.toggleClass('is-active', mode === 'search');
-    this.reviewTabBtn.toggleClass('is-active', mode === 'review');
     this.inlineSearchBarEl.toggle(mode === 'search');
+
+    // In snapshot modes (review/search/tag) the capture tab button steps
+    // aside so only the active mode's button stays lit.
+    this.updateTabBtnStates();
 
     if (prev === 'search' && this.searchDebounceTimer !== null) {
       window.clearTimeout(this.searchDebounceTimer);
@@ -2551,8 +2571,7 @@ export class JournalCaptureView extends ItemView {
     // A full rebuild always restores the daily timeline — search/review are
     // snapshots that are cleared by setTimelineMode instead.
     this.timelineMode = 'daily';
-    this.searchTabBtn.toggleClass('is-active', false);
-    this.reviewTabBtn.toggleClass('is-active', false);
+    this.updateTabBtnStates();
     this.inlineSearchBarEl.hide();
     if (this.searchDebounceTimer !== null) {
       window.clearTimeout(this.searchDebounceTimer);
@@ -3062,11 +3081,6 @@ export class JournalCaptureView extends ItemView {
 
     this.statsToolbarEl.createDiv({ cls: 'jp-stats-toolbar-spacer' });
 
-    this.statsYearLabelEl = this.statsToolbarEl.createDiv({
-      cls: 'jp-stats-year-label',
-      text: '全量数据',
-    });
-
     // Body container
     this.statsBodyEl = this.statsPaneEl.createDiv({ cls: 'jp-stats-body' });
   }
@@ -3090,7 +3104,6 @@ export class JournalCaptureView extends ItemView {
     if (this.statsLoading) return;
     this.statsLoading = true;
 
-    this.statsYearLabelEl.setText('全量数据');
     this.renderStatsLoading();
 
     try {
