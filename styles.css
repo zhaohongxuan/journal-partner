@@ -248,9 +248,8 @@
   position: relative;
   width: 56px;
   height: 56px;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
-  border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   flex-shrink: 0;
 }
@@ -1302,7 +1301,7 @@
 }
 /* Mobile: roomier dock + touch targets. */
 .is-mobile .jp-tab-bar {
-  bottom: calc(16px + env(safe-area-inset-bottom));
+  bottom: calc(10px + env(safe-area-inset-bottom));
   gap: 6px;
   padding: 8px 14px;
   border-radius: 34px;

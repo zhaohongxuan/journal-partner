@@ -3387,13 +3387,11 @@ export class JournalCaptureView extends ItemView {
    */
   private setupMobileToolbarAutoHide() {
     // Mobile only: keep Obsidian's native navbar hidden while this view is
-    // open — the view's own floating tab bar replaces it. Guarded so we only
-    // hide when this view is actually the active one.
-    if (Platform.isMobile) {
-      const activeView = this.app.workspace.getActiveViewOfType(JournalCaptureView);
-      if (activeView !== this) return;
-      this.setToolbarHidden(true);
-    }
+    // open — the view's own floating tab bar replaces it. Not gated on the
+    // active-view check: on mobile the capture view can be the foreground
+    // view without getActiveViewOfType reporting it, which would leave the
+    // native navbar visible.
+    if (Platform.isMobile) this.setToolbarHidden(true);
 
     // Scroll-direction driven hide/show for the floating tab bar itself. This
     // runs on every platform (mobile + desktop) and must NOT be gated on the
@@ -3423,6 +3421,19 @@ export class JournalCaptureView extends ItemView {
     };
     // registerDomEvent auto-removes the listener when the view closes.
     this.registerDomEvent(scroller, 'scroll', onScrollBound);
+
+    // Mobile keyboard: when the input gains focus the on-screen keyboard
+    // covers the bottom of the viewport, so hide the dock. Restore it on blur
+    // (unless we're scrolled down — the scroll handler takes over again).
+    if (Platform.isMobile && this.textareaEl) {
+      this.registerDomEvent(this.textareaEl, 'focusin', () => {
+        this.tabBarEl?.toggleClass('jp-tab-bar-hidden', true);
+      });
+      this.registerDomEvent(this.textareaEl, 'focusout', () => {
+        const atTop = (this.containerEl.children[1] as HTMLElement)?.scrollTop <= 8;
+        this.tabBarEl?.toggleClass('jp-tab-bar-hidden', !atTop);
+      });
+    }
   }
 
   private teardownMobileToolbarAutoHide() {
