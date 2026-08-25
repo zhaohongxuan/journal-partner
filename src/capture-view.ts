@@ -114,6 +114,13 @@ interface PendingImage {
   file?: File;
   /** objectURL for previewing an unsaved local file (no vault write yet). */
   previewUrl?: string;
+  /**
+   * True when this local image was newly saved to the vault during THIS
+   * capture session (by journal or github-image-uploader) — removing it from
+   * the pending strip should also remove the vault file. Manually-pasted
+   * links to pre-existing images never get this flag.
+   */
+  deleteOnRemove?: boolean;
 }
 
 export class JournalCaptureView extends ItemView {
@@ -1517,6 +1524,17 @@ export class JournalCaptureView extends ItemView {
         this.knownImageUrls.delete(key);
         this.refreshPendingImages();
         this.refreshSubmitState();
+        // Images newly saved to the vault this session are removed from the
+        // vault too (into Obsidian's trash) — removing the thumbnail should
+        // not leave an orphan file behind.
+        if (img.deleteOnRemove && img.vaultPath) {
+          const af = this.app.vault.getAbstractFileByPath(img.vaultPath);
+          if (af instanceof TFile) {
+            void this.app.fileManager.trashFile(af).catch(err => {
+              console.error('[Journal Partner] trash image failed', img.vaultPath, err);
+            });
+          }
+        }
       });
 
       const badge = thumb.createDiv({
@@ -1722,10 +1740,22 @@ export class JournalCaptureView extends ItemView {
       isRemote = true;
     }
 
+    // Locally-saved images carry a generated filename (timestamped, from
+    // github-image-uploader's generateImageFilename). Treat those as
+    // "newly saved this session" so removing the thumbnail also removes the
+    // vault file. Pre-existing images keep their file.
+    const deleteOnRemove = !isRemote && vaultPath !== undefined && this.isGeneratedImageName(vaultPath);
+
     const key = isRemote ? `r:${url}` : `l:${vaultPath ?? url}`;
     if (this.knownImageUrls.has(key)) return;
     this.knownImageUrls.add(key);
-    this.pendingImages.push({ markdown, url, isRemote, vaultPath });
+    this.pendingImages.push({ markdown, url, isRemote, vaultPath, deleteOnRemove });
+  }
+
+  /** Matches github-image-uploader's generated filename (timestamp + random). */
+  private isGeneratedImageName(path: string): boolean {
+    const name = path.split('/').pop() ?? '';
+    return /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_[a-z0-9]{5}\.(?:png|jpe?g|gif|webp|svg|bmp)$/i.test(name);
   }
 
   /** True when a `![[…]]` token targets an image file (vs audio/other embeds). */
