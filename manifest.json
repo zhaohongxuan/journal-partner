@@ -1,7 +1,7 @@
 {
   "id": "journal-partner",
   "name": "Journal Partner",
-  "version": "2.13.0",
+  "version": "2.14.0",
   "minAppVersion": "1.7.2",
   "description": "Highlight timestamps in your Journal section, capture quick notes, images, and audio from a sidebar, dictate with real-time speech-to-text, review your year with a heatmap, and organize tasks with TODO support.",
   "author": "hankzhao",
