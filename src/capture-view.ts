@@ -3197,9 +3197,9 @@ export class JournalCaptureView extends ItemView {
     const numLine = top.createDiv({ cls: 'jp-stats-hero-number' });
     const formatted = formatChineseWordCount(allTime.totalWords);
     if (formatted.includes('万')) {
-      const [num, unit] = formatted.split(' ');
+      const [num] = formatted.split(' ');
       numLine.createSpan({ cls: 'jp-stats-hero-num', text: num });
-      numLine.createSpan({ cls: 'jp-stats-hero-unit', text: unit });
+      numLine.createSpan({ cls: 'jp-stats-hero-unit', text: '万字' });
     } else {
       numLine.createSpan({ cls: 'jp-stats-hero-num', text: formatted });
       numLine.createSpan({ cls: 'jp-stats-hero-unit', text: '字' });
@@ -3212,7 +3212,7 @@ export class JournalCaptureView extends ItemView {
     sub.createSpan({ text: yearsStr });
 
     const grid = hero.createDiv({ cls: 'jp-stats-hero-kpis' });
-    this.makeStatsKPI(grid, 'file-text', `${allTime.writingDays}`, '天', '写作天数');
+    this.makeStatsKPI(grid, 'file-text', `${allTime.writingDays}`, '天', '记录天数');
     this.makeStatsKPI(grid, 'pencil', `${allTime.totalEntries}`, '条', '总条数');
     this.makeStatsKPI(grid, 'mic', `${allTime.totalAudios}`, '段', '录音数');
     this.makeStatsKPI(grid, 'flame', `${allTime.longestStreak}`, '天', '最长连续');
