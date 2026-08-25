@@ -1088,21 +1088,16 @@
   letter-spacing: 0.05em;
 }
 
-/* ── Mobile navbar auto-hide ──────────────────────────────────────────────
-   Slides Obsidian's bottom navbar out of view when the user scrolls down
-   inside the capture timeline, restoring it on scroll up. The class is
-   toggled on <body> by capture-view.ts only on mobile + while the view is
-   active, and is always cleared on view close.
-   NOTE: Obsidian's mobile bottom bar is `.mobile-navbar` (not
-   `.mobile-toolbar`) — the earlier selector never matched, so the bar stayed
-   visible; that is the bug this block fixes. */
+/* ── Mobile navbar hide (常驻隐藏) ─────────────────────────────────────────
+   Hides Obsidian's bottom navbar for the whole time the capture view is open
+   (body class toggled by capture-view.ts onOpen/onClose). `display: none`
+   removes it from layout — the view's own sticky bottom tab bar replaces it
+   and its sticky baseline must sit at the actual viewport bottom. */
 .is-mobile .mobile-navbar {
   transition: transform 0.22s ease, opacity 0.22s ease;
 }
 .is-mobile.jp-hide-mobile-toolbar .mobile-navbar {
-  transform: translateY(100%);
-  opacity: 0;
-  pointer-events: none;
+  display: none;
 }
 
 /* ── Delete confirm modal ─────────────────────────────────────────────────
@@ -1242,6 +1237,38 @@
   background: var(--background-modifier-hover);
   box-shadow: inset 0 0 0 1px var(--background-modifier-border);
 }
+
+/* ── Mobile: bottom floating tab bar ───────────────────────────────────────
+   On mobile the tab bar floats centered at the bottom of the viewport (the
+   native `.mobile-navbar` is hidden — see above). `position: sticky; bottom`
+   keeps it pinned to the viewport bottom while `.jp-capture-root` scrolls;
+   this works because root is the single scroll container (flex column). */
+.is-mobile .jp-capture-root {
+  /* Let the scroller reach content under the floating tab bar. */
+  scroll-padding-bottom: calc(64px + env(safe-area-inset-bottom));
+}
+.is-mobile .jp-tab-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 7; /* above the back-to-top button (6) */
+  display: flex;
+  justify-content: center; /* centered */
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  background: var(--background-primary);
+  border-top: 1px solid var(--background-modifier-border);
+}
+/* Progressive enhancement: borrow Obsidian's native mobile nav-button look
+   (the class themes define for `.mobile-navbar` buttons). Falls back to
+   `.clickable-icon` styling when a theme doesn't define it. */
+.is-mobile .jp-tab-btn.clickable-icon.nav-action-button {
+  flex: 1;
+  max-width: 140px;
+  height: 44px; /* mobile touch target */
+  border-radius: 8px;
+}
 /* Search bar — appears below tab bar when search tab is active */
 .jp-search-bar {
   display: flex;
@@ -1342,10 +1369,10 @@
   width: 18px;
   height: 18px;
 }
-/* 移动端：底部导航栏(.mobile-navbar)会自动隐藏，不再需要为其预留 48px 避让，
-   按钮贴近底部即可。仅保留底部间距 + 安全区（Home indicator）。 */
+/* 移动端：原生底部导航栏(.mobile-navbar)已被常驻隐藏，底部改为悬浮的
+   tab 栏。scroll-top 按钮浮在 tab 栏上方（视口底部之上 8px）。 */
 .is-mobile .jp-scroll-top-btn {
-  bottom: calc(12px + env(safe-area-inset-bottom));
+  bottom: calc(100% + 8px);
 }
 
 /* ── Random review pane ───────────────────────────────────────────────────── */

@@ -270,15 +270,7 @@ export class JournalCaptureView extends ItemView {
     }
   }
 
-  // ── Mobile toolbar auto-hide (scroll-direction triggered) ──
-  /** Last observed scrollTop, for direction detection. */
-  private lastScrollTop = 0;
-  /** Bound scroll handler we install on the view's scroll container. */
-  private onScrollBound: (() => void) | null = null;
-  /** Element we attached the scroll listener to, kept for clean removal. */
-  private scrollEl: HTMLElement | null = null;
-  /** Min pixel delta between events that counts as a real scroll move. */
-  private readonly scrollDeltaThreshold = 6;
+  // ── Mobile navbar auto-hide (常驻隐藏：视图打开期间隐藏) ──
 
   constructor(leaf: WorkspaceLeaf, plugin: JournalPartnerPlugin) {
     super(leaf);
@@ -3379,49 +3371,20 @@ export class JournalCaptureView extends ItemView {
   // ── Mobile navbar auto-hide ─────────────────────────────────────────────
 
   /**
-   * On mobile, hide Obsidian's bottom navbar (`.mobile-navbar`) when the
-   * user scrolls down (looking at older entries) and reveal it when they
-   * scroll up. Restores the navbar on view close so we never leave it in
-   * a hidden state when the user navigates away.
+   * On mobile, hide Obsidian's bottom navbar (`.mobile-navbar`) for the whole
+   * time this view is open — the view's own bottom tab bar replaces it. The
+   * navbar is restored in teardown (on view close) so we never leave the user
+   * without their native navigation. Guarded so we only hide when this view
+   * is actually the active one.
    */
   private setupMobileToolbarAutoHide() {
     if (!Platform.isMobile) return;
-    const scroller = this.containerEl.children[1] as HTMLElement;
-    if (!scroller) return;
-
-    this.scrollEl = scroller;
-    this.lastScrollTop = scroller.scrollTop;
-
-    this.onScrollBound = () => {
-      const top = scroller.scrollTop;
-      const delta = top - this.lastScrollTop;
-
-      if (Math.abs(delta) < this.scrollDeltaThreshold) return;
-
-      // Always show near the top — feels less abrupt when the user lands
-      // back on today's entries.
-      if (top <= 8) {
-        this.setToolbarHidden(false);
-      } else if (delta > 0) {
-        // Scrolling down → hide
-        this.setToolbarHidden(true);
-      } else {
-        // Scrolling up → show
-        this.setToolbarHidden(false);
-      }
-
-      this.lastScrollTop = top;
-    };
-
-    scroller.addEventListener('scroll', this.onScrollBound, { passive: true });
+    const activeView = this.app.workspace.getActiveViewOfType(JournalCaptureView);
+    if (activeView !== this) return;
+    this.setToolbarHidden(true);
   }
 
   private teardownMobileToolbarAutoHide() {
-    if (this.scrollEl && this.onScrollBound) {
-      this.scrollEl.removeEventListener('scroll', this.onScrollBound);
-    }
-    this.scrollEl = null;
-    this.onScrollBound = null;
     // Always restore on close — never leave the user without their navbar.
     this.setToolbarHidden(false);
   }
