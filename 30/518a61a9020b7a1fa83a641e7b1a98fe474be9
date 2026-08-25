@@ -1,0 +1,24 @@
+styles.css
+  s_fedb69fc15e504::t_8b8291f84f0fb9 1091-1095,1100
+  s_fedb69fc15e504::t_319128a0c9a542 1372-1373,1375
+  s_fedb69fc15e504::t_d9c3d3256bfe32 1240-1271
+src/capture-view.ts
+  s_fedb69fc15e504::t_cb4fc87110ac08 273
+  s_fedb69fc15e504::t_5d4d9cd776e963 3374-3378,3382-3384
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "30518a61a9020b7a1fa83a641e7b1a98fe474be9",
+  "prompts": {},
+  "sessions": {
+    "s_fedb69fc15e504": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9105f984-26e2-49ee-a991-22050f98567c",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
