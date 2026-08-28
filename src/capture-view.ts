@@ -58,6 +58,15 @@ import {
   getHeatmapLevel,
 } from './stats';
 import type JournalPartnerPlugin from './main';
+import {
+  formatDate,
+  heatmapWeekdayLabel,
+  isChinese,
+  monthLabel,
+  relativeDayLabel,
+  t,
+  weekdayShort,
+} from './i18n';
 
 export const CAPTURE_VIEW_TYPE = 'journal-partner-capture-view';
 
@@ -435,13 +444,13 @@ export class JournalCaptureView extends ItemView {
     // 随机回顾 — random-day review. Lives here (top tab bar) so it appears
     // in the mobile dock AND the desktop top tab bar. It switches to the
     // capture pane first, then enters review mode.
-    this.reviewTabBtn = this.makeTabBtn('dice', '随机回顾', false);
+    this.reviewTabBtn = this.makeTabBtn('dice', t('tab.review'), false);
     this.reviewTabBtn.addEventListener('click', () => {
       if (this.currentTab !== 'capture') this.switchTab('capture');
       this.toggleTimelineMode('review');
     });
 
-    this.statsTabBtn = this.makeTabBtn('bar-chart-2', '年度统计', false);
+    this.statsTabBtn = this.makeTabBtn('bar-chart-2', t('tab.stats'), false);
     this.statsTabBtn.addEventListener('click', () => this.switchTab('stats'));
 
     // Note: 搜索日记 lives in the timeline toolbar (buildTimelineToolbar).
@@ -526,16 +535,16 @@ export class JournalCaptureView extends ItemView {
     this.searchCursor = 0;
 
     if (query.length === 0) {
-      this.renderTopLevelMessage('输入关键词开始搜索');
+      this.renderTopLevelMessage(t('timeline.searchInput'));
       return;
     }
 
     if (!appHasDailyNotesPluginLoaded()) {
-      this.renderTopLevelMessage('请先启用 Obsidian 自带的「Daily Notes」核心插件');
+      this.renderTopLevelMessage(t('notice.dailyNotesRequired'));
       return;
     }
 
-    this.renderTopLevelMessage('搜索中…');
+    this.renderTopLevelMessage(t('timeline.searching'));
 
     // Build the sorted file queue (newest → oldest) once, then scan lazily
     this.buildFilteredScanQueue();
@@ -615,8 +624,8 @@ export class JournalCaptureView extends ItemView {
           this.timelineEl.empty();
           this.renderTopLevelMessage(
             mode === 'tag'
-              ? `没有找到带 #${this.activeTagFilter} 的日记`
-              : `未找到包含「${query}」的记录`,
+              ? t('timeline.tagNoResults', { tag: this.activeTagFilter })
+              : t('timeline.searchNoResults', { query }),
           );
         } else {
           this.markEndOfTimeline();
@@ -657,7 +666,7 @@ export class JournalCaptureView extends ItemView {
     const headerCard = headerRow.createDiv({ cls: 'jp-timeline-header-card' });
     const headerText = headerCard.createDiv({ cls: 'jp-timeline-header-text' });
     headerText.createDiv({ cls: 'jp-timeline-header-title', text: headerLabel.title });
-    headerText.createDiv({ cls: 'jp-timeline-header-sub', text: `${entries.length} 条匹配` });
+    headerText.createDiv({ cls: 'jp-timeline-header-sub', text: t('timeline.matches', { count: entries.length }) });
     this.addOpenNoteBtn(headerCard, day);
 
     const sourcePath = day.filePath ?? '';
@@ -747,7 +756,7 @@ export class JournalCaptureView extends ItemView {
     this.textareaEl = inputWrapper.createEl('textarea', {
       cls: 'jp-capture-input',
       attr: {
-        placeholder: '记录这一刻吧，使用 @ 或 [[ 引入文件',
+        placeholder: t('capture.placeholder'),
         rows: '3',
       },
     });
@@ -820,9 +829,9 @@ export class JournalCaptureView extends ItemView {
         void (async () => {
           try {
             const saved = await this.saveImageLocallyForPending(blob);
-            if (saved) new Notice('图片已暂存，提交时写入日记');
+            if (saved) new Notice(t('notice.imageStaged'));
           } catch (err) {
-            new Notice(`图片处理失败：${err instanceof Error ? err.message : String(err)}`);
+            new Notice(t('notice.imageFailed', { msg: err instanceof Error ? err.message : String(err) }));
           }
         })();
         return;
@@ -836,7 +845,7 @@ export class JournalCaptureView extends ItemView {
         if (!file.type.startsWith('image/')) continue;
         e.preventDefault();
         e.stopPropagation();
-        new Notice('图片不支持拖拽，请在输入框内直接粘贴图片（Ctrl/Cmd+V）');
+        new Notice(t('notice.imageNoDrag'));
         return;
       }
     }));
@@ -865,11 +874,11 @@ export class JournalCaptureView extends ItemView {
     const recCanvas = recWaveRow.createEl('canvas', { cls: 'jp-recording-waveform' });
     const recMeta = recWaveRow.createDiv({ cls: 'jp-recording-meta' });
     const recTime = recMeta.createSpan({ cls: 'jp-recording-time', text: '00:00' });
-    const recStatus = recMeta.createSpan({ cls: 'jp-recording-status', text: '录音中…' });
+    const recStatus = recMeta.createSpan({ cls: 'jp-recording-status', text: t('capture.recording') });
     // Centered stop button shown beneath the waveform while recording.
     const recStopBtn = recBar.createEl('button', {
       cls: 'jp-recording-stop',
-      attr: { 'aria-label': '停止' },
+      attr: { 'aria-label': t('common.cancel') },
     });
     setIcon(recStopBtn, 'square');
 
@@ -1225,7 +1234,7 @@ export class JournalCaptureView extends ItemView {
           // already stopped) and the icon group + NOTE button stay hidden
           // until the final text has landed (so the user sees the result
           // appear together with the action buttons coming back).
-          recStatus.setText('转写中…');
+          recStatus.setText(t('capture.transcribing'));
           recBar.addClass('is-transcribing');
           recBar.show();
           try {
@@ -1238,7 +1247,7 @@ export class JournalCaptureView extends ItemView {
               try {
                 text = (await this.transcribeAudio(audioBlob)).trim();
               } catch (err) {
-                new Notice(`转写失败：${err instanceof Error ? err.message : String(err)}`);
+                new Notice(t('notice.sttFailed', { msg: err instanceof Error ? err.message : String(err) }));
               }
             }
             // Drain any still-in-flight live segments before we touch the
@@ -1252,7 +1261,7 @@ export class JournalCaptureView extends ItemView {
               insertAtCursor(text.length > 0 ? `${text} ${audioEmbed}` : audioEmbed);
             }
           } catch (err) {
-            new Notice(`录音保存失败：${err instanceof Error ? err.message : String(err)}`);
+            new Notice(t('notice.recSaveFailed', { msg: err instanceof Error ? err.message : String(err) }));
           } finally {
             // RecBar fades out and the action bar (icon group + NOTE button)
             // comes back together — the user sees the result and the controls
@@ -1305,7 +1314,7 @@ export class JournalCaptureView extends ItemView {
           // display:none returns 0 and the canvas ends up 1px wide (invisible).
           // The `jp-bar-entering` class triggers a one-shot fade+slide
           // animation; we remove it after hide so the next show replays it.
-          recStatus.setText(realtimeActive ? '实时转写中…' : '录音中…');
+          recStatus.setText(realtimeActive ? t('capture.realtimeTranscribing') : t('capture.recording'));
           recBar.show();
           recBar.addClass('jp-bar-entering');
           const dpr = window.devicePixelRatio || 1;
@@ -1329,10 +1338,10 @@ export class JournalCaptureView extends ItemView {
 
         recordingTimeout = window.setTimeout(() => {
           void stopRecording();
-          new Notice('录音已自动停止（最长5分钟）');
+          new Notice(t('notice.recAutoStopped'));
         }, 5 * 60 * 1000);
       } catch (err) {
-        new Notice(`无法访问麦克风：${err instanceof Error ? err.message : String(err)}`);
+        new Notice(t('notice.micFailed', { msg: err instanceof Error ? err.message : String(err) }));
       }
     };
 
@@ -1348,7 +1357,7 @@ export class JournalCaptureView extends ItemView {
     // in the button row so it sits at the input's bottom-left corner.
     this.tagBtn = buttonRow.createEl('button', {
       cls: 'jp-capture-tag-btn',
-      attr: { 'aria-label': '插入预设标签' },
+      attr: { 'aria-label': t('capture.insertTag') },
     });
     setIcon(this.tagBtn, 'tag');
     this.tagBtn.addEventListener('click', (evt) => {
@@ -1365,7 +1374,7 @@ export class JournalCaptureView extends ItemView {
     // the vault — the button works for everyone.
     const imageBtn = buttonRow.createEl('button', {
       cls: 'jp-capture-image-btn',
-      attr: { 'aria-label': '上传图片' },
+      attr: { 'aria-label': t('capture.uploadImage') },
     });
     setIcon(imageBtn, 'image');
     imageBtn.addEventListener('click', () => {
@@ -1390,16 +1399,16 @@ export class JournalCaptureView extends ItemView {
       if (!file.type.startsWith('image/')) return;
       try {
         const saved = await this.saveImageLocallyForPending(file);
-        if (saved) new Notice('图片已保存到本地，提交时写入日记');
+        if (saved) new Notice(t('notice.imageSavedLocal'));
       } catch (err) {
-        new Notice(`图片保存失败：${err instanceof Error ? err.message : String(err)}`);
+        new Notice(t('notice.imageFailed', { msg: err instanceof Error ? err.message : String(err) }));
       }
     }));
 
     // Microphone button
     const micBtn = buttonRow.createEl('button', {
       cls: 'jp-capture-mic-btn',
-      attr: { 'aria-label': '录音' },
+      attr: { 'aria-label': t('capture.record') },
     });
     setIcon(micBtn, 'mic');
 
@@ -1431,7 +1440,7 @@ export class JournalCaptureView extends ItemView {
     // Task button
     const taskBtn = buttonRow.createEl('button', {
       cls: 'jp-capture-task-btn',
-      attr: { 'aria-label': '切换任务模式' },
+      attr: { 'aria-label': t('capture.toggleTask') },
     });
     setIcon(taskBtn, 'list');
     taskBtn.addEventListener('click', () => {
@@ -1559,7 +1568,7 @@ export class JournalCaptureView extends ItemView {
 
       const remove = thumb.createEl('button', {
         cls: 'jp-pending-image-remove',
-        attr: { 'aria-label': '移除图片' },
+        attr: { 'aria-label': t('capture.removeImage') },
       });
       setIcon(remove, 'x');
       remove.addEventListener('click', (evt) => {
@@ -1590,7 +1599,7 @@ export class JournalCaptureView extends ItemView {
       const badge = thumb.createDiv({
         cls: 'jp-pending-image-badge' + (img.isRemote ? ' is-remote' : ' is-local'),
       });
-      badge.setText(img.isRemote ? '远程' : '本地');
+      badge.setText(img.isRemote ? t('common.remote') : t('common.local'));
     });
   }
 
@@ -1646,7 +1655,7 @@ export class JournalCaptureView extends ItemView {
       return img.markdown;
     } catch (err) {
       console.error('[Journal Partner] save pending image failed', err);
-      new Notice(`图片保存失败：${err instanceof Error ? err.message : String(err)}`);
+      new Notice(t('notice.imageFailed', { msg: err instanceof Error ? err.message : String(err) }));
       return null;
     }
   }
@@ -1898,10 +1907,10 @@ export class JournalCaptureView extends ItemView {
     // Left — home button: click to return to the daily timeline
     const homeBtn = bar.createEl('button', {
       cls: 'jp-timeline-toolbar-label jp-timeline-toolbar-home',
-      attr: { 'aria-label': '回到时间线主页', title: '回到时间线主页' },
+      attr: { 'aria-label': t('capture.backToTimeline'), title: t('capture.backToTimeline') },
     });
     setIcon(homeBtn, 'history');
-    homeBtn.createSpan({ text: '时间线' });
+    homeBtn.createSpan({ text: t('timeline.home') });
     homeBtn.addEventListener('click', () => this.restoreDailyMode());
 
     bar.createDiv({ cls: 'jp-timeline-toolbar-spacer' });
@@ -1912,22 +1921,22 @@ export class JournalCaptureView extends ItemView {
     // 搜索日记 — toggles inline search mode
     this.searchTabBtn = actions.createEl('button', {
       cls: 'jp-timeline-toolbar-btn',
-      attr: { 'aria-label': '搜索日记', title: '搜索日记' },
+      attr: { 'aria-label': t('capture.searchNotes'), title: t('capture.searchNotes') },
     });
     setIcon(this.searchTabBtn, 'search');
     this.searchTabBtn.addEventListener('click', () => this.toggleTimelineMode('search'));
 
     const filterBtn = actions.createEl('button', {
       cls: 'jp-timeline-toolbar-btn jp-timeline-filter-btn',
-      attr: { 'aria-label': '过滤', title: '过滤' },
+      attr: { 'aria-label': t('capture.filter'), title: t('capture.filter') },
     });
     this.updateFilterBtn(filterBtn);
     filterBtn.addEventListener('click', (evt) => {
       const menu = new Menu();
       const opts: Array<{ key: 'all' | 'task' | 'memo'; label: string; icon: string }> = [
-        { key: 'all', label: '全部', icon: 'list' },
-        { key: 'task', label: '仅任务', icon: 'square-check' },
-        { key: 'memo', label: '仅备忘', icon: 'sticky-note' },
+        { key: 'all', label: t('capture.filterAll'), icon: 'list' },
+        { key: 'task', label: t('capture.filterTask'), icon: 'square-check' },
+        { key: 'memo', label: t('capture.filterMemo'), icon: 'sticky-note' },
       ];
       for (const o of opts) {
         menu.addItem((item) =>
@@ -1949,7 +1958,7 @@ export class JournalCaptureView extends ItemView {
     // independently of the task/memo type filter.
     this.tagFilterBtn = actions.createEl('button', {
       cls: 'jp-timeline-toolbar-btn jp-timeline-tagfilter-btn',
-      attr: { 'aria-label': '按标签筛选', title: '按标签筛选' },
+      attr: { 'aria-label': t('capture.filterByTag'), title: t('capture.filterByTag') },
     });
     setIcon(this.tagFilterBtn, 'tag');
     this.updateTagFilterBtn();
@@ -1985,7 +1994,7 @@ export class JournalCaptureView extends ItemView {
       if (presetTags.length === 0 && diaryTags.length === 0) {
         menu.addItem((item) =>
           item
-            .setTitle('暂无标签')
+            .setTitle(t('capture.noTags'))
             .setIcon('tag')
             .setDisabled(true),
         );
@@ -1996,7 +2005,7 @@ export class JournalCaptureView extends ItemView {
         menu.addSeparator();
         menu.addItem((item) =>
           item
-            .setTitle('清除标签筛选')
+            .setTitle(t('capture.clearTagFilter'))
             .setIcon('x')
             .onClick(() => {
               this.activeTagFilter = null;
@@ -2256,7 +2265,7 @@ export class JournalCaptureView extends ItemView {
       this.searchVersion = 0;
       this.searchQuery = '';
       this.inlineSearchInputEl.value = '';
-      this.renderTopLevelMessage('输入关键词开始搜索');
+      this.renderTopLevelMessage(t('timeline.searchInput'));
       window.setTimeout(() => this.inlineSearchInputEl.focus(), 50);
     } else if (mode === 'tag') {
       // Tag-filter mode: lazily scan all daily notes for the active tag.
@@ -2267,7 +2276,7 @@ export class JournalCaptureView extends ItemView {
       // Bump the version so any in-flight scan is invalidated.
       this.searchVersion++;
       this.buildFilteredScanQueue();
-      this.renderTopLevelMessage(`筛选中 #${this.activeTagFilter} …`);
+      this.renderTopLevelMessage(t('timeline.filteringTag', { tag: this.activeTagFilter }));
       void this.loadMoreFilteredScan();
     } else {
       // review — a single random day, no infinite scroll
@@ -2326,7 +2335,7 @@ export class JournalCaptureView extends ItemView {
 
     this.inlineSearchInputEl = bar.createEl('input', {
       cls: 'jp-inline-search-input',
-      attr: { placeholder: '搜索日记…', type: 'text' },
+      attr: { placeholder: t('timeline.searchPlaceholder'), type: 'text' },
     });
     this.inlineSearchInputEl.addEventListener('input', () => {
       const q = this.inlineSearchInputEl.value;
@@ -2347,7 +2356,7 @@ export class JournalCaptureView extends ItemView {
   private setupScrollTopButton() {
     const btn = this.capturePaneEl.createEl('button', {
       cls: 'jp-scroll-top-btn',
-      attr: { 'aria-label': '回到顶部', title: '回到顶部' },
+      attr: { 'aria-label': t('capture.backToTop'), title: t('capture.backToTop') },
     });
     setIcon(btn, 'arrow-up');
     btn.addEventListener('click', () => {
@@ -2387,10 +2396,10 @@ export class JournalCaptureView extends ItemView {
     // is a small popover; users expect an explicit way to dismiss it besides
     // clicking elsewhere.
     const header = this.tagPickerEl.createDiv({ cls: 'jp-tag-picker-header' });
-    header.createSpan({ cls: 'jp-tag-picker-title', text: '选择标签' });
+    header.createSpan({ cls: 'jp-tag-picker-title', text: t('capture.tagPickerTitle') });
     const closeBtn = header.createEl('button', {
       cls: 'jp-tag-picker-close',
-      attr: { 'aria-label': '关闭标签选择' },
+      attr: { 'aria-label': t('capture.tagPickerClose') },
     });
     setIcon(closeBtn, 'x');
     closeBtn.addEventListener('click', (evt) => {
@@ -2404,7 +2413,7 @@ export class JournalCaptureView extends ItemView {
     if (tags.length === 0) {
       this.tagPickerEl.createDiv({
         cls: 'jp-tag-picker-empty',
-        text: '还没有预设标签，可在插件设置中添加',
+        text: t('capture.noPresetTags'),
       });
       return;
     }
@@ -2472,7 +2481,7 @@ export class JournalCaptureView extends ItemView {
       // Remove button — clicking it deselects the tag.
       const remove = chip.createEl('button', {
         cls: 'jp-tag-chip-remove',
-        attr: { 'aria-label': `移除 ${tag}` },
+        attr: { 'aria-label': t('capture.removeTag', { tag }) },
       });
       setIcon(remove, 'x');
       remove.addEventListener('click', (evt) => {
@@ -2504,24 +2513,24 @@ export class JournalCaptureView extends ItemView {
   private async confirmClearInput(value: string): Promise<void> {
     const audioPaths = extractAudioEmbeds(value);
     const modal = new Modal(this.app);
-    modal.titleEl.setText('清空输入框');
+    modal.titleEl.setText(t('capture.clearTitle'));
     modal.contentEl.addClass('jp-clear-confirm');
     modal.contentEl.createEl('p', {
       cls: 'jp-clear-confirm-question',
       text: audioPaths.length > 0
-        ? `确定清空输入框吗？将同时删除 ${audioPaths.length} 个录音文件（移入回收站，可恢复）。`
-        : '确定清空输入框吗？',
+        ? t('capture.clearConfirmWithAudio', { n: audioPaths.length })
+        : t('capture.clearConfirm'),
     });
     if (audioPaths.length > 0) {
       const list = modal.contentEl.createEl('ul', { cls: 'jp-clear-confirm-list' });
       for (const p of audioPaths) list.createEl('li', { text: p });
     }
     const actions = modal.contentEl.createDiv({ cls: 'jp-delete-confirm-actions' });
-    const cancelBtn = actions.createEl('button', { cls: 'jp-delete-confirm-cancel', text: '取消' });
+    const cancelBtn = actions.createEl('button', { cls: 'jp-delete-confirm-cancel', text: t('common.cancel') });
     cancelBtn.addEventListener('click', () => modal.close());
     const confirmBtn = actions.createEl('button', {
       cls: 'mod-warning jp-delete-confirm-confirm',
-      text: '清空',
+      text: t('common.clear'),
     });
     confirmBtn.addEventListener('click', runAsync(async () => {
       modal.close();
@@ -2549,8 +2558,8 @@ export class JournalCaptureView extends ItemView {
       this.autoResizeTextarea();
       new Notice(
         audioPaths.length > 0
-          ? `🧹 已清空，${trashed}/${audioPaths.length} 个录音文件移入回收站`
-          : '🧹 已清空',
+          ? t('notice.clearedWithTrash', { trashed, total: audioPaths.length })
+          : t('notice.cleared'),
       );
     }));
     window.setTimeout(() => cancelBtn.focus(), 0);
@@ -2603,7 +2612,7 @@ export class JournalCaptureView extends ItemView {
 
     // No-plugin guard
     if (!appHasDailyNotesPluginLoaded()) {
-      this.renderTopLevelMessage('请先启用 Obsidian 自带的「Daily Notes」核心插件');
+      this.renderTopLevelMessage(t('notice.dailyNotesRequired'));
       this.exhausted = true;
       return;
     }
@@ -2788,7 +2797,7 @@ export class JournalCaptureView extends ItemView {
 
     if (entries.length === 0) {
       // Today with no entries — soft hint only
-      day.el.createDiv({ cls: 'jp-capture-empty', text: '还没有 memo，写点什么吧 →' });
+      day.el.createDiv({ cls: 'jp-capture-empty', text: t('timeline.emptyToday') });
       return;
     }
 
@@ -2903,7 +2912,7 @@ export class JournalCaptureView extends ItemView {
             }
 
             // Show success feedback
-            new Notice(entry.completed ? '✓ 任务已完成' : '○ 任务未完成');
+            new Notice(entry.completed ? t('notice.taskDone') : t('notice.taskUndone'));
 
             // Clear the marking after a brief delay
             window.setTimeout(() => {
@@ -2911,7 +2920,7 @@ export class JournalCaptureView extends ItemView {
             }, 150);
           } catch (err) {
             console.error('[Journal Partner] toggle task failed:', err);
-            new Notice('切换任务状态失败');
+            new Notice(t('notice.taskToggleFailed'));
             // Clean up marking on error
             this.taskModifyingFiles.delete(day.filePath);
           }
@@ -2970,18 +2979,12 @@ export class JournalCaptureView extends ItemView {
 
   /** Build a human-readable date label. */
   private formatDateHeader(d: moment.Moment, count: number): { title: string; subtitle: string } {
-    const weekdayZh = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.day()];
-    const dateLabel = d.format('YYYY年M月D日') + ` · ${weekdayZh}`;
+    const dateLabel = formatDate(d) + ` · ${weekdayShort(d.day())}`;
     const today = moment().startOf('day');
     const diff = d.diff(today, 'days');
-    let relative = '';
-    if (diff === 0) relative = ' · 今天';
-    else if (diff === -1) relative = ' · 昨天';
-    else if (diff === 1) relative = ' · 明天';
-    else if (diff < 0) relative = ` · ${-diff} 天前`;
-    else relative = ` · ${diff} 天后`;
+    const relative = relativeDayLabel(diff);
     const title = dateLabel + relative;
-    const subtitle = count === 0 ? '还没有 memo' : `${count} 个 memo`;
+    const subtitle = count === 0 ? t('timeline.noMemos') : t('timeline.matches', { count });
     return { title, subtitle };
   }
 
@@ -2991,7 +2994,7 @@ export class JournalCaptureView extends ItemView {
 
   private markEndOfTimeline() {
     // Replace sentinel functionality with a static end marker
-    const end = createDiv({ cls: 'jp-timeline-end', text: '— 已加载到最早的日记 —' });
+    const end = createDiv({ cls: 'jp-timeline-end', text: t('timeline.end') });
     this.sentinelEl.replaceWith(end);
     this.sentinelEl = end;
   }
@@ -3039,7 +3042,7 @@ export class JournalCaptureView extends ItemView {
     this.timelineEl.empty();
 
     if (!appHasDailyNotesPluginLoaded()) {
-      this.renderTopLevelMessage('请先启用 Obsidian 自带的「Daily Notes」核心插件');
+      this.renderTopLevelMessage(t('notice.dailyNotesRequired'));
       return;
     }
 
@@ -3052,7 +3055,7 @@ export class JournalCaptureView extends ItemView {
     });
 
     if (files.length === 0) {
-      this.renderTopLevelMessage('还没有过去的日记可以回顾');
+      this.renderTopLevelMessage(t('review.noPastNotes'));
       return;
     }
 
@@ -3098,7 +3101,7 @@ export class JournalCaptureView extends ItemView {
     }
 
     if (!file || entries.length === 0) {
-      this.renderTopLevelMessage('这天没有日记内容');
+      this.renderTopLevelMessage(t('review.emptyDay'));
       return;
     }
 
@@ -3176,7 +3179,7 @@ export class JournalCaptureView extends ItemView {
 
     try {
       if (!appHasDailyNotesPluginLoaded()) {
-        this.renderStatsError('请先启用 Obsidian 自带的「Daily Notes」核心插件');
+        this.renderStatsError(t('notice.dailyNotesRequired'));
         return;
       }
 
@@ -3223,7 +3226,7 @@ export class JournalCaptureView extends ItemView {
       this.renderStatsContent();
     } catch (err) {
       console.error('[Journal Partner] stats load failed', err);
-      this.renderStatsError(`加载失败：${err instanceof Error ? err.message : String(err)}`);
+      this.renderStatsError(t('notice.statsLoadFailed', { msg: err instanceof Error ? err.message : String(err) }));
     } finally {
       this.statsLoading = false;
     }
@@ -3243,7 +3246,7 @@ export class JournalCaptureView extends ItemView {
     const loading = this.statsBodyEl.createDiv({ cls: 'jp-stats-loading' });
     loading.createDiv({ cls: 'jp-stats-spinner' });
     loading.createDiv({
-      text: '正在加载日记数据…',
+      text: t('stats.loading'),
       cls: 'jp-stats-loading-text',
     });
   }
@@ -3263,27 +3266,34 @@ export class JournalCaptureView extends ItemView {
     const top = hero.createDiv({ cls: 'jp-stats-hero-top' });
 
     const numLine = top.createDiv({ cls: 'jp-stats-hero-number' });
-    const formatted = formatChineseWordCount(allTime.totalWords);
-    if (formatted.includes('万')) {
-      const [num] = formatted.split(' ');
-      numLine.createSpan({ cls: 'jp-stats-hero-num', text: num });
-      numLine.createSpan({ cls: 'jp-stats-hero-unit', text: '万字' });
+    if (isChinese()) {
+      const formatted = formatChineseWordCount(allTime.totalWords);
+      if (formatted.includes('万')) {
+        const [num] = formatted.split(' ');
+        numLine.createSpan({ cls: 'jp-stats-hero-num', text: num });
+        numLine.createSpan({ cls: 'jp-stats-hero-unit', text: t('stats.tenThousandWord') });
+      } else {
+        numLine.createSpan({ cls: 'jp-stats-hero-num', text: formatted });
+        numLine.createSpan({ cls: 'jp-stats-hero-unit', text: t('stats.word') });
+      }
     } else {
-      numLine.createSpan({ cls: 'jp-stats-hero-num', text: formatted });
-      numLine.createSpan({ cls: 'jp-stats-hero-unit', text: '字' });
+      // English: show the full number with thousands separators — the "万"
+      // unit has no natural English equivalent.
+      numLine.createSpan({ cls: 'jp-stats-hero-num', text: allTime.totalWords.toLocaleString('en-US') });
+      numLine.createSpan({ cls: 'jp-stats-hero-unit', text: t('stats.word') });
     }
 
     const sub = top.createDiv({ cls: 'jp-stats-hero-sub' });
     const yearsStr = allTime.yearsWithData.length > 0
-      ? `${allTime.yearsWithData[0]}–${allTime.yearsWithData[allTime.yearsWithData.length - 1]} 年`
-      : '暂无数据';
+      ? t('stats.yearsRange', { start: allTime.yearsWithData[0], end: allTime.yearsWithData[allTime.yearsWithData.length - 1] })
+      : t('stats.noData');
     sub.createSpan({ text: yearsStr });
 
     const grid = hero.createDiv({ cls: 'jp-stats-hero-kpis' });
-    this.makeStatsKPI(grid, 'file-text', `${allTime.writingDays}`, '天', '记录天数');
-    this.makeStatsKPI(grid, 'pencil', `${allTime.totalEntries}`, '条', '总条数');
-    this.makeStatsKPI(grid, 'mic', `${allTime.totalAudios}`, '段', '录音数');
-    this.makeStatsKPI(grid, 'flame', `${allTime.longestStreak}`, '天', '最长连续');
+    this.makeStatsKPI(grid, 'file-text', `${allTime.writingDays}`, t('stats.dayUnit'), t('stats.writingDays'));
+    this.makeStatsKPI(grid, 'pencil', `${allTime.totalEntries}`, t('stats.entryUnit'), t('stats.totalEntries'));
+    this.makeStatsKPI(grid, 'mic', `${allTime.totalAudios}`, t('stats.audioUnit'), t('stats.recordings'));
+    this.makeStatsKPI(grid, 'flame', `${allTime.longestStreak}`, t('stats.dayUnit'), t('stats.longestStreak'));
 
     // ── Per-year heatmaps ─────────────────────────────────────────────────
     const years = [...this.allYearStats.keys()].sort((a, b) => b - a);
@@ -3313,7 +3323,7 @@ export class JournalCaptureView extends ItemView {
     const section = this.statsBodyEl.createDiv({ cls: 'jp-stats-heatmap-section' });
 
     const header = section.createDiv({ cls: 'jp-stats-heatmap-header' });
-    header.createDiv({ cls: 'jp-stats-heatmap-title', text: `${year} 年` });
+    header.createDiv({ cls: 'jp-stats-heatmap-title', text: isChinese() ? `${year} 年` : String(year) });
 
     this.renderStatsHeatmap(
       section.createDiv({ cls: 'jp-stats-heatmap-wrap' }),
@@ -3322,17 +3332,17 @@ export class JournalCaptureView extends ItemView {
 
     // Legend
     const legend = section.createDiv({ cls: 'jp-stats-legend' });
-    legend.createSpan({ cls: 'jp-stats-legend-label', text: '少' });
+    legend.createSpan({ cls: 'jp-stats-legend-label', text: t('stats.legendLess') });
     for (let l = 0; l <= 4; l++) {
       legend.createDiv({ cls: `jp-stats-cell level-${l}` });
     }
-    legend.createSpan({ cls: 'jp-stats-legend-label', text: '多' });
+    legend.createSpan({ cls: 'jp-stats-legend-label', text: t('stats.legendMore') });
 
     // Footer summary
     const footer = section.createDiv({ cls: 'jp-stats-footer' });
     footer.setText(
-      `${stats.writingDays} 天 · ${stats.totalWords.toLocaleString('en-US')} 字 · ${stats.totalEntries} 条` +
-        (stats.totalAudios > 0 ? ` · ${stats.totalAudios} 段录音` : ''),
+      t('stats.footer', { days: stats.writingDays, words: stats.totalWords.toLocaleString('en-US'), entries: stats.totalEntries }) +
+        (stats.totalAudios > 0 ? t('stats.footerAudios', { n: stats.totalAudios }) : ''),
     );
   }
 
@@ -3393,7 +3403,7 @@ export class JournalCaptureView extends ItemView {
 
     // Weekday labels column
     const labelsCol = inner.createDiv({ cls: 'jp-stats-daylabels' });
-    const dayLabels: Record<number, string> = { 0: '一', 2: '三', 4: '五' };
+    const dayLabels: Record<number, string> = { 0: heatmapWeekdayLabel(1), 2: heatmapWeekdayLabel(3), 4: heatmapWeekdayLabel(5) };
     for (let i = 0; i < 7; i++) {
       labelsCol.createDiv({ cls: 'jp-stats-daylabel', text: dayLabels[i] ?? '' });
     }
@@ -3409,7 +3419,7 @@ export class JournalCaptureView extends ItemView {
       let label = '';
       if (mo !== null && !monthLabeled.has(mo)) {
         monthLabeled.add(mo);
-        label = `${mo + 1}月`;
+        label = monthLabel(mo);
       }
       monthRow.createDiv({ cls: 'jp-stats-monthlabel', text: label });
     }
@@ -3435,11 +3445,11 @@ export class JournalCaptureView extends ItemView {
           (isFuture ? ' is-future' : '');
         const cell = col.createDiv({ cls: classes });
 
-        const label = date.format('YYYY年M月D日');
+        const label = formatDate(date);
         if (entryCount > 0) {
-          cell.setAttr('title', `${label} · ${entryCount} 条 · ${wordCount} 字`);
+          cell.setAttr('title', `${label} · ${entryCount} ${t('stats.entryUnit')} · ${wordCount} ${t('stats.word')}`);
         } else {
-          cell.setAttr('title', isFuture ? label : `${label} · 未写`);
+          cell.setAttr('title', isFuture ? label : `${label} · ${t('stats.notWritten')}`);
         }
 
         if (!isFuture) {
@@ -3473,7 +3483,7 @@ export class JournalCaptureView extends ItemView {
     if (!day.filePath) return;
     const btn = headerCard.createEl('button', {
       cls: 'jp-timeline-open-btn',
-      attr: { 'aria-label': '打开日记' },
+      attr: { 'aria-label': t('capture.openNote') },
     });
     setIcon(btn, 'crosshair');
     btn.addEventListener('click', () => void this.openDailyNoteByDate(day.date));
@@ -3484,14 +3494,14 @@ export class JournalCaptureView extends ItemView {
     try {
       const file = getDailyNote(date, getAllDailyNotes());
       if (!file) {
-        new Notice(`${date.format('YYYY年M月D日')} 没有日记文件`);
+        new Notice(t('notice.noFileForDate', { date: formatDate(date) }));
         return;
       }
       const leaf = this.app.workspace.getLeaf(false);
       await leaf.openFile(file);
     } catch (err) {
       console.error('[Journal Partner] open daily note failed', err);
-      new Notice('打开失败');
+      new Notice(t('notice.openFailed'));
     }
   }
 
@@ -3593,7 +3603,7 @@ export class JournalCaptureView extends ItemView {
 
     menu.addItem(item =>
       item
-        .setTitle('复制')
+        .setTitle(t('common.copy'))
         .setIcon('copy')
         .onClick(() => {
           void this.copyEntry(entry);
@@ -3602,7 +3612,7 @@ export class JournalCaptureView extends ItemView {
 
     menu.addItem(item =>
       item
-        .setTitle('编辑')
+        .setTitle(t('common.edit'))
         .setIcon('pencil')
         .onClick(() => {
           void this.openEditEntry(day, entry);
@@ -3613,7 +3623,7 @@ export class JournalCaptureView extends ItemView {
 
     menu.addItem(item =>
       item
-        .setTitle('删除 memo')
+        .setTitle(t('menu.deleteMemo'))
         .setIcon('trash-2')
         .onClick(() => {
           const mode: DeleteMode = audioPaths.length > 0 ? 'memo+audio' : 'memo';
@@ -3626,8 +3636,8 @@ export class JournalCaptureView extends ItemView {
         item
           .setTitle(
             audioPaths.length === 1
-              ? '仅删除录音文件（保留文字）'
-              : `仅删除 ${audioPaths.length} 个录音文件（保留文字）`,
+              ? t('menu.deleteAudioOnly')
+              : t('menu.deleteAudioOnlyPlural', { n: audioPaths.length }),
           )
           .setIcon('mic-off')
           .onClick(() => {
@@ -3643,10 +3653,10 @@ export class JournalCaptureView extends ItemView {
   private async copyEntry(entry: JournalEntry): Promise<void> {
     try {
       await navigator.clipboard.writeText(entry.text);
-      new Notice('📋 已复制');
+      new Notice(t('notice.copied'));
     } catch (err) {
       console.error('[Journal Partner] copy failed', err);
-      new Notice(`复制失败：${err instanceof Error ? err.message : String(err)}`);
+      new Notice(t('notice.copyFailed', { msg: err instanceof Error ? err.message : String(err) }));
     }
   }
 
@@ -3657,12 +3667,12 @@ export class JournalCaptureView extends ItemView {
    */
   private async openEditEntry(day: DaySection, entry: JournalEntry): Promise<void> {
     if (!day.filePath) {
-      new Notice('找不到对应的日记文件');
+      new Notice(t('notice.fileNotFound'));
       return;
     }
     const file = this.app.vault.getAbstractFileByPath(day.filePath);
     if (!(file instanceof TFile)) {
-      new Notice('找不到对应的日记文件');
+      new Notice(t('notice.fileNotFound'));
       return;
     }
     new EditEntryModal(this.app, entry, async newText => {
@@ -3676,15 +3686,15 @@ export class JournalCaptureView extends ItemView {
         );
         if (next === content) {
           // lineIndex no longer points at a head line — file changed.
-          new Notice('日记内容已变化，请刷新后重试');
+          new Notice(t('notice.contentChanged'));
           await this.refreshDay(day);
           return;
         }
         await this.app.vault.modify(file, next);
-        new Notice('✏️ 已更新');
+        new Notice(t('notice.updated'));
       } catch (err) {
         console.error('[Journal Partner] edit entry failed', err);
-        new Notice(`保存失败：${err instanceof Error ? err.message : String(err)}`);
+        new Notice(t('notice.saveFailed', { msg: err instanceof Error ? err.message : String(err) }));
       }
     }).open();
   }
@@ -3711,10 +3721,10 @@ export class JournalCaptureView extends ItemView {
     new DeleteConfirmModal(this.app, {
       title:
         mode === 'memo'
-          ? '删除 memo'
+          ? t('menu.deleteMemo')
           : mode === 'memo+audio'
-            ? '删除 memo 和录音文件'
-            : '删除录音文件',
+            ? t('menu.deleteMemoAndAudio')
+            : t('menu.deleteAudio'),
       preview: this.buildEntryPreview(entry),
       timestamp: entry.timestamp,
       audioPaths: mode === 'memo' ? [] : audioPaths,
@@ -3748,12 +3758,12 @@ export class JournalCaptureView extends ItemView {
     audioPaths: string[],
   ): Promise<void> {
     if (!day.filePath) {
-      new Notice('找不到对应的日记文件');
+      new Notice(t('notice.fileNotFound'));
       return;
     }
     const file = this.app.vault.getAbstractFileByPath(day.filePath);
     if (!(file instanceof TFile)) {
-      new Notice('找不到对应的日记文件');
+      new Notice(t('notice.fileNotFound'));
       return;
     }
 
@@ -3766,14 +3776,14 @@ export class JournalCaptureView extends ItemView {
       if (next === content) {
         // No-op means our lineIndex no longer matches a head line — the file
         // changed under us. Refresh and bail rather than mangling content.
-        new Notice('日记内容已变化，请刷新后重试');
+        new Notice(t('notice.contentChanged'));
         await this.refreshDay(day);
         return;
       }
       await this.app.vault.modify(file, next);
     } catch (err) {
       console.error('[Journal Partner] delete entry failed', err);
-      new Notice(`删除失败：${err instanceof Error ? err.message : String(err)}`);
+      new Notice(t('notice.saveFailed', { msg: err instanceof Error ? err.message : String(err) }));
       return;
     }
 
@@ -3799,23 +3809,23 @@ export class JournalCaptureView extends ItemView {
 
     // User-visible toast — tuned per mode so the message is unambiguous.
     if (mode === 'memo') {
-      new Notice('🗑️ 已删除');
+      new Notice(t('notice.deleted'));
     } else if (mode === 'memo+audio') {
       if (missing === audioPaths.length) {
-        new Notice('🗑️ memo 已删除（录音文件已不存在）');
+        new Notice(t('notice.memoDeletedNoAudio'));
       } else if (trashed === audioPaths.length) {
-        new Notice(`🗑️ 已删除 memo 和 ${trashed} 个录音文件`);
+        new Notice(t('notice.memoAndAudioDeleted', { trashed }));
       } else {
-        new Notice(`🗑️ memo 已删除；${trashed}/${audioPaths.length} 个录音文件移入回收站`);
+        new Notice(t('notice.memoDeletedTrashed', { trashed, total: audioPaths.length }));
       }
     } else {
       // audio-only
       if (missing === audioPaths.length) {
-        new Notice('🎙️ 录音链接已移除（文件已不存在）');
+        new Notice(t('notice.audioLinkRemoved'));
       } else if (trashed === audioPaths.length) {
-        new Notice(`🎙️ 已删除 ${trashed} 个录音文件（memo 保留）`);
+        new Notice(t('notice.audioDeletedKeepMemo', { trashed }));
       } else {
-        new Notice(`🎙️ 链接已移除；${trashed}/${audioPaths.length} 个录音文件移入回收站`);
+        new Notice(t('notice.audioLinkRemovedTrashed', { trashed, total: audioPaths.length }));
       }
     }
   }
@@ -3829,14 +3839,14 @@ export class JournalCaptureView extends ItemView {
     if (raw.trim().length === 0 && this.selectedTags.length === 0 && this.pendingImages.length === 0) return;
 
     if (!appHasDailyNotesPluginLoaded()) {
-      new Notice('请先启用 Obsidian 自带的「Daily Notes」核心插件');
+      new Notice(t('notice.dailyNotesRequired'));
       return;
     }
 
     this.submitBtn.disabled = true;
     this.submitBtn.addClass('jp-capture-submit--disabled');
     const originalText = this.submitBtn.textContent;
-    this.submitBtn.setText('写入中…');
+    this.submitBtn.setText(t('capture.submitting'));
 
     try {
       // Selected tags are prepended to the entry's text here (and only here),
@@ -3902,7 +3912,7 @@ export class JournalCaptureView extends ItemView {
       scroller.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       console.error('[Journal Partner] submit failed', err);
-      new Notice(`写入失败：${err instanceof Error ? err.message : String(err)}`);
+      new Notice(t('notice.writeFailed', { msg: err instanceof Error ? err.message : String(err) }));
     } finally {
       this.submitBtn.setText(originalText ?? 'NOTE');
       this.refreshSubmitState();
@@ -4268,8 +4278,8 @@ class DeleteConfirmModal extends Modal {
       cls: 'jp-delete-confirm-question',
       text:
         this.opts.mode === 'audio-only'
-          ? '确定要删除这条 memo 的录音文件吗？memo 文字会保留。'
-          : '确定要删除这条 memo 吗？',
+          ? t('menu.confirmDeleteWithAudio')
+          : t('menu.confirmDelete'),
     });
 
     // Preview card — timestamp + body preview
@@ -4280,7 +4290,7 @@ class DeleteConfirmModal extends Modal {
     });
     preview.createSpan({
       cls: 'jp-delete-confirm-preview-text',
-      text: this.opts.preview.length > 0 ? this.opts.preview : '(空 memo)',
+      text: this.opts.preview.length > 0 ? this.opts.preview : t('menu.emptyMemo'),
     });
 
     // Audio file list (only when audio is being trashed)
@@ -4290,8 +4300,8 @@ class DeleteConfirmModal extends Modal {
         cls: 'jp-delete-confirm-audio-label',
         text:
           this.opts.mode === 'audio-only'
-            ? '将移入回收站的录音文件（可恢复）：'
-            : '附带删除的录音文件（移入回收站，可恢复）：',
+            ? t('menu.audioToTrash')
+            : t('menu.audioAlsoDeleted'),
       });
       const list = audioBlock.createEl('ul', { cls: 'jp-delete-confirm-audio-list' });
       for (const path of this.opts.audioPaths) {
@@ -4303,13 +4313,13 @@ class DeleteConfirmModal extends Modal {
     const actions = contentEl.createDiv({ cls: 'jp-delete-confirm-actions' });
     const cancelBtn = actions.createEl('button', {
       cls: 'jp-delete-confirm-cancel',
-      text: '取消',
+      text: t('common.cancel'),
     });
     cancelBtn.addEventListener('click', () => this.close());
 
     const confirmBtn = actions.createEl('button', {
       cls: 'mod-warning jp-delete-confirm-confirm',
-      text: '删除',
+      text: t('common.delete'),
     });
     confirmBtn.addEventListener('click', () => {
       this.close();
@@ -4345,7 +4355,7 @@ class EditEntryModal extends Modal {
 
   onOpen(): void {
     const { contentEl, titleEl } = this;
-    titleEl.setText(`编辑 ${this.entry.timestamp}`);
+    titleEl.setText(t('menu.editTitle', { timestamp: this.entry.timestamp }));
 
     contentEl.addClass('jp-edit-entry');
 
@@ -4359,19 +4369,19 @@ class EditEntryModal extends Modal {
     const actions = contentEl.createDiv({ cls: 'jp-edit-entry-actions' });
     const cancelBtn = actions.createEl('button', {
       cls: 'jp-edit-entry-cancel',
-      text: '取消',
+      text: t('common.cancel'),
     });
     cancelBtn.addEventListener('click', () => this.close());
 
     const saveBtn = actions.createEl('button', {
       cls: 'mod-cta jp-edit-entry-save',
-      text: '保存',
+      text: t('common.save'),
     });
     saveBtn.addEventListener('click', () => {
       void (async () => {
         const next = textarea.value;
         if (next.trim().length === 0) {
-          new Notice('内容不能为空');
+          new Notice(t('notice.contentEmpty'));
           return;
         }
         saveBtn.disabled = true;
