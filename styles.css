@@ -220,9 +220,9 @@
   box-shadow: none !important;
   cursor: pointer;
   color: inherit !important;
-  opacity: 0.7;
-  width: 16px !important;
-  height: 16px !important;
+  opacity: 0.9;
+  width: 18px !important;
+  height: 18px !important;
   padding: 0 !important;
   display: inline-flex !important;
   align-items: center;
@@ -231,10 +231,15 @@
   transition: opacity 0.15s ease, background-color 0.15s ease;
   -webkit-appearance: none !important;
   appearance: none !important;
+  flex-shrink: 0;
 }
 .jp-tag-chip-remove:hover {
   opacity: 1;
-  background-color: color-mix(in srgb, var(--jp-tl-dot) 18%, transparent) !important;
+  background-color: color-mix(in srgb, var(--jp-tl-dot) 22%, transparent) !important;
+}
+.jp-tag-chip-remove svg {
+  width: 13px;
+  height: 13px;
 }
 
 /* ── Pending-image strip (below the textarea) ───────────────────────────── */
@@ -291,6 +296,13 @@
   padding: 1px 4px;
   border-radius: 4px;
   color: #fff;
+  /* Keep the label on one line and within the thumbnail: without nowrap the
+     two-character label can wrap and push the badge past the image edge. */
+  white-space: nowrap;
+  max-width: calc(100% - 4px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
 }
 .jp-pending-image-badge.is-local {
   background: rgba(16, 185, 129, 0.85);
@@ -395,6 +407,43 @@
 }
 .jp-tag-picker-item-text {
   word-break: break-all;
+}
+.jp-tag-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 4px;
+}
+.jp-tag-picker-title {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.jp-tag-picker-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+}
+.jp-tag-picker-close:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.jp-tag-picker-close svg {
+  width: 14px;
+  height: 14px;
 }
 .jp-tag-picker-empty {
   padding: 8px 10px;
