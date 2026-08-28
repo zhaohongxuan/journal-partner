@@ -1,0 +1,22 @@
+src/capture-view.ts
+  s_fedb69fc15e504::t_310a480da1e4ce 3410
+  s_fedb69fc15e504::t_31e0f635129b1c 3402-3409,3411-3416
+src/main.ts
+  s_fedb69fc15e504::t_b9e5009e28b81b 104-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "ead10364f13fa3faea5a848097a8420bc8508858",
+  "prompts": {},
+  "sessions": {
+    "s_fedb69fc15e504": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9105f984-26e2-49ee-a991-22050f98567c",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
