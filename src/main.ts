@@ -6,6 +6,7 @@ import {
   MarkdownView,
   Notice,
   ObsidianProtocolData,
+  Platform,
   Plugin,
   PluginSettingTab,
   Setting,
@@ -96,14 +97,24 @@ export default class JournalPartnerPlugin extends Plugin {
   }
 
   async activateCaptureView() {
+    // A pre-existing capture leaf may live in the wrong pane (e.g. created in
+    // the mobile sidebar before we switched to full-screen). revealLeaf only
+    // activates it in place, so on mobile we detach and rebuild the leaf at
+    // the intended location instead of reusing it blindly.
     const existing = this.app.workspace.getLeavesOfType(CAPTURE_VIEW_TYPE);
     if (existing.length > 0) {
-      void this.app.workspace.revealLeaf(existing[0]);
-      return;
+      if (Platform.isMobile) {
+        existing[0].detach();
+      } else {
+        void this.app.workspace.revealLeaf(existing[0]);
+        return;
+      }
     }
-    // Open in the right sidebar on every platform — on mobile this is the
-    // slide-out drawer instead of taking over the main editor area.
-    const leaf: WorkspaceLeaf | null = this.app.workspace.getRightLeaf(false);
+    // Desktop: right sidebar. Mobile: take over the editor area (full-screen)
+    // — the sidebar drawer on mobile felt less natural for the capture UI.
+    const leaf: WorkspaceLeaf | null = Platform.isMobile
+      ? this.app.workspace.getLeaf(true)
+      : this.app.workspace.getRightLeaf(false);
     if (!leaf) return;
     await leaf.setViewState({ type: CAPTURE_VIEW_TYPE, active: true });
     void this.app.workspace.revealLeaf(leaf);

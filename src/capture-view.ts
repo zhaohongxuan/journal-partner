@@ -678,6 +678,7 @@ export class JournalCaptureView extends ItemView {
       // Render markdown first, then highlight keywords in the resulting DOM
       // text nodes. Empty query (tag mode) skips highlighting.
       void MarkdownRenderer.render(this.app, entry.text, bubble, sourcePath, day.scope).then(() => {
+        this.hookUpLinks(bubble, sourcePath);
         if (query.length > 0) this.highlightKeyword(bubble, query);
       });
 
@@ -2381,6 +2382,22 @@ export class JournalCaptureView extends ItemView {
   /** Re-render the preset-tag items inside the picker from settings. */
   private buildTagPickerItems() {
     this.tagPickerEl.empty();
+
+    // Header row: title + a close button that collapses the picker. The picker
+    // is a small popover; users expect an explicit way to dismiss it besides
+    // clicking elsewhere.
+    const header = this.tagPickerEl.createDiv({ cls: 'jp-tag-picker-header' });
+    header.createSpan({ cls: 'jp-tag-picker-title', text: '选择标签' });
+    const closeBtn = header.createEl('button', {
+      cls: 'jp-tag-picker-close',
+      attr: { 'aria-label': '关闭标签选择' },
+    });
+    setIcon(closeBtn, 'x');
+    closeBtn.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      this.toggleTagPicker();
+    });
+
     // Skip empty entries — a tag the user typed then cleared shouldn't show
     // as a blank row in the picker.
     const tags = (this.plugin.settings.presetTags ?? []).filter(t => t.trim().length > 0);
@@ -2903,7 +2920,8 @@ export class JournalCaptureView extends ItemView {
 
       // Body bubble: chat-style rounded card holding the rendered markdown.
       const bubble = row.createDiv({ cls: 'jp-timeline-bubble' });
-      void MarkdownRenderer.render(this.app, entry.text, bubble, sourcePath, day.scope);
+      void MarkdownRenderer.render(this.app, entry.text, bubble, sourcePath, day.scope)
+        .then(() => this.hookUpLinks(bubble, sourcePath));
 
       // Context menu: copy / delete (with optional audio cleanup).
       // Attached to both the timestamp pill and bubble so right-click /
@@ -2915,6 +2933,39 @@ export class JournalCaptureView extends ItemView {
       head.addEventListener('contextmenu', openMenu);
       bubble.addEventListener('contextmenu', openMenu);
     }
+  }
+
+  /**
+   * Wire up internal wikilinks rendered by MarkdownRenderer so they open on
+   * click. Obsidian only auto-hooks links in its own note views; in a custom
+   * view the `.internal-link` elements render but have no click handler, so
+   * tapping them does nothing. We attach the standard open-on-click behaviour
+   * to every internal link inside `el`.
+   */
+  private hookUpLinks(el: HTMLElement, sourcePath: string): void {
+    const links = el.querySelectorAll<HTMLAnchorElement>('.internal-link');
+    links.forEach(link => {
+      // Skip links we've already hooked (safe even if called repeatedly).
+      if (link.dataset.jpHooked === 'true') return;
+      link.dataset.jpHooked = 'true';
+
+      link.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        const href = link.getAttribute('data-href') ?? link.textContent ?? '';
+        if (href.length === 0) return;
+        void this.app.workspace.openLinkText(href, sourcePath, true);
+      });
+
+      // Middle-click / ctrl-click → open in new tab.
+      link.addEventListener('auxclick', (evt) => {
+        if (evt.button !== 1) return;
+        evt.preventDefault();
+        const href = link.getAttribute('data-href') ?? link.textContent ?? '';
+        if (href.length === 0) return;
+        void this.app.workspace.openLinkText(href, sourcePath, 'tab');
+      });
+    });
   }
 
   /** Build a human-readable date label. */
@@ -3005,31 +3056,48 @@ export class JournalCaptureView extends ItemView {
       return;
     }
 
-    // Pick a random file
-    const file = files[Math.floor(Math.random() * files.length)];
-    const date = getDateFromFile(file, 'day').clone().startOf('day');
-
-    // Parse entries
+    // Pick a random file that actually has journal content. Daily notes
+    // created without entries (or without a `## Journal` heading) are still
+    // in getAllDailyNotes(), so a blind pick would frequently land on an
+    // empty note and show "这天没有日记内容". Retry a few times — the vast
+    // majority of picks will hit a non-empty note on the first or second try.
+    const MAX_ATTEMPTS = 5;
+    let file: TFile | null = null;
     let entries: JournalEntry[] = [];
-    try {
-      const content = await this.app.vault.cachedRead(file);
-      const section = findSection(content, this.plugin.settings.targetHeading, this.plugin.settings.headingLevel);
-      if (section) {
-        const text = content.slice(section.from, section.to);
-        // First try normal timestamped entries
-        const parsed = parseJournalEntries(text, this.plugin.settings.timestampPattern);
-        if (parsed.length > 0) {
-          entries = parsed;
-        } else {
-          // Fallback: treat every non-empty list item as an entry with 00:00
-          entries = this.parseLooseEntries(text);
+    let date: moment.Moment = moment().startOf('day');
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const candidate = files[Math.floor(Math.random() * files.length)];
+      const candidateDate = getDateFromFile(candidate, 'day').clone().startOf('day');
+
+      let candidateEntries: JournalEntry[] = [];
+      try {
+        const content = await this.app.vault.cachedRead(candidate);
+        const section = findSection(content, this.plugin.settings.targetHeading, this.plugin.settings.headingLevel);
+        if (section) {
+          const text = content.slice(section.from, section.to);
+          // First try normal timestamped entries
+          const parsed = parseJournalEntries(text, this.plugin.settings.timestampPattern);
+          if (parsed.length > 0) {
+            candidateEntries = parsed;
+          } else {
+            // Fallback: treat every non-empty list item as an entry with 00:00
+            candidateEntries = this.parseLooseEntries(text);
+          }
         }
+      } catch (err) {
+        console.error('[Journal Partner] review read failed', candidate.path, err);
       }
-    } catch (err) {
-      console.error('[Journal Partner] review read failed', err);
+
+      if (candidateEntries.length > 0) {
+        file = candidate;
+        entries = candidateEntries;
+        date = candidateDate;
+        break;
+      }
     }
 
-    if (entries.length === 0) {
+    if (!file || entries.length === 0) {
       this.renderTopLevelMessage('这天没有日记内容');
       return;
     }
@@ -3271,6 +3339,7 @@ export class JournalCaptureView extends ItemView {
   private renderStatsHeatmap(parent: HTMLElement, stats: YearStats) {
     const year = stats.year;
     const today = moment().startOf('day');
+    let todayWeek: number | null = null;
 
     // All days of the year (date + per-day counts).
     const allDays: { date: moment.Moment; entryCount: number; wordCount: number }[] = [];
@@ -3294,15 +3363,30 @@ export class JournalCaptureView extends ItemView {
     paddedDays.push(...allDays);
     const totalWeeks = Math.ceil(paddedDays.length / 7);
 
-    // First week each month appears in (for the month-label row).
-    const monthWeek: Record<number, number> = {};
+    // For each week, pick the month that owns the most cells in that week
+    // (cross-month weeks show the later month when it dominates, so labels
+    // track the real date spread instead of always drifting to January).
+    // Only label the first week each month wins, so the row reads 1月…12月
+    // left to right.
+    const weekMonth: (number | null)[] = [];
+    const monthLabeled = new Set<number>();
     for (let w = 0; w < totalWeeks; w++) {
+      const counts = new Map<number, number>();
       for (let dow = 0; dow < 7; dow++) {
         const item = paddedDays[w * 7 + dow];
         if (!item) continue;
         const mo = item.date.month();
-        if (!(mo in monthWeek)) monthWeek[mo] = w;
+        counts.set(mo, (counts.get(mo) ?? 0) + 1);
       }
+      let best: number | null = null;
+      let bestCount = 0;
+      for (const [mo, n] of counts) {
+        if (n > bestCount) {
+          best = mo;
+          bestCount = n;
+        }
+      }
+      weekMonth.push(best);
     }
 
     const inner = parent.createDiv({ cls: 'jp-stats-heatmap-inner' });
@@ -3319,11 +3403,15 @@ export class JournalCaptureView extends ItemView {
     // Month-label row
     const monthRow = rightCol.createDiv({ cls: 'jp-stats-monthrow' });
     for (let w = 0; w < totalWeeks; w++) {
-      const entry = Object.entries(monthWeek).find(([, wk]) => wk === w);
-      monthRow.createDiv({
-        cls: 'jp-stats-monthlabel',
-        text: entry ? `${Number(entry[0]) + 1}月` : '',
-      });
+      const mo = weekMonth[w];
+      // Show a label only the first time a month wins a week; later weeks of
+      // the same month are left blank (matches GitHub-style heatmaps).
+      let label = '';
+      if (mo !== null && !monthLabeled.has(mo)) {
+        monthLabeled.add(mo);
+        label = `${mo + 1}月`;
+      }
+      monthRow.createDiv({ cls: 'jp-stats-monthlabel', text: label });
     }
 
     // Cell grid
@@ -3357,7 +3445,26 @@ export class JournalCaptureView extends ItemView {
         if (!isFuture) {
           cell.addEventListener('click', () => void this.openDailyNoteByDate(date));
         }
+
+        // Track which week column today's cell lands in, so we can scroll the
+        // heatmap to it after render (today should be visible, not hidden at
+        // the far right of the year).
+        if (isToday) todayWeek = w;
       }
+    }
+
+    // Bring today into view: scroll the wrap so today's column sits roughly
+    // centered. Runs after the grid is laid out (rAF) so scrollLeft reflects
+    // the real widths. `parent` here is the `.jp-stats-heatmap-wrap` scroll
+    // container itself (see renderStatsHeatmapSection).
+    if (todayWeek !== null) {
+      window.requestAnimationFrame(() => {
+        const colEls = parent.querySelectorAll('.jp-stats-col');
+        const col = colEls[todayWeek] as HTMLElement | undefined;
+        if (!col) return;
+        const target = col.offsetLeft - (parent.clientWidth - col.clientWidth) / 2;
+        parent.scrollTo({ left: Math.max(0, target), behavior: 'auto' });
+      });
     }
   }
 
