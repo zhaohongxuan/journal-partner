@@ -6,7 +6,6 @@ import {
   MarkdownView,
   Notice,
   ObsidianProtocolData,
-  Platform,
   Plugin,
   PluginSettingTab,
   Setting,
@@ -102,9 +101,9 @@ export default class JournalPartnerPlugin extends Plugin {
       void this.app.workspace.revealLeaf(existing[0]);
       return;
     }
-    const leaf: WorkspaceLeaf | null = Platform.isMobile
-      ? this.app.workspace.getLeaf(true)
-      : this.app.workspace.getRightLeaf(false);
+    // Open in the right sidebar on every platform — on mobile this is the
+    // slide-out drawer instead of taking over the main editor area.
+    const leaf: WorkspaceLeaf | null = this.app.workspace.getRightLeaf(false);
     if (!leaf) return;
     await leaf.setViewState({ type: CAPTURE_VIEW_TYPE, active: true });
     void this.app.workspace.revealLeaf(leaf);

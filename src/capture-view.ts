@@ -3399,12 +3399,21 @@ export class JournalCaptureView extends ItemView {
    * isn't blocked by it.
    */
   private setupMobileToolbarAutoHide() {
-    // Mobile only: keep Obsidian's native navbar hidden while this view is
-    // open — the view's own floating tab bar replaces it. Not gated on the
-    // active-view check: on mobile the capture view can be the foreground
-    // view without getActiveViewOfType reporting it, which would leave the
-    // native navbar visible.
-    if (Platform.isMobile) this.setToolbarHidden(true);
+    // Mobile only: keep Obsidian's native navbar hidden while THIS view is the
+    // active (foreground) one — the view's own floating tab bar replaces it.
+    // The previous active-view gate at open-time was dropped because on mobile
+    // the capture view can be foreground without getActiveViewOfType reporting
+    // it; instead we follow leaf activity reactively so the navbar comes back
+    // the moment the user switches to another page (a plain onOpen/onClose pair
+    // can't do that — the leaf stays alive in the background).
+    if (Platform.isMobile) {
+      this.setToolbarHidden(this.leaf === this.app.workspace.activeLeaf);
+      this.registerEvent(
+        this.app.workspace.on('active-leaf-change', leaf => {
+          this.setToolbarHidden(leaf === this.leaf);
+        }),
+      );
+    }
 
     // Scroll-direction driven hide/show for the floating tab bar itself. This
     // runs on every platform (mobile + desktop) and must NOT be gated on the
