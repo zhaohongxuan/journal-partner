@@ -1,0 +1,21 @@
+manifest.json
+  s_fedb69fc15e504::t_21eeeb0c087ade 4
+package.json
+  s_fedb69fc15e504::t_3baced832be6aa 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "eb8fc9d4c3eb2435ca41db3bd4feadf291b02217",
+  "prompts": {},
+  "sessions": {
+    "s_fedb69fc15e504": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9105f984-26e2-49ee-a991-22050f98567c",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
