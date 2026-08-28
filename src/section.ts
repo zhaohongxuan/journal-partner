@@ -54,6 +54,8 @@ export interface JournalPartnerSettings {
   defaultTags: string[];
   /** How many journal-derived tags (ranked by frequency + recency) the tag-filter menu shows. 0 = no limit. */
   maxDiaryTags: number;
+  /** UI language: 'en' (default) | 'zh'. */
+  language: 'en' | 'zh';
 }
 
 export const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -78,6 +80,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   presetTags: ['#log/fitness', '#log/code'],
   defaultTags: [],
   maxDiaryTags: 15,
+  language: 'en',
 };
 
 export type Rng = { from: number; to: number };

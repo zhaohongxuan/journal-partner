@@ -50,6 +50,7 @@ import {
   getTimestampRanges,
 } from './section';
 import { CAPTURE_VIEW_TYPE, JournalCaptureView } from './capture-view';
+import { setLanguage, t } from './i18n';
 
 // ── CM6 utilities ───────────────────────────────────────────────────────────
 
@@ -75,7 +76,7 @@ export default class JournalPartnerPlugin extends Plugin {
     );
     this.addCommand({
       id: 'open-capture-view',
-      name: '打开 Journal Partner 侧边栏',
+      name: t('cmd.openSidebar'),
       callback: () => void this.activateCaptureView(),
     });
     this.addRibbonIcon('feather', 'Journal Partner', () => void this.activateCaptureView());
@@ -138,7 +139,7 @@ export default class JournalPartnerPlugin extends Plugin {
    */
   async writeToTodayJournal(text: string, ts?: string, audio?: string, images?: string[]): Promise<boolean> {
     if (!appHasDailyNotesPluginLoaded()) {
-      new Notice('请先启用 Obsidian 自带的「Daily Notes」核心插件');
+      new Notice(t('notice.dailyNotesRequired'));
       return false;
     }
     const trimmed = text.trim();
@@ -187,7 +188,7 @@ export default class JournalPartnerPlugin extends Plugin {
       return true;
     } catch (err) {
       console.error('[Journal Partner] writeToTodayJournal failed', err);
-      new Notice(`写入失败：${err instanceof Error ? err.message : String(err)}`);
+      new Notice(t('notice.writeFailed', { msg: err instanceof Error ? err.message : String(err) }));
       return false;
     }
   }
@@ -224,7 +225,7 @@ export default class JournalPartnerPlugin extends Plugin {
     const audio = params.audio ?? '';
 
     if (text.trim().length === 0 && audio.trim().length === 0) {
-      new Notice('Quick capture 至少需要 text 或 audio 参数之一');
+      new Notice(t('notice.protocolNeedText'));
       return;
     }
 
@@ -234,11 +235,11 @@ export default class JournalPartnerPlugin extends Plugin {
 
     const ok = await this.writeToTodayJournal(text, ts, audio);
     if (ok) {
-      const previewSrc = text.trim().length > 0 ? text : (audio || '语音');
+      const previewSrc = text.trim().length > 0 ? text : (audio || t('common.audio'));
       const preview = previewSrc.trim().replace(/\s+/g, ' ').slice(0, 20);
       const ellip = previewSrc.length > 20 ? '…' : '';
       const tag = audio.trim().length > 0 ? '🎙️' : '📝';
-      new Notice(`${tag} 已记录：${preview}${ellip}`);
+      new Notice(t('notice.recorded', { tag, preview, ellipsis: ellip }));
     }
   }
 
@@ -299,7 +300,7 @@ export default class JournalPartnerPlugin extends Plugin {
         });
 
         if (blocked) {
-          new Notice('⏰ 时间戳不可修改');
+          new Notice(t('notice.timestampReadonly'));
           return []; // reject the transaction
         }
 
@@ -521,6 +522,10 @@ export default class JournalPartnerPlugin extends Plugin {
   async loadSettings() {
     const loaded = (await this.loadData()) as Partial<JournalPartnerSettings> | null;
     this.settings = { ...DEFAULT_SETTINGS, ...loaded };
+    // Keep the i18n module in sync with the persisted language choice.
+    if (this.settings.language === 'zh' || this.settings.language === 'en') {
+      setLanguage(this.settings.language);
+    }
   }
 
   async saveSettings() {
@@ -627,7 +632,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       .addExtraButton(btn =>
         btn
           .setIcon('rotate-ccw')
-          .setTooltip('恢复默认')
+          .setTooltip(t('settings.resetDefault'))
           .onClick(async () => {
             this.plugin.settings[lightKey] = lightDefault;
             this.plugin.settings[darkKey] = darkDefault;
@@ -651,8 +656,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
   private attachmentFolderLabel(): string {
     type VaultConfig = { config?: { attachmentFolderPath?: string } };
     const folder = (this.app.vault as unknown as VaultConfig).config?.attachmentFolderPath;
-    if (!folder || folder === '/' || folder === '') return 'Vault 根目录';
-    if (folder === '.') return '与日记同目录';
+    if (!folder || folder === '/' || folder === '') return t('settings.vaultRoot');
+    if (folder === '.') return t('settings.sameFolder');
     return folder;
   }
 
@@ -685,7 +690,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       .addButton(btn => {
         btn
           .setButtonText('📁')
-          .setTooltip('选择目录')
+          .setTooltip(t('settings.pickFolder'))
           .onClick(() => {
             const modal = this.createFolderSuggestModal((path: string) => {
               this.plugin.settings[key] = path;
@@ -738,7 +743,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
         .addExtraButton(btn =>
           btn
             .setIcon('trash')
-            .setTooltip('删除该标签')
+            .setTooltip(t('settings.deleteTagTooltip'))
             .onClick(() => {
               const removedTag = tag.startsWith('#') ? tag : `#${tag}`;
               this.plugin.settings.presetTags.splice(index, 1);
@@ -784,7 +789,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     if (presetTags.length === 0) {
       this.defaultTagListEl.createDiv({
         cls: 'jp-settings-empty-hint',
-        text: '请先在「预设标签」中添加标签。',
+        text: t('settings.noPresetTags'),
       });
       return;
     }
@@ -827,11 +832,11 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     // ── Timestamp Settings ────────────────────────────────────────────────
-    new Setting(containerEl).setName('时间戳设置').setHeading();
+    new Setting(containerEl).setName(t('settings.heading.timestamp')).setHeading();
 
     new Setting(containerEl)
-      .setName('日记标题')
-      .setDesc('插件生效的标题，如 Journal')
+      .setName(t('settings.targetHeading'))
+      .setDesc(t('settings.targetHeadingDesc'))
       .addText(text =>
         text
           .setPlaceholder('Journal')
@@ -843,8 +848,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('标题层级')
-      .setDesc('目标标题的层级，H2 对应 ## Journal')
+      .setName(t('settings.headingLevel'))
+      .setDesc(t('settings.headingLevelDesc'))
       .addDropdown(dd => {
         for (let i = 1; i <= 6; i++) {
           dd.addOption(String(i), `H${i}  ${'#'.repeat(i)}`);
@@ -857,8 +862,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName('只读保护')
-      .setDesc('开启后，无法在编辑器中修改已存在的时间戳')
+      .setName(t('settings.readonly'))
+      .setDesc(t('settings.readonlyDesc'))
       .addToggle(toggle =>
         toggle
           .setValue(this.plugin.settings.readonlyTimestamps)
@@ -869,8 +874,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('回车自动插入')
-      .setDesc('在 Journal 区块内按回车时，自动在新行插入当前时间')
+      .setName(t('settings.autoTimestamp'))
+      .setDesc(t('settings.autoTimestampDesc'))
       .addToggle(toggle =>
         toggle
           .setValue(this.plugin.settings.autoTimestamp)
@@ -881,8 +886,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('匹配正则')
-      .setDesc('识别时间戳的正则表达式，默认 \\d{2}:\\d{2}（HH:MM）')
+      .setName(t('settings.pattern'))
+      .setDesc(t('settings.patternDesc'))
       .addText(text =>
         text
           .setPlaceholder('\\d{2}:\\d{2}')
@@ -893,18 +898,18 @@ class JournalPartnerSettingTab extends PluginSettingTab {
               this.plugin.settings.timestampPattern = value;
               await this.plugin.saveSettings();
             } catch {
-              new Notice('❌ 无效的正则表达式');
+              new Notice(t('notice.invalidRegex'));
             }
           }),
       );
 
     new Setting(containerEl)
-      .setName('排序方式')
-      .setDesc('时间线中日记条目的排列顺序')
+      .setName(t('settings.sortOrder'))
+      .setDesc(t('settings.sortOrderDesc'))
       .addDropdown(dropdown =>
         dropdown
-          .addOption('desc', '最新在上（默认）')
-          .addOption('asc', '最早在上')
+          .addOption('desc', t('settings.sortDesc'))
+          .addOption('asc', t('settings.sortAsc'))
           .setValue(this.plugin.settings.sortOrder)
           .onChange(async (value: string) => {
             this.plugin.settings.sortOrder = value as 'asc' | 'desc';
@@ -915,20 +920,20 @@ class JournalPartnerSettingTab extends PluginSettingTab {
 
     // Preview badge
     const previewEl = containerEl.createDiv({ cls: 'jp-settings-preview' });
-    previewEl.createSpan({ cls: 'jp-settings-preview-label', text: '预览：' });
+    previewEl.createSpan({ cls: 'jp-settings-preview-label', text: t('settings.preview') });
     previewEl.createSpan({ cls: 'jp-timestamp', text: '07:31' });
-    previewEl.createSpan({ text: '这里是日记内容…' });
+    previewEl.createSpan({ text: t('settings.previewSample') });
 
     // ── Tag Settings ──────────────────────────────────────────────────────
-    new Setting(containerEl).setName('标签设置').setHeading();
+    new Setting(containerEl).setName(t('settings.heading.tags')).setHeading();
 
     new Setting(containerEl)
-      .setName('预设标签')
-      .setDesc('快速插入的标签，点击输入框左下角的 # 图标即可选择。每个标签独占一行。')
+      .setName(t('settings.presetTags'))
+      .setDesc(t('settings.presetTagsDesc'))
       .addButton(btn =>
         btn
-          .setButtonText('+ 添加标签')
-          .setTooltip('添加一个预设标签')
+          .setButtonText(t('settings.addTag'))
+          .setTooltip(t('settings.addTagTooltip'))
           .onClick(() => {
             this.plugin.settings.presetTags.push('');
             this.renderPresetTagInputs();
@@ -940,13 +945,13 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     this.renderPresetTagInputs();
 
     new Setting(containerEl)
-      .setName('默认标签')
-      .setDesc('每次打开输入框时自动带上的标签（显示为输入框顶部的状态标签）。不选则默认为无。');
+      .setName(t('settings.defaultTags'))
+      .setDesc(t('settings.defaultTagsDesc'));
     this.renderDefaultTagToggles();
 
     new Setting(containerEl)
-      .setName('日记标签展示数量')
-      .setDesc('标签筛选菜单里「日记汇总」展示的标签数量上限（按高频+近期排名）。设为 0 则展示全部。')
+      .setName(t('settings.maxDiaryTags'))
+      .setDesc(t('settings.maxDiaryTagsDesc'))
       .addSlider(slider =>
         slider
           .setLimits(0, 50, 1)
@@ -959,19 +964,19 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     // ── Color Settings ───────────────────────────────────────────────────
-    new Setting(containerEl).setName('颜色设置').setHeading();
+    new Setting(containerEl).setName(t('settings.heading.colors')).setHeading();
 
     this.addColorSetting(
-      '文字颜色',
-      '时间戳徽标的前景色（左：白天 ☀　右：深色 🌙）',
+      t('settings.textColor'),
+      t('settings.textColorDesc'),
       'timestampColor',
       'timestampColorDark',
       DEFAULT_SETTINGS.timestampColor,
       DEFAULT_SETTINGS.timestampColorDark,
     );
     this.addColorSetting(
-      '背景颜色',
-      '时间戳徽标的背景色（左：白天 ☀　右：深色 🌙）',
+      t('settings.bgColor'),
+      t('settings.bgColorDesc'),
       'timestampBgColor',
       'timestampBgColorDark',
       DEFAULT_SETTINGS.timestampBgColor,
@@ -979,30 +984,30 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     );
 
     // ── Speech-to-text ────────────────────────────────────────────────────
-    new Setting(containerEl).setName('语音转文字').setHeading();
+    new Setting(containerEl).setName(t('settings.heading.stt')).setHeading();
 
     // Usage guide — explains how STT works here and lists mainstream / free models.
     const guide = containerEl.createDiv({ cls: 'jp-stt-guide' });
     guide.createEl('p', {
-      text: '录音转文字使用 OpenAI 兼容的 /audio/transcriptions 接口。填好转写地址与 API Key 即可开启；留空则关闭转写，麦克风仅作纯录音。也可不配置，直接用系统听写（macOS 双击 Fn / iOS 键盘麦克风）往输入框输入。',
+      text: t('settings.sttGuide'),
     });
     guide.createEl('p', {
-      text: '实时转写模式：边说边出字，在停顿处切句并带上下文拼接。停止后默认保留实时草稿（快）；可在下方开启「停止后整段重转」用完整音频再转一次替换草稿（更准但需等待）。',
+      text: t('settings.sttGuideRealtime'),
     });
     const table = guide.createEl('table', { cls: 'jp-stt-guide-table' });
     const thead = table.createEl('thead');
     const headRow = thead.createEl('tr');
-    for (const h of ['服务商', '转写地址', '模型', '费用', '说明']) {
+    for (const h of [t('settings.sttProvider'), t('settings.sttEndpointCol'), t('settings.sttModelCol'), t('settings.sttCost'), t('settings.sttNote')]) {
       headRow.createEl('th', { text: h });
     }
     const tbody = table.createEl('tbody');
     // [服务商, 官网, 转写地址, 模型, 费用, 说明]
     const rows: [string, string, string, string, string, string][] = [
-      ['SiliconFlow（国内推荐）', 'https://siliconflow.cn', 'https://api.siliconflow.cn/v1/audio/transcriptions', 'FunAudioLLM/SenseVoiceSmall', '免费', '国内可直连，中文质量好，注册实名后生成 Key'],
-      ['Groq', 'https://console.groq.com', 'https://api.groq.com/openai/v1/audio/transcriptions', 'whisper-large-v3', '有免费额度', '速度极快，需网络可达'],
-      ['OpenAI', 'https://platform.openai.com', 'https://api.openai.com/v1/audio/transcriptions', 'whisper-1', '付费', '官方接口，需外网'],
-      ['阿里百炼', 'https://bailian.console.aliyun.com', '需用 DashScope 兼容端点', 'paraformer-v2', '有免费额度', '中文优秀，注意接口格式'],
-      ['自建 faster-whisper', 'https://github.com/ahmetoner/whisper-asr-webservice', 'http://你的服务器:9000/v1/audio/transcriptions', 'whisper-1 / small / medium', '免费', 'Docker 部署 OpenAI 兼容服务，隐私无忧'],
+      [t('settings.sttProviderSiliconFlow'), 'https://siliconflow.cn', 'https://api.siliconflow.cn/v1/audio/transcriptions', 'FunAudioLLM/SenseVoiceSmall', t('settings.sttFree'), t('settings.sttCNRecommended')],
+      [t('settings.sttProviderGroq'), 'https://console.groq.com', 'https://api.groq.com/openai/v1/audio/transcriptions', 'whisper-large-v3', t('settings.sttHasFreeQuota'), t('settings.sttFast')],
+      [t('settings.sttProviderOpenAI'), 'https://platform.openai.com', 'https://api.openai.com/v1/audio/transcriptions', 'whisper-1', t('settings.sttPaid'), t('settings.sttOfficial')],
+      [t('settings.sttProviderBailian'), 'https://bailian.console.aliyun.com', '需用 DashScope 兼容端点', 'paraformer-v2', t('settings.sttHasFreeQuota'), t('settings.sttGoodCN')],
+      [t('settings.sttProviderSelfHosted'), 'https://github.com/ahmetoner/whisper-asr-webservice', 'http://你的服务器:9000/v1/audio/transcriptions', 'whisper-1 / small / medium', t('settings.sttFree'), t('settings.sttSelfHosted')],
     ];
     for (const r of rows) {
       const [name, nameUrl, endpoint, model, cost, note] = r;
@@ -1022,8 +1027,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       tr.createEl('td', { text: note });
     }
     const hintP = guide.createEl('p', { cls: 'jp-stt-guide-hint' });
-    hintP.appendText('提示：以上服务的额度与模型名以官网公示为准，可能随时调整。SenseVoiceSmall 当前在 SiliconFlow 标注为免费 → ');
-    const hintA = hintP.createEl('a', { text: 'SiliconFlow 定价' });
+    hintP.appendText(t('settings.sttHint'));
+    const hintA = hintP.createEl('a', { text: t('settings.sttPricing') });
     hintA.href = 'https://siliconflow.cn/pricing';
     hintA.target = '_blank';
     hintA.rel = 'noopener';
@@ -1033,14 +1038,14 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     let apiKeyInputEl: HTMLInputElement | null = null;
     this.addFolderSetting(
       containerEl,
-      '录音存放位置',
-      'Vault 相对路径，用于存放录音文件。留空则使用 Obsidian 附件文件夹。',
+      t('settings.recordingFolder'),
+      t('settings.recordingFolderDesc'),
       'recordingFolder',
     );
 
     new Setting(containerEl)
-      .setName('转写地址')
-      .setDesc('OpenAI 兼容的 /audio/transcriptions 地址。留空则关闭录音转文字。')
+      .setName(t('settings.sttEndpoint'))
+      .setDesc(t('settings.sttEndpointDesc'))
       .addText(text =>
         text
           .setPlaceholder('https://api.openai.com/v1/audio/transcriptions')
@@ -1052,8 +1057,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('API Key')
-      .setDesc('以 Bearer 形式发送的密钥。可填 OpenAI / Groq / 自建服务的密钥。')
+      .setName(t('settings.sttApiKey'))
+      .setDesc(t('settings.sttApiKeyDesc'))
       .addText(text => {
         text.inputEl.type = 'password';
         apiKeyInputEl = text.inputEl;
@@ -1069,7 +1074,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       .addExtraButton((button: ExtraButtonComponent) => {
         let isPassword = true;
         button.setIcon('eye')
-          .setTooltip('显示/隐藏 API Key')
+          .setTooltip(t('settings.sttApiKeyShowHide'))
           .onClick(() => {
             isPassword = !isPassword;
             if (apiKeyInputEl) {
@@ -1081,8 +1086,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName('模型')
-      .setDesc('multipart 中的 model 字段，如 whisper-1、whisper-large-v3。')
+      .setName(t('settings.sttModel'))
+      .setDesc(t('settings.sttModelDesc'))
       .addText(text =>
         text
           .setPlaceholder('whisper-1')
@@ -1094,8 +1099,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('语言')
-      .setDesc('ISO-639-1 语言提示，如 zh、en。留空让模型自动识别。')
+      .setName(t('settings.sttLanguage'))
+      .setDesc(t('settings.sttLanguageDesc'))
       .addText(text =>
         text
           .setPlaceholder('zh')
@@ -1107,8 +1112,8 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('实时转写')
-      .setDesc('录音时边说边出字，在停顿处切句并带上下文拼接。关闭则录完整段后一次性转写。')
+      .setName(t('settings.sttRealtime'))
+      .setDesc(t('settings.sttRealtimeDesc'))
       .addToggle(toggle =>
         toggle
           .setValue(this.plugin.settings.sttRealtime)
@@ -1119,18 +1124,37 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     // ── Shortcut ──────────────────────────────────────────────────────────
-    new Setting(containerEl).setName('其他').setHeading();
+    new Setting(containerEl).setName(t('settings.heading.other')).setHeading();
+
+    // ── Language ──────────────────────────────────────────────────────────
+    new Setting(containerEl)
+      .setName(t('settings.language'))
+      .setDesc(t('settings.languageDesc'))
+      .addDropdown(dd => {
+        dd.addOption('en', 'English (default)');
+        dd.addOption('zh', '中文');
+        dd.setValue(this.plugin.settings.language);
+        dd.onChange(async (value: string) => {
+          this.plugin.settings.language = value as 'en' | 'zh';
+          setLanguage(this.plugin.settings.language);
+          await this.plugin.saveSettings();
+          // Re-render the whole settings tab AND any open capture views so
+          // every label switches immediately.
+          this.display();
+          this.plugin.refreshCaptureViews();
+        });
+      });
 
     this.addFolderSetting(
       containerEl,
-      '图片存放位置',
-      'Vault 相对路径，用于存放粘贴/上传的图片。留空则使用 Obsidian 附件文件夹。',
+      t('settings.imageFolder'),
+      t('settings.imageFolderDesc'),
       'imageFolder',
     );
 
     new Setting(containerEl)
-      .setName('提交快捷键')
-      .setDesc('在输入框中提交日记的快捷键组合')
+      .setName(t('settings.submitShortcut'))
+      .setDesc(t('settings.submitShortcutDesc'))
       .addDropdown(dropdown =>
         dropdown
           .addOption('shift+enter', 'Shift + Enter')
@@ -1145,11 +1169,11 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('Apple Shortcut')
-      .setDesc('配合 iPhone Action Button 使用，快速录音并写入日记')
+      .setName(t('settings.appleShortcut'))
+      .setDesc(t('settings.appleShortcutDesc'))
       .addButton(btn =>
         btn
-          .setButtonText('获取捷径')
+          .setButtonText(t('settings.getShortcut'))
           .setCta()
           .onClick(() => {
             window.open(
@@ -1164,16 +1188,16 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     urlSection.createDiv({ text: 'URL Scheme', cls: 'jp-settings-url-title' });
 
     urlSection.createDiv({
-      text: '可在浏览器地址栏、快捷指令、自动化 App 等任意位置调用，自动打开侧边栏并开始录音。',
+      text: t('settings.urlDesc'),
       cls: 'jp-settings-url-desc',
     });
 
     const url = 'obsidian://journal-partner?cmd=record';
     const row = urlSection.createDiv({ cls: 'jp-settings-url-row' });
     const code = row.createEl('code', { text: url, cls: 'jp-settings-url-code' });
-    code.setAttr('title', '点击复制');
+    code.setAttr('title', t('settings.urlCopy'));
     code.addEventListener('click', () => {
-      void navigator.clipboard.writeText(url).then(() => new Notice('已复制 URL'));
+      void navigator.clipboard.writeText(url).then(() => new Notice(t('settings.urlCopied')));
     });
   }
 }
@@ -1187,7 +1211,7 @@ class FolderSuggestModal extends FuzzySuggestModal<string> {
     super(app);
     this.folders = folders;
     this.onSelectFolder = onSelect;
-    this.setPlaceholder('选择或搜索文件夹路径');
+    this.setPlaceholder(t('common.folderPlaceholder'));
   }
 
   getItems(): string[] {
