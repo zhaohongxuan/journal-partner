@@ -56,6 +56,17 @@ export interface JournalPartnerSettings {
   maxDiaryTags: number;
   /** UI language: 'en' (default) | 'zh'. */
   language: 'en' | 'zh';
+  /** Enable the desktop-only WeChat capture pipeline after a bot is bound. */
+  wechatEnabled: boolean;
+  /** Non-secret iLink identity and routing fields persisted with plugin data. */
+  wechatBotId: string;
+  wechatUserId: string;
+  wechatBaseUrl: string;
+  /** iLink long-poll cursor and bounded replay-protection state. */
+  wechatUpdateCursor: string;
+  wechatRecentMessageIds: string[];
+  wechatContextToken: string;
+  wechatPauseUntil: number;
 }
 
 export const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -81,6 +92,14 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   defaultTags: [],
   maxDiaryTags: 15,
   language: 'en',
+  wechatEnabled: false,
+  wechatBotId: '',
+  wechatUserId: '',
+  wechatBaseUrl: '',
+  wechatUpdateCursor: '',
+  wechatRecentMessageIds: [],
+  wechatContextToken: '',
+  wechatPauseUntil: 0,
 };
 
 export type Rng = { from: number; to: number };

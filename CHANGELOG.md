@@ -5,6 +5,25 @@ All notable changes to **Journal Partner** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.0] — 2026-08-30
+
+### Added
+
+- **微信远程采集（桌面端）**：在设置中扫码绑定微信 ClawBot 后，发给 bot 的文字会自动追加到对应 Daily Note 的 Journal 区段。
+- **微信语音转写入库**：微信提供的语音转写会以 `🎤` 标记写入；转写失败时仍保留一条明确的语音占位记录。
+- **离线补收与去重**：持久化 iLink 游标和最近消息 ID；Obsidian 重新打开后按消息原始时间补写，批次重放不会重复落笔。
+- **安全凭据存储**：bot token 只存入 Obsidian SecretStorage，不写入 vault 或插件 `data.json`。
+
+### Changed
+
+- 最低 Obsidian 版本提升至 1.11.4，以使用 SecretStorage。
+- 新增 MIT 依赖 `qrcode-generator`，用于在设置页本地渲染绑定二维码。
+
+### Limitations
+
+- 首版接收文字与语音转写；微信图片、文件、视频和主动提醒尚未接入。
+- 微信通道仅在 Obsidian 桌面端打开期间运行，账号能否扫码绑定取决于腾讯侧 ClawBot 开放状态。
+
 ## [2.12.3] — 2026-08-17
 
 ### Changed

@@ -1,11 +1,11 @@
 {
   "name": "journal-partner",
-  "version": "2.18.0",
-  "description": "Obsidian plugin – Journal timestamp highlighter",
+  "version": "2.19.0",
+  "description": "Obsidian journal capture with Daily Notes, voice, stats, and WeChat inbox",
   "main": "dist/main.js",
   "scripts": {
-    "dev": "esbuild src/main.ts --bundle --external:obsidian --external:electron --external:@codemirror/* --external:@lezer/* --external:builtin-modules --format=cjs --target=es2018 --sourcemap=inline --log-level=info --watch --outfile=dist/main.js",
-    "build": "tsc -noEmit -skipLibCheck && esbuild src/main.ts --bundle --external:obsidian --external:electron --external:@codemirror/* --external:@lezer/* --external:builtin-modules --format=cjs --target=es2018 --sourcemap --tree-shaking --outfile=dist/main.js",
+    "dev": "esbuild src/main.ts --bundle --external:obsidian --external:electron --external:https --external:@codemirror/* --external:@lezer/* --external:builtin-modules --format=cjs --target=es2018 --sourcemap=inline --log-level=info --watch --outfile=dist/main.js",
+    "build": "tsc -noEmit -skipLibCheck && esbuild src/main.ts --bundle --external:obsidian --external:electron --external:https --external:@codemirror/* --external:@lezer/* --external:builtin-modules --format=cjs --target=es2018 --sourcemap --tree-shaking --outfile=dist/main.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "deploy": "bash deploy.sh"
@@ -32,6 +32,7 @@
     "typescript-eslint": "^8.63.0"
   },
   "dependencies": {
-    "obsidian-daily-notes-interface": "^0.9.5"
+    "obsidian-daily-notes-interface": "^0.9.5",
+    "qrcode-generator": "^1.4.4"
   }
 }

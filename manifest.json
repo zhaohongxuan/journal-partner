@@ -1,9 +1,9 @@
 {
   "id": "journal-partner",
   "name": "Journal Partner",
-  "version": "2.18.0",
-  "minAppVersion": "1.7.2",
-  "description": "Highlight timestamps in your Journal section, capture quick notes, images, and audio from a sidebar, dictate with real-time speech-to-text, review your year with a heatmap, and organize tasks with TODO support.",
+  "version": "2.19.0",
+  "minAppVersion": "1.11.4",
+  "description": "Capture Daily Notes from Obsidian or WeChat, with timestamps, images, audio transcription, tasks, timeline, and yearly stats.",
   "author": "hankzhao",
   "authorUrl": "https://github.com/zhaohongxuan",
   "isDesktopOnly": false

@@ -16,4 +16,13 @@ export default defineConfig([
       parserOptions: { project: "./tsconfig.json" },
     },
   },
+  {
+    // The WeChat transport is desktop-only and dynamically imports Node HTTPS
+    // after checking Platform.isDesktopApp. The rest of the plugin remains
+    // mobile-safe, so the blanket mobile rule is not applicable to this file.
+    files: ["src/wechat.ts"],
+    rules: {
+      "obsidianmd/no-nodejs-modules": "off",
+    },
+  },
 ]);

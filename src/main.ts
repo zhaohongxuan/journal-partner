@@ -51,6 +51,7 @@ import {
 } from './section';
 import { CAPTURE_VIEW_TYPE, JournalCaptureView } from './capture-view';
 import { setLanguage, t } from './i18n';
+import { WechatCaptureManager } from './wechat';
 
 // ── CM6 utilities ───────────────────────────────────────────────────────────
 
@@ -61,9 +62,11 @@ const forceUpdateEffect = StateEffect.define<null>();
 
 export default class JournalPartnerPlugin extends Plugin {
   settings: JournalPartnerSettings;
+  wechat: WechatCaptureManager;
 
   async onload() {
     await this.loadSettings();
+    this.wechat = new WechatCaptureManager(this);
     this.applyCSSVariables();
     this.registerEditorExtension(this.createEditorExtensions());
     this.registerMarkdownPostProcessor((el, ctx) => this.postProcessor(el, ctx));
@@ -95,6 +98,12 @@ export default class JournalPartnerPlugin extends Plugin {
     this.registerObsidianProtocolHandler('journal-partner', params => {
       void this.handleProtocol(params);
     });
+
+    this.app.workspace.onLayoutReady(() => this.wechat.startWhenReady());
+  }
+
+  onunload() {
+    this.wechat?.unload();
   }
 
   async activateCaptureView() {
@@ -138,6 +147,28 @@ export default class JournalPartnerPlugin extends Plugin {
    *                 or the write fails.
    */
   async writeToTodayJournal(text: string, ts?: string, audio?: string, images?: string[]): Promise<boolean> {
+    return this.writeToJournalAt(moment(), text, ts, audio, images);
+  }
+
+  /**
+   * Write a message received from WeChat to the Daily Note corresponding to
+   * the message creation time. This preserves the correct day when Obsidian
+   * catches up after being closed for a while.
+   */
+  async writeWechatMessage(text: string, createdAtMs?: number): Promise<boolean> {
+    const receivedAt = typeof createdAtMs === 'number' && Number.isFinite(createdAtMs)
+      ? moment(createdAtMs)
+      : moment();
+    return this.writeToJournalAt(receivedAt, text, receivedAt.format('HH:mm'));
+  }
+
+  private async writeToJournalAt(
+    targetDate: ReturnType<typeof moment>,
+    text: string,
+    ts?: string,
+    audio?: string,
+    images?: string[],
+  ): Promise<boolean> {
     if (!appHasDailyNotesPluginLoaded()) {
       new Notice(t('notice.dailyNotesRequired'));
       return false;
@@ -178,16 +209,16 @@ export default class JournalPartnerPlugin extends Plugin {
     }
 
     try {
-      let file = getDailyNote(moment(), getAllDailyNotes());
+      let file = getDailyNote(targetDate, getAllDailyNotes());
       if (!file) {
-        file = (await createDailyNote(moment()));
+        file = (await createDailyNote(targetDate));
       }
       await this.app.vault.process(file, content =>
         appendToJournalSection(content, this.settings, line),
       );
       return true;
     } catch (err) {
-      console.error('[Journal Partner] writeToTodayJournal failed', err);
+      console.error('[Journal Partner] writeToJournalAt failed', err);
       new Notice(t('notice.writeFailed', { msg: err instanceof Error ? err.message : String(err) }));
       return false;
     }
@@ -534,6 +565,11 @@ export default class JournalPartnerPlugin extends Plugin {
     this.refreshEditors();
   }
 
+  /** Persist background WeChat cursor/dedupe state without repainting editors. */
+  async persistWechatState() {
+    await this.saveData(this.settings);
+  }
+
   private refreshEditors() {
     this.app.workspace.iterateAllLeaves(leaf => {
       if (leaf.view instanceof MarkdownView) {
@@ -830,6 +866,47 @@ class JournalPartnerSettingTab extends PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
+
+    // ── WeChat capture ────────────────────────────────────────────────────
+    new Setting(containerEl).setName(t('settings.heading.wechat')).setHeading();
+    containerEl.createEl('p', {
+      cls: 'setting-item-description jp-wechat-settings-intro',
+      text: t('settings.wechatIntro'),
+    });
+
+    const bindState = this.plugin.wechat.bindState();
+    const statusSetting = new Setting(containerEl)
+      .setName(t('settings.wechatStatus'))
+      .setDesc(this.plugin.wechat.getStatusDescription())
+      .addButton(button => {
+        button
+          .setButtonText(bindState === 'bound' ? t('wechat.rebind') : t('wechat.bind'))
+          .setCta()
+          .setDisabled(!Platform.isDesktopApp)
+          .onClick(() => this.plugin.wechat.openLogin());
+      })
+      .addButton(button => {
+        button
+          .setButtonText(t('wechat.disconnect'))
+          .setDisabled(bindState !== 'bound' || !Platform.isDesktopApp)
+          .onClick(() => this.plugin.wechat.openDisconnectConfirmation());
+      });
+
+    const unwatch = this.plugin.wechat.watchStatus(() => {
+      if (!statusSetting.settingEl.isConnected) {
+        unwatch();
+        return;
+      }
+      statusSetting.setDesc(this.plugin.wechat.getStatusDescription());
+    });
+
+    new Setting(containerEl)
+      .setName(t('settings.wechatEnabled'))
+      .setDesc(t('settings.wechatEnabledDesc'))
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.wechatEnabled)
+        .setDisabled(bindState !== 'bound' || !Platform.isDesktopApp)
+        .onChange(value => this.plugin.wechat.setEnabled(value)));
 
     // ── Timestamp Settings ────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.timestamp')).setHeading();

@@ -2023,3 +2023,43 @@
 .jp-settings-tag-row input {
   min-width: 180px;
 }
+/* ── WeChat capture settings / QR login ───────────────────────────────── */
+
+.jp-wechat-settings-intro {
+  margin: -4px 0 10px;
+  max-width: 720px;
+}
+
+.jp-wechat-qr-modal {
+  min-width: min(420px, 88vw);
+}
+
+.jp-wechat-qr-status,
+.jp-wechat-qr-hint {
+  text-align: center;
+}
+
+.jp-wechat-qr-wrap {
+  min-height: 244px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 12px 0;
+}
+
+.jp-wechat-qr-image {
+  display: block;
+  width: 232px;
+  height: 232px;
+  padding: 8px;
+  border-radius: 12px;
+  background: #fff;
+  image-rendering: pixelated;
+}
+
+.jp-wechat-verify-wrap {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--background-secondary);
+}
