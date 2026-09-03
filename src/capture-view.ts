@@ -169,6 +169,7 @@ export class JournalCaptureView extends ItemView {
   private sentinelEl!: HTMLElement;
   private textareaEl!: HTMLTextAreaElement;
   private submitBtn!: HTMLButtonElement;
+  private taskBtn!: HTMLButtonElement;
   private isTaskMode = false;
 
   // Quick-tag picker (preset tags in the input card's left button row)
@@ -1438,20 +1439,13 @@ export class JournalCaptureView extends ItemView {
     recStopBtn.addEventListener('click', () => void doStop());
 
     // Task button
-    const taskBtn = buttonRow.createEl('button', {
+    this.taskBtn = buttonRow.createEl('button', {
       cls: 'jp-capture-task-btn',
       attr: { 'aria-label': t('capture.toggleTask') },
     });
-    setIcon(taskBtn, 'list');
-    taskBtn.addEventListener('click', () => {
-      this.isTaskMode = !this.isTaskMode;
-      taskBtn.toggleClass('is-active', this.isTaskMode);
-      // Change icon based on mode
-      if (this.isTaskMode) {
-        setIcon(taskBtn, 'square-check');
-      } else {
-        setIcon(taskBtn, 'list');
-      }
+    this.setTaskMode(this.isTaskMode);
+    this.taskBtn.addEventListener('click', () => {
+      this.setTaskMode(!this.isTaskMode);
     });
 
     this.submitBtn = actions.createEl('button', {
@@ -1463,6 +1457,13 @@ export class JournalCaptureView extends ItemView {
     });
 
     this.refreshSubmitState();
+  }
+
+  /** Keep the task-mode value and its button presentation in sync. */
+  private setTaskMode(enabled: boolean): void {
+    this.isTaskMode = enabled;
+    this.taskBtn.toggleClass('is-active', enabled);
+    setIcon(this.taskBtn, enabled ? 'square-check' : 'list');
   }
 
   /**
@@ -3886,7 +3887,6 @@ export class JournalCaptureView extends ItemView {
       if (!ok) return;
 
       this.textareaEl.value = '';
-      this.isTaskMode = false;
       this.resetSelectedTags();
       // Free object URLs for any deferred local images (already saved above).
       for (const img of this.pendingImages) {
