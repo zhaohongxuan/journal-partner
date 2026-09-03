@@ -13,6 +13,7 @@ import {
   TFile,
   TFolder,
   TextComponent,
+  WorkspaceItem,
   WorkspaceLeaf,
   moment,
   setIcon,
@@ -98,27 +99,40 @@ export default class JournalPartnerPlugin extends Plugin {
   }
 
   async activateCaptureView() {
-    // A pre-existing capture leaf may live in the wrong pane (e.g. created in
-    // the mobile sidebar before we switched to full-screen). revealLeaf only
-    // activates it in place, so on mobile we detach and rebuild the leaf at
-    // the intended location instead of reusing it blindly.
+    const wantSidebar = !Platform.isMobile ||
+      (Platform.isMobile && this.settings.mobileOpenInSidebar);
     const existing = this.app.workspace.getLeavesOfType(CAPTURE_VIEW_TYPE);
+
+    // `revealLeaf` only activates a leaf in place — it never relocates it, and
+    // a leaf inside the right sidebar cannot be moved back into the editor
+    // area that way. So the sidebar is only reused when the current target is
+    // also the sidebar AND the existing leaf already lives there. Any other
+    // combination means the existing leaf is in the wrong pane and must be
+    // detached before rebuilding at the intended location.
     if (existing.length > 0) {
-      if (Platform.isMobile) {
-        existing[0].detach();
-      } else {
+      if (wantSidebar && this.isInRightSidebar(existing[0])) {
         void this.app.workspace.revealLeaf(existing[0]);
         return;
       }
+      existing[0].detach();
     }
-    // Desktop: right sidebar. Mobile: take over the editor area (full-screen)
-    // — the sidebar drawer on mobile felt less natural for the capture UI.
-    const leaf: WorkspaceLeaf | null = Platform.isMobile
-      ? this.app.workspace.getLeaf(true)
-      : this.app.workspace.getRightLeaf(false);
+
+    const leaf: WorkspaceLeaf | null = wantSidebar
+      ? this.app.workspace.getRightLeaf(false)
+      : this.app.workspace.getLeaf(true);
     if (!leaf) return;
     await leaf.setViewState({ type: CAPTURE_VIEW_TYPE, active: true });
     void this.app.workspace.revealLeaf(leaf);
+  }
+
+  /** True when the leaf lives somewhere inside the right sidebar / mobile drawer. */
+  private isInRightSidebar(leaf: WorkspaceLeaf): boolean {
+    const rightSplit = this.app.workspace.rightSplit;
+    let node: WorkspaceItem | null = leaf;
+    while (node && node !== rightSplit) {
+      node = node.parent ?? null;
+    }
+    return node === rightSplit;
   }
 
   // ── Quick-capture write path (shared) ─────────────────────────────────────
@@ -1144,6 +1158,19 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           this.plugin.refreshCaptureViews();
         });
       });
+
+    // ── Mobile sidebar option ─────────────────────────────────────────────
+    new Setting(containerEl)
+      .setName(t('settings.mobileSidebar'))
+      .setDesc(t('settings.mobileSidebarDesc'))
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.mobileOpenInSidebar)
+          .onChange(async (value: boolean) => {
+            this.plugin.settings.mobileOpenInSidebar = value;
+            await this.plugin.saveSettings();
+          }),
+      );
 
     this.addFolderSetting(
       containerEl,
