@@ -56,6 +56,8 @@ export interface JournalPartnerSettings {
   maxDiaryTags: number;
   /** UI language: 'en' (default) | 'zh'. */
   language: 'en' | 'zh';
+  /** On mobile, open the capture view in the right sidebar (slide-out drawer) instead of the full editor area. Desktop always uses the sidebar. */
+  mobileOpenInSidebar: boolean;
 }
 
 export const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -81,6 +83,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   defaultTags: [],
   maxDiaryTags: 15,
   language: 'en',
+  mobileOpenInSidebar: false,
 };
 
 export type Rng = { from: number; to: number };
