@@ -1,0 +1,31 @@
+src/capture-view.ts
+  s_fedb69fc15e504::t_b1f4e459e3ed0f 407-410
+  s_fedb69fc15e504::t_89b61f1dacc4b4 3631-3632,3634-3637
+  s_fedb69fc15e504::t_49a8c944e19155 3613,3616-3618,3623-3626,3628-3629,3638-3639,3644-3646
+  s_fedb69fc15e504::t_1c70a099892cc9 182
+  s_fedb69fc15e504::t_de5aacc7da8094 3614-3615,3619-3622,3627,3630,3633
+  s_fedb69fc15e504::t_402a60cd203839 3640-3641
+  s_fedb69fc15e504::t_fe785010082af3 73-77
+  s_fedb69fc15e504::t_a44196fae2ed55 179-181
+  s_fedb69fc15e504::t_5e250e2c0acf92 437-440
+  s_fedb69fc15e504::t_b9acb220df41ab 835-845
+  s_fedb69fc15e504::t_3c08b3cd4ad402 3572-3578
+  s_fedb69fc15e504::t_69e7de84d171b1 386
+  s_fedb69fc15e504::t_7f112add056822 3642-3643
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "2078f767aadcb69f5cdea84f7545ac85da5adb25",
+  "prompts": {},
+  "sessions": {
+    "s_fedb69fc15e504": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9105f984-26e2-49ee-a991-22050f98567c",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
