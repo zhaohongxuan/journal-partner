@@ -71,6 +71,11 @@ import {
 
 export const CAPTURE_VIEW_TYPE = 'journal-partner-capture-view';
 
+/** Below this viewport height (px) the floating dock auto-hides so it can't
+ *  cover content in a short window (e.g. the view dragged into a small
+ *  popout). Desktop main window / sidebars are far taller. */
+const SHORT_WINDOW_DOCK_THRESHOLD = 420;
+
 /**
  * Wrap an async listener so it satisfies `void`-returning handler signatures
  * (e.g. `addEventListener`, `setTimeout`). Without this, passing an `async`
@@ -173,6 +178,10 @@ export class JournalCaptureView extends ItemView {
   private submitBtn!: HTMLButtonElement;
   private taskBtn!: HTMLButtonElement;
   private isTaskMode = false;
+  /** True while the view's window is shorter than {@link SHORT_WINDOW_DOCK_THRESHOLD}
+   *  — the floating dock is then force-hidden so it can't cover content. */
+  private isShortWindow = false;
+  private resizeObs: ResizeObserver | null = null;
 
   // Quick-tag picker (preset tags in the input card's left button row)
   private tagBtn!: HTMLButtonElement;
@@ -376,6 +385,7 @@ export class JournalCaptureView extends ItemView {
     await this.fullRebuild();
     this.setupIntersectionObserver();
     this.setupMobileToolbarAutoHide();
+    this.setupShortWindowDockAutoHide();
     this.setupScrollTopButton();
 
     // Pre-warm the full-vault tag scan so the tag-filter menu is complete the
@@ -396,8 +406,10 @@ export class JournalCaptureView extends ItemView {
 
     // Close the tag picker when clicking anywhere outside the input card.
     // The tag button stops propagation on its own click, so toggling still
-    // works; this only closes when the user clicks elsewhere.
-    this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
+    // works; this only closes when the user clicks elsewhere. Listen on the
+    // view's own document so it also works when the view is in a popout
+    // window (clicks there fire in the popout's document, not the main one).
+    this.registerDomEvent(this.containerEl.ownerDocument, 'click', (evt: MouseEvent) => {
       if (!this.tagPickerActive) return;
       const target = evt.target as HTMLElement;
       if (this.inputCardEl.contains(target)) return;
@@ -423,6 +435,10 @@ export class JournalCaptureView extends ItemView {
     if (this.intersectionObs) {
       this.intersectionObs.disconnect();
       this.intersectionObs = null;
+    }
+    if (this.resizeObs) {
+      this.resizeObs.disconnect();
+      this.resizeObs = null;
     }
     this.teardownMobileToolbarAutoHide();
     this.disposeDays();
@@ -921,9 +937,17 @@ export class JournalCaptureView extends ItemView {
     // stopImmediatePropagation, so this bubble-phase listener below never
     // fires. Without the uploader we fall back to staging the pasted image
     // locally (saved to the vault at submit time).
-    this.registerDomEvent(document, 'paste', (evt: ClipboardEvent) => {
-      // Only intercept when focus is inside our textarea.
-      if (!this.inputCardEl.contains(document.activeElement)) return;
+    //
+    // Listen on the view's own document (containerEl.ownerDocument) rather than
+    // the global `document`: when the view lives in a popout window its paste
+    // events fire in the popout's document, and the main-window `document`
+    // never sees them.
+    const ownDoc = this.containerEl.ownerDocument;
+    this.registerDomEvent(ownDoc, 'paste', (evt: ClipboardEvent) => {
+      // Only intercept when focus is inside our textarea. `activeElement`
+      // belongs to the same window as the paste event (ownDoc), not the main
+      // window's `document`.
+      if (!this.inputCardEl.contains(ownDoc.activeElement)) return;
       const items = evt.clipboardData?.items;
       if (!items) return;
       for (const item of Array.from(items)) {
@@ -3829,9 +3853,13 @@ export class JournalCaptureView extends ItemView {
       const top = scroller.scrollTop;
       const delta = top - lastScrollTop;
 
-      // Always show near the top — feels less abrupt when the user lands
-      // back on today's entries.
-      if (top <= 8) {
+      // Short window (e.g. view dragged into a small popout): the dock must
+      // never cover the content, so it stays hidden regardless of scroll.
+      if (this.isShortWindow) {
+        this.tabBarEl.toggleClass('jp-tab-bar-hidden', true);
+      } else if (top <= 8) {
+        // Always show near the top — feels less abrupt when the user lands
+        // back on today's entries.
         this.tabBarEl.toggleClass('jp-tab-bar-hidden', false);
       } else if (delta > 0) {
         // Scrolling down → hide the tab bar
@@ -3864,6 +3892,40 @@ export class JournalCaptureView extends ItemView {
     // Always restore on close — never leave the user without their navbar.
     this.setToolbarHidden(false);
     this.tabBarEl?.toggleClass('jp-tab-bar-hidden', false);
+  }
+
+  /**
+   * In a short window (e.g. the view dragged into a small popout), the
+   * floating bottom dock covers the last entries. When the view's window
+   * gets shorter than a threshold, force-hide the dock; when it grows back,
+   * hand control to the scroll logic (which shows it again near the top).
+   *
+   * We observe the scroller element (not the window): it is the view's own DOM,
+   * so it follows the view when it is dragged between windows, and it resizes
+   * with the window. Desktop main window / sidebars are far taller than the
+   * threshold, so this is a no-op there.
+   */
+  private setupShortWindowDockAutoHide() {
+    if (!this.tabBarEl) return;
+    const scroller = this.containerEl.children[1] as HTMLElement;
+    if (!scroller) return;
+
+    const update = () => {
+      const h = scroller.clientHeight;
+      this.isShortWindow = h > 0 && h < SHORT_WINDOW_DOCK_THRESHOLD;
+      // The scroll handler re-runs on every scroll and consults isShortWindow,
+      // so mirroring the class here keeps it in sync between resizes.
+      this.tabBarEl.toggleClass(
+        'jp-tab-bar-hidden',
+        this.isShortWindow || scroller.scrollTop > 8,
+      );
+    };
+
+    // Stored in this.resizeObs and disconnected in onClose, alongside the
+    // other observers (intersectionObs), so nothing fires after the view dies.
+    this.resizeObs = new ResizeObserver(update);
+    this.resizeObs.observe(scroller);
+    update();
   }
 
   private setToolbarHidden(hidden: boolean) {
