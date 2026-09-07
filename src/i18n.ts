@@ -39,6 +39,7 @@ const EN: Dict = {
   // ── Tab / view names ───────────────────────────────────────────────────
   'tab.capture': 'Journal Partner',
   'tab.review': 'Random Review',
+  'tab.favorites': 'Favorites',
   'tab.stats': 'Yearly Stats',
 
   // ── Commands ───────────────────────────────────────────────────────────
@@ -105,6 +106,15 @@ const EN: Dict = {
   // ── Review mode ────────────────────────────────────────────────────────
   'review.noPastNotes': 'No past notes to review yet',
   'review.emptyDay': 'No journal content this day',
+
+  // ── Favorites ──────────────────────────────────────────────────────────
+  'favorites.empty': 'No favorites yet — tap the heart on any entry',
+  'favorites.staleRemoved': 'Removed {n} favorite(s) whose notes were deleted or edited',
+  'favorites.added': '❤️ Added to favorites',
+  'favorites.removed': 'Removed from favorites',
+  'favorites.toggleFailed': 'Failed to update favorites',
+  'favorites.add': 'Add to favorites',
+  'favorites.remove': 'Remove from favorites',
 
   // ── Stats ──────────────────────────────────────────────────────────────
   'stats.loading': 'Loading journal data…',
@@ -292,6 +302,7 @@ const ZH: Dict = {
   // ── Tab / view names ───────────────────────────────────────────────────
   'tab.capture': 'Journal Partner',
   'tab.review': '随机回顾',
+  'tab.favorites': '收藏',
   'tab.stats': '年度统计',
 
   // ── Commands ───────────────────────────────────────────────────────────
@@ -357,6 +368,15 @@ const ZH: Dict = {
   // ── Review mode ────────────────────────────────────────────────────────
   'review.noPastNotes': '还没有过去的日记可以回顾',
   'review.emptyDay': '这天没有日记内容',
+
+  // ── Favorites ──────────────────────────────────────────────────────────
+  'favorites.empty': '还没有收藏，点击任意条目上的爱心即可收藏',
+  'favorites.staleRemoved': '已清理 {n} 条失效收藏',
+  'favorites.added': '❤️ 已收藏',
+  'favorites.removed': '已取消收藏',
+  'favorites.toggleFailed': '更新收藏失败',
+  'favorites.add': '收藏',
+  'favorites.remove': '取消收藏',
 
   // ── Stats ──────────────────────────────────────────────────────────────
   'stats.loading': '正在加载日记数据…',
