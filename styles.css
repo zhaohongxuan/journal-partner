@@ -887,6 +887,63 @@
   color: #6366f1;
 }
 
+/* ── Favorite heart ────────────────────────────────────────────────────────
+   Shown at the right end of each entry's head row. Hidden by default, fades in
+   on row hover, and stays filled+visible once favorited. */
+.jp-fav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  padding: 0 2px;
+  flex-shrink: 0;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+  opacity: 0;
+}
+.jp-fav-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+/* Reveal on row hover (not on touch, where there is no hover). */
+@media (hover: hover) {
+  .jp-timeline-entry:hover .jp-fav-icon,
+  .jp-fav-icon:focus-visible {
+    opacity: 0.65;
+  }
+}
+.jp-fav-icon:hover {
+  opacity: 1;
+  transform: scale(1.18);
+  color: #e11d48;
+}
+/* Favorited: filled red heart, always visible. */
+.jp-fav-icon.is-active {
+  opacity: 1;
+  color: #e11d48;
+}
+.jp-fav-icon.is-active svg {
+  fill: #e11d48;
+}
+/* Touch devices have no hover — keep the heart visible so it stays usable. */
+@media (hover: none) {
+  .jp-fav-icon {
+    opacity: 0.6;
+  }
+  .jp-fav-icon.is-active {
+    opacity: 1;
+  }
+}
+/* Favorites list rows are always interactive; keep hearts visible there. */
+.jp-fav-day .jp-fav-icon {
+  opacity: 1;
+}
+
 /* Timeline entry: dot + connector + timestamp pill on the same baseline,
    then a content bubble that hangs off below the timestamp. */
 .jp-timeline-entry-head {
@@ -952,6 +1009,27 @@
   background: color-mix(in srgb, var(--jp-tl-dot) 12%, var(--background-primary));
   border-color: color-mix(in srgb, var(--jp-tl-dot) 22%, transparent);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Favorites list rows ────────────────────────────────────────────────── */
+.jp-fav-day {
+  cursor: default;
+}
+.jp-fav-row .jp-timestamp {
+  /* Date + weekday + time chip is wider than a bare HH:MM — keep it compact. */
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.jp-fav-row .jp-timeline-bubble {
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.jp-fav-row .jp-timeline-bubble:hover {
+  border-color: color-mix(in srgb, var(--jp-tl-dot) 34%, transparent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 /* Task entry styling */

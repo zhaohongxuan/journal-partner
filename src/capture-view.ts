@@ -38,6 +38,7 @@ import {
 import type { EditorView } from '@codemirror/view';
 
 import {
+  FavoriteEntry,
   JournalEntry,
   deleteEntryFromSection,
   editEntryInSection,
@@ -69,6 +70,11 @@ import {
 } from './i18n';
 
 export const CAPTURE_VIEW_TYPE = 'journal-partner-capture-view';
+
+/** Below this viewport height (px) the floating dock auto-hides so it can't
+ *  cover content in a short window (e.g. the view dragged into a small
+ *  popout). Desktop main window / sidebars are far taller. */
+const SHORT_WINDOW_DOCK_THRESHOLD = 420;
 
 /**
  * Wrap an async listener so it satisfies `void`-returning handler signatures
@@ -144,10 +150,11 @@ export class JournalCaptureView extends ItemView {
   private statsTabBtn!: HTMLButtonElement;
   private searchTabBtn!: HTMLButtonElement;
   private reviewTabBtn!: HTMLButtonElement;
+  private favoritesTabBtn!: HTMLButtonElement;
 
-  // Timeline display mode — search, tag-filter and random-review render inline
-  // in the capture timeline instead of switching tabs.
-  private timelineMode: 'daily' | 'search' | 'tag' | 'review' = 'daily';
+  // Timeline display mode — search, tag-filter, random-review and favorites
+  // render inline in the capture timeline instead of switching tabs.
+  private timelineMode: 'daily' | 'search' | 'tag' | 'review' | 'favorites' = 'daily';
 
   // Search state
   private inlineSearchBarEl!: HTMLElement;
@@ -171,6 +178,14 @@ export class JournalCaptureView extends ItemView {
   private submitBtn!: HTMLButtonElement;
   private taskBtn!: HTMLButtonElement;
   private isTaskMode = false;
+  /** True while the view's window is shorter than {@link SHORT_WINDOW_DOCK_THRESHOLD}
+   *  — the floating dock is then force-hidden so it can't cover content. */
+  private isShortWindow = false;
+  /** Poll timer for the short-window dock auto-hide. A ResizeObserver cannot
+   *  cross window realms — once the view is dragged into a popout, an observer
+   *  created in the main window silently stops firing. Reading clientHeight on
+   *  a timer works in any realm, so we use that instead. */
+  private shortWindowPollTimer: number | null = null;
 
   // Quick-tag picker (preset tags in the input card's left button row)
   private tagBtn!: HTMLButtonElement;
@@ -374,6 +389,7 @@ export class JournalCaptureView extends ItemView {
     await this.fullRebuild();
     this.setupIntersectionObserver();
     this.setupMobileToolbarAutoHide();
+    this.setupShortWindowDockAutoHide();
     this.setupScrollTopButton();
 
     // Pre-warm the full-vault tag scan so the tag-filter menu is complete the
@@ -394,8 +410,10 @@ export class JournalCaptureView extends ItemView {
 
     // Close the tag picker when clicking anywhere outside the input card.
     // The tag button stops propagation on its own click, so toggling still
-    // works; this only closes when the user clicks elsewhere.
-    this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
+    // works; this only closes when the user clicks elsewhere. Listen on the
+    // view's own document so it also works when the view is in a popout
+    // window (clicks there fire in the popout's document, not the main one).
+    this.registerDomEvent(this.containerEl.ownerDocument, 'click', (evt: MouseEvent) => {
       if (!this.tagPickerActive) return;
       const target = evt.target as HTMLElement;
       if (this.inputCardEl.contains(target)) return;
@@ -421,6 +439,10 @@ export class JournalCaptureView extends ItemView {
     if (this.intersectionObs) {
       this.intersectionObs.disconnect();
       this.intersectionObs = null;
+    }
+    if (this.shortWindowPollTimer !== null) {
+      window.clearInterval(this.shortWindowPollTimer);
+      this.shortWindowPollTimer = null;
     }
     this.teardownMobileToolbarAutoHide();
     this.disposeDays();
@@ -449,6 +471,14 @@ export class JournalCaptureView extends ItemView {
     this.reviewTabBtn.addEventListener('click', () => {
       if (this.currentTab !== 'capture') this.switchTab('capture');
       this.toggleTimelineMode('review');
+    });
+
+    // 收藏 — favorites list. Mirrors review: an inline sub-mode of the capture
+    // pane, re-click returns to the daily timeline.
+    this.favoritesTabBtn = this.makeTabBtn('heart', t('tab.favorites'), false);
+    this.favoritesTabBtn.addEventListener('click', () => {
+      if (this.currentTab !== 'capture') this.switchTab('capture');
+      this.toggleTimelineMode('favorites');
     });
 
     this.statsTabBtn = this.makeTabBtn('bar-chart-2', t('tab.stats'), false);
@@ -520,7 +550,101 @@ export class JournalCaptureView extends ItemView {
     this.captureTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'daily');
     this.reviewTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'review');
     this.searchTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'search');
+    this.favoritesTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'favorites');
     this.statsTabBtn.toggleClass('is-active', isStats);
+  }
+
+  // ── Favorites ────────────────────────────────────────────────────────────
+
+  /** Whether the entry on `filePath` at `lineIndex` is currently favorited. */
+  private isFavorite(filePath: string | null, lineIndex: number): boolean {
+    if (!filePath) return false;
+    const favs = this.plugin.settings.favorites;
+    return favs.some(f => f.filePath === filePath && f.lineIndex === lineIndex);
+  }
+
+  /** Build the favorite heart button on a row head and wire its toggle. */
+  private addFavoriteHeart(head: HTMLElement, day: DaySection, entry: JournalEntry): void {
+    const isFav = this.isFavorite(day.filePath, entry.lineIndex);
+    const fav = head.createDiv({
+      cls: 'jp-fav-icon' + (isFav ? ' is-active' : ''),
+    });
+    fav.setAttr('aria-label', isFav ? t('favorites.remove') : t('favorites.add'));
+    fav.setAttr('title', isFav ? t('favorites.remove') : t('favorites.add'));
+    fav.dataset.jpFavPath = day.filePath ?? '';
+    fav.dataset.jpFavLine = String(entry.lineIndex);
+    setIcon(fav, 'heart');
+    fav.addEventListener('click', (evt: MouseEvent) => {
+      evt.stopPropagation();
+      void this.toggleFavorite(day, entry, fav);
+    });
+  }
+
+  /** Add or remove `entry` from the favorites list and persist. */
+  private async toggleFavorite(
+    day: DaySection,
+    entry: JournalEntry,
+    heartEl?: HTMLElement,
+  ): Promise<void> {
+    try {
+      await this.doToggleFavorite(day, entry, heartEl);
+    } catch (err) {
+      console.error('[Journal Partner] toggle favorite failed', err);
+      new Notice(`Favorite failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async doToggleFavorite(
+    day: DaySection,
+    entry: JournalEntry,
+    heartEl?: HTMLElement,
+  ): Promise<void> {
+    if (!day.filePath) {
+      new Notice(t('favorites.toggleFailed'));
+      return;
+    }
+    const favs = this.plugin.settings.favorites;
+    const idx = favs.findIndex(f => f.filePath === day.filePath && f.lineIndex === entry.lineIndex);
+    if (idx >= 0) {
+      favs.splice(idx, 1);
+      new Notice(t('favorites.removed'));
+    } else {
+      favs.push({
+        filePath: day.filePath,
+        date: day.date.format('YYYY-MM-DD'),
+        lineIndex: entry.lineIndex,
+        timestamp: entry.timestamp,
+        text: entry.text,
+        favoritedAt: Date.now(),
+      });
+      new Notice(t('favorites.added'));
+    }
+    await this.plugin.saveSettings();
+
+    if (this.timelineMode === 'favorites') {
+      // In the favorites list, un-favoriting should remove the row entirely.
+      void this.loadFavorites();
+    } else if (heartEl) {
+      heartEl.toggleClass('is-active', this.isFavorite(day.filePath, entry.lineIndex));
+      heartEl.setAttr('aria-label',
+        this.isFavorite(day.filePath, entry.lineIndex) ? t('favorites.remove') : t('favorites.add'));
+    }
+    // Keep any other open capture views' hearts in sync.
+    this.app.workspace.getLeavesOfType(CAPTURE_VIEW_TYPE).forEach(leaf => {
+      if (leaf.view instanceof JournalCaptureView) leaf.view.refreshFavoriteHearts();
+    });
+  }
+
+  /** Re-sync every rendered heart in this view from current settings. */
+  public refreshFavoriteHearts(): void {
+    this.containerEl.querySelectorAll<HTMLElement>('.jp-fav-icon').forEach(heart => {
+      const path = heart.dataset.jpFavPath;
+      const line = heart.dataset.jpFavLine;
+      if (path === undefined || line === undefined) return;
+      const isFav = this.isFavorite(path, Number(line));
+      heart.toggleClass('is-active', isFav);
+      heart.setAttr('aria-label', isFav ? t('favorites.remove') : t('favorites.add'));
+    });
   }
 
   private async runSearch(query: string) {
@@ -683,6 +807,7 @@ export class JournalCaptureView extends ItemView {
 
       const head = row.createDiv({ cls: 'jp-timeline-entry-head' });
       head.createSpan({ cls: 'jp-timestamp', text: entry.timestamp });
+      this.addFavoriteHeart(head, day, entry);
 
       const bubble = row.createDiv({ cls: 'jp-timeline-bubble jp-search-bubble' });
       // Render markdown first, then highlight keywords in the resulting DOM
@@ -816,9 +941,17 @@ export class JournalCaptureView extends ItemView {
     // stopImmediatePropagation, so this bubble-phase listener below never
     // fires. Without the uploader we fall back to staging the pasted image
     // locally (saved to the vault at submit time).
-    this.registerDomEvent(document, 'paste', (evt: ClipboardEvent) => {
-      // Only intercept when focus is inside our textarea.
-      if (!this.inputCardEl.contains(document.activeElement)) return;
+    //
+    // Listen on the view's own document (containerEl.ownerDocument) rather than
+    // the global `document`: when the view lives in a popout window its paste
+    // events fire in the popout's document, and the main-window `document`
+    // never sees them.
+    const ownDoc = this.containerEl.ownerDocument;
+    this.registerDomEvent(ownDoc, 'paste', (evt: ClipboardEvent) => {
+      // Only intercept when focus is inside our textarea. `activeElement`
+      // belongs to the same window as the paste event (ownDoc), not the main
+      // window's `document`.
+      if (!this.inputCardEl.contains(ownDoc.activeElement)) return;
       const items = evt.clipboardData?.items;
       if (!items) return;
       for (const item of Array.from(items)) {
@@ -2215,7 +2348,7 @@ export class JournalCaptureView extends ItemView {
    * the other replaces the current snapshot mode. In review mode, re-clicking
    * the dice re-rolls to another random day.
    */
-  private toggleTimelineMode(mode: 'search' | 'review') {
+  private toggleTimelineMode(mode: 'search' | 'review' | 'favorites') {
     if (this.timelineMode === mode) {
       if (mode === 'review') {
         void this.loadReview();
@@ -2228,7 +2361,7 @@ export class JournalCaptureView extends ItemView {
   }
 
   /** Transition the capture timeline into `mode`, replacing any prior one. */
-  private setTimelineMode(mode: 'daily' | 'search' | 'tag' | 'review') {
+  private setTimelineMode(mode: 'daily' | 'search' | 'tag' | 'review' | 'favorites') {
     const prev = this.timelineMode;
     this.timelineMode = mode;
 
@@ -2279,11 +2412,16 @@ export class JournalCaptureView extends ItemView {
       this.buildFilteredScanQueue();
       this.renderTopLevelMessage(t('timeline.filteringTag', { tag: this.activeTagFilter }));
       void this.loadMoreFilteredScan();
-    } else {
+    } else if (mode === 'review') {
       // review — a single random day, no infinite scroll
       this.exhausted = true;
       this.loadingMore = false;
       void this.loadReview();
+    } else {
+      // favorites — flat list of favorited entries, no infinite scroll
+      this.exhausted = true;
+      this.loadingMore = false;
+      void this.loadFavorites();
     }
   }
 
@@ -2649,8 +2787,9 @@ export class JournalCaptureView extends ItemView {
       await this.loadMoreFilteredScan();
       return;
     }
-    if (this.timelineMode === 'review') {
-      // Review renders a single random day — nothing to load incrementally.
+    if (this.timelineMode === 'review' || this.timelineMode === 'favorites') {
+      // Review renders a single random day; favorites a flat list — nothing
+      // to load incrementally.
       this.exhausted = true;
       return;
     }
@@ -2928,6 +3067,9 @@ export class JournalCaptureView extends ItemView {
         }));
       }
 
+      // Favorite heart — sits at the right end of the row head.
+      this.addFavoriteHeart(head, day, entry);
+
       // Body bubble: chat-style rounded card holding the rendered markdown.
       const bubble = row.createDiv({ cls: 'jp-timeline-bubble' });
       void MarkdownRenderer.render(this.app, entry.text, bubble, sourcePath, day.scope)
@@ -3142,6 +3284,176 @@ export class JournalCaptureView extends ItemView {
       result.push({ timestamp: '00:00', text, lineIndex: i });
     }
     return result;
+  }
+
+  // ── Favorites timeline mode ─────────────────────────────────────────────
+
+  /**
+   * Render the flat favorites list into the shared timeline: reconcile stored
+   * favorites against their daily notes (dropping entries whose file is gone
+   * or whose line no longer matches), then render one row per favorite, newest
+   * favorited first.
+   */
+  private async loadFavorites(): Promise<void> {
+    // Tear down any previously rendered favorites day (e.g. re-loading after an
+    // un-favorite) so its MarkdownRenderer scopes are released.
+    this.disposeDays();
+    this.timelineEl.empty();
+
+    if (!appHasDailyNotesPluginLoaded()) {
+      this.renderTopLevelMessage(t('notice.dailyNotesRequired'));
+      return;
+    }
+
+    const favs = this.plugin.settings.favorites;
+    if (favs.length === 0) {
+      this.renderTopLevelMessage(t('favorites.empty'));
+      return;
+    }
+
+    // Reconcile against the live notes: resolve each favorite's file by date,
+    // re-parse its section, and keep only entries that still exist. Deleting an
+    // entry above a favorite shifts its lineIndex, so fall back to matching the
+    // timestamp when the stored lineIndex no longer points at it.
+    const allNotes = getAllDailyNotes();
+    const survivors: FavoriteEntry[] = [];
+    let stale = 0;
+
+    for (const fav of favs) {
+      const file = getDailyNote(moment(fav.date, 'YYYY-MM-DD'), allNotes);
+      if (!(file instanceof TFile)) {
+        stale++;
+        continue;
+      }
+      try {
+        const content = await this.app.vault.cachedRead(file);
+        const section = findSection(
+          content,
+          this.plugin.settings.targetHeading,
+          this.plugin.settings.headingLevel,
+        );
+        let entries: JournalEntry[] = [];
+        if (section) {
+          const sectionText = content.slice(section.from, section.to);
+          // Standard `- HH:MM …` parsing first. Fall back to the loose parser
+          // (used by random review) so favorites taken from historical notes
+          // without timestamps can still be relocated instead of being pruned.
+          entries = parseJournalEntries(sectionText, this.plugin.settings.timestampPattern);
+          if (entries.length === 0) {
+            entries = this.parseLooseEntries(sectionText);
+          }
+        }
+        // Prefer the exact lineIndex; fall back to any entry with same
+        // timestamp (or same text for loose entries whose timestamp is 00:00).
+        const direct = entries.find(e => e.lineIndex === fav.lineIndex);
+        const match = direct
+          ? direct
+          : entries.find(e => e.timestamp === fav.timestamp
+              || (fav.timestamp === '00:00' && e.text === fav.text));
+        if (match) {
+          survivors.push({
+            ...fav,
+            filePath: file.path,
+            lineIndex: match.lineIndex,
+            timestamp: match.timestamp,
+            text: match.text,
+          });
+        } else {
+          stale++;
+        }
+      } catch (err) {
+        console.error('[Journal Partner] favorites reconcile failed', file.path, err);
+        stale++;
+      }
+    }
+
+    if (stale > 0) {
+      this.plugin.settings.favorites = survivors;
+      await this.plugin.saveSettings();
+      new Notice(t('favorites.staleRemoved', { n: stale }));
+    }
+
+    if (survivors.length === 0) {
+      this.renderTopLevelMessage(t('favorites.empty'));
+      return;
+    }
+
+    // Newest favorited first.
+    survivors.sort((a, b) => b.favoritedAt - a.favoritedAt);
+
+    // Single wrapper day so rows share the timeline's left spine spacing.
+    const day: DaySection = {
+      date: moment(),
+      el: createDiv({ cls: 'jp-timeline-day jp-fav-day' }),
+      scope: new Component(),
+      filePath: null,
+    };
+    day.scope.load();
+
+    const headerRow = day.el.createDiv({ cls: 'jp-timeline-entry jp-timeline-entry--header' });
+    headerRow.createDiv({ cls: 'jp-timeline-dot jp-timeline-dot--header' });
+    const headerCard = headerRow.createDiv({ cls: 'jp-timeline-header-card' });
+    const headerText = headerCard.createDiv({ cls: 'jp-timeline-header-text' });
+    headerText.createDiv({ cls: 'jp-timeline-header-title', text: t('tab.favorites') });
+    headerText.createDiv({
+      cls: 'jp-timeline-header-sub',
+      text: t('timeline.matches', { count: survivors.length }),
+    });
+
+    for (const fav of survivors) {
+      this.renderFavoriteRow(day, fav);
+    }
+
+    this.timelineEl.appendChild(day.el);
+    this.days = [day];
+  }
+
+  /** Render one favorite as a timeline row inside the favorites day. */
+  private renderFavoriteRow(day: DaySection, fav: FavoriteEntry): void {
+    const row = day.el.createDiv({ cls: 'jp-timeline-entry jp-fav-row' });
+    row.setAttr('data-tags', extractTags(fav.text).join(' '));
+
+    row.createDiv({ cls: 'jp-timeline-dot jp-timeline-dot--filled' });
+
+    const head = row.createDiv({ cls: 'jp-timeline-entry-head' });
+
+    // Date + timestamp chip on the row head.
+    const dateMoment = moment(fav.date, 'YYYY-MM-DD');
+    const whenLabel = `${formatDate(dateMoment)} · ${weekdayShort(dateMoment.day())} · ${fav.timestamp}`;
+    head.createSpan({ cls: 'jp-timestamp', text: whenLabel });
+
+    // Heart (filled) to un-favorite directly from the list.
+    const favBtn = head.createDiv({ cls: 'jp-fav-icon is-active' });
+    favBtn.setAttr('aria-label', t('favorites.remove'));
+    favBtn.setAttr('title', t('favorites.remove'));
+    favBtn.dataset.jpFavPath = fav.filePath;
+    favBtn.dataset.jpFavLine = String(fav.lineIndex);
+    setIcon(favBtn, 'heart');
+    const entry: JournalEntry = {
+      timestamp: fav.timestamp,
+      text: fav.text,
+      lineIndex: fav.lineIndex,
+    };
+    favBtn.addEventListener('click', (evt: MouseEvent) => {
+      evt.stopPropagation();
+      void this.toggleFavorite(
+        { ...day, filePath: fav.filePath, date: dateMoment },
+        entry,
+        favBtn,
+      );
+    });
+
+    // Body: live text (reconciled) rendered as markdown.
+    const bubble = row.createDiv({ cls: 'jp-timeline-bubble' });
+    void MarkdownRenderer.render(this.app, fav.text, bubble, fav.filePath, day.scope)
+      .then(() => this.hookUpLinks(bubble, fav.filePath));
+
+    // Clicking the row opens the daily note.
+    row.addEventListener('click', (evt: MouseEvent) => {
+      if ((evt.target as HTMLElement).closest('.jp-fav-icon')) return;
+      if ((evt.target as HTMLElement).closest('a')) return;
+      void this.openDailyNoteByDate(dateMoment);
+    });
   }
 
   // ── Stats pane ──────────────────────────────────────────────────────────
@@ -3545,9 +3857,13 @@ export class JournalCaptureView extends ItemView {
       const top = scroller.scrollTop;
       const delta = top - lastScrollTop;
 
-      // Always show near the top — feels less abrupt when the user lands
-      // back on today's entries.
-      if (top <= 8) {
+      // Short window (e.g. view dragged into a small popout): the dock must
+      // never cover the content, so it stays hidden regardless of scroll.
+      if (this.isShortWindow) {
+        this.tabBarEl.toggleClass('jp-tab-bar-hidden', true);
+      } else if (top <= 8) {
+        // Always show near the top — feels less abrupt when the user lands
+        // back on today's entries.
         this.tabBarEl.toggleClass('jp-tab-bar-hidden', false);
       } else if (delta > 0) {
         // Scrolling down → hide the tab bar
@@ -3580,6 +3896,66 @@ export class JournalCaptureView extends ItemView {
     // Always restore on close — never leave the user without their navbar.
     this.setToolbarHidden(false);
     this.tabBarEl?.toggleClass('jp-tab-bar-hidden', false);
+  }
+
+  /**
+   * In a short window (e.g. the view dragged into a small popout), the
+   * floating bottom dock covers the last entries. When the view's window
+   * gets shorter than a threshold, force-hide the dock; when it grows back,
+   * hand control to the scroll logic (which shows it again near the top).
+   *
+   * We intentionally do NOT use a ResizeObserver here: it lives in the window
+   * realm where it was created, and once the view is dragged into a popout the
+   * scroller migrates to that window's document — the main-window observer then
+   * never fires again. Instead we poll `scroller.clientHeight` on a light
+   * interval: the element is readable from any realm, so the check keeps
+   * working in a popout with no re-arming or migration hooks at all.
+   *
+   * We only touch the dock when the short/long state FLIPS, so this never
+   * fights the scroll handler (which owns the class while scrolled down).
+   * Desktop main window / sidebars are far taller than the threshold, so the
+   * flip happens once at setup and the timer stays idle afterwards.
+   */
+  private setupShortWindowDockAutoHide() {
+    if (!this.tabBarEl) return;
+    const scroller = this.containerEl.children[1] as HTMLElement;
+    if (!scroller) return;
+
+    // Start from the *scroll* state (not false): if the user has scrolled
+    // down, the scroll handler has already hidden the dock, and a poll that
+    // concludes "window is tall → not short" must not unhide it. Mirroring the
+    // current scroll state makes the first no-flip evaluation a no-op.
+    let wasShort = this.isShortWindow;
+
+    const poll = () => {
+      const h = scroller.clientHeight;
+      // clientHeight is 0 while the view is hidden (e.g. collapsed sidebar or
+      // background tab) — treat only positive heights as "short".
+      const isShort = h > 0 && h < SHORT_WINDOW_DOCK_THRESHOLD;
+      if (isShort === wasShort) return;
+      wasShort = isShort;
+      this.isShortWindow = isShort;
+      // Mirror the full dock state: short window force-hides, otherwise the
+      // scroll position decides (scrolled down → the scroll handler hides the
+      // dock, so don't unhide it here). Merging scrollTop means growing the
+      // window back while scrolled down stays hidden instead of popping in.
+      this.tabBarEl.toggleClass(
+        'jp-tab-bar-hidden',
+        isShort || scroller.scrollTop > 8,
+      );
+    };
+
+    // 500ms: a window drag-resize snaps to discrete steps, so we don't need
+    // sub-frame accuracy — but we do need to notice a resize that ends while
+    // the user is idle. Checking layout only on scroll would miss that.
+    this.shortWindowPollTimer = window.setInterval(poll, 500);
+    this.register(() => {
+      if (this.shortWindowPollTimer !== null) {
+        window.clearInterval(this.shortWindowPollTimer);
+        this.shortWindowPollTimer = null;
+      }
+    });
+    poll();
   }
 
   private setToolbarHidden(hidden: boolean) {

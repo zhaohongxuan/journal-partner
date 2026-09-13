@@ -58,6 +58,8 @@ export interface JournalPartnerSettings {
   language: 'en' | 'zh';
   /** On mobile, open the capture view in the right sidebar (slide-out drawer) instead of the full editor area. Desktop always uses the sidebar. */
   mobileOpenInSidebar: boolean;
+  /** User-favorited journal entries, newest favorited first. */
+  favorites: FavoriteEntry[];
 }
 
 export const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -84,6 +86,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   maxDiaryTags: 15,
   language: 'en',
   mobileOpenInSidebar: false,
+  favorites: [],
 };
 
 export type Rng = { from: number; to: number };
@@ -125,6 +128,22 @@ export interface JournalEntry {
   type?: 'memo' | 'task';
   /** For task entries: whether the task is completed */
   completed?: boolean;
+}
+
+/** A single journal entry the user has favorited. */
+export interface FavoriteEntry {
+  /** Vault-relative path of the daily note backing the entry. */
+  filePath: string;
+  /** Local-day the entry lives on, 'YYYY-MM-DD'. Also the lookup key for the file. */
+  date: string;
+  /** Line index of the entry inside its journal section (live lookup key). */
+  lineIndex: number;
+  /** Timestamp snapshot at favorite time (staleness check + list display). */
+  timestamp: string;
+  /** Body snapshot at favorite time (staleness check). */
+  text: string;
+  /** Epoch ms when favorited — used to order the list (newest first). */
+  favoritedAt: number;
 }
 
 // ── Section detection ──────────────────────────────────────────────────────
