@@ -162,11 +162,13 @@ export default class JournalPartnerPlugin extends Plugin {
     // Require at least one of text / audio / images — an entry with none is junk.
     if (trimmed.length === 0 && audioPath.length === 0 && imageList.length === 0) return false;
 
-    // Images append at the very END, after all text, each on its own line.
-    const imagesText = imageList.join('\n');
+    // Images append at the very END of the entry, inline after the text (a
+    // single space, so the markdown image renders right after the words rather
+    // than starting a new visual line / a separate continuation line).
+    const imagesText = imageList.join(' ');
     const withImages = (body: string) => {
       const parts = [body, imagesText].filter(Boolean);
-      return parts.join('\n\n');
+      return parts.join(' ');
     };
 
     const stamp = ts ?? generateTimestamp();
