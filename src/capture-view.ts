@@ -181,7 +181,11 @@ export class JournalCaptureView extends ItemView {
   /** True while the view's window is shorter than {@link SHORT_WINDOW_DOCK_THRESHOLD}
    *  — the floating dock is then force-hidden so it can't cover content. */
   private isShortWindow = false;
-  private resizeObs: ResizeObserver | null = null;
+  /** Poll timer for the short-window dock auto-hide. A ResizeObserver cannot
+   *  cross window realms — once the view is dragged into a popout, an observer
+   *  created in the main window silently stops firing. Reading clientHeight on
+   *  a timer works in any realm, so we use that instead. */
+  private shortWindowPollTimer: number | null = null;
 
   // Quick-tag picker (preset tags in the input card's left button row)
   private tagBtn!: HTMLButtonElement;
@@ -436,9 +440,9 @@ export class JournalCaptureView extends ItemView {
       this.intersectionObs.disconnect();
       this.intersectionObs = null;
     }
-    if (this.resizeObs) {
-      this.resizeObs.disconnect();
-      this.resizeObs = null;
+    if (this.shortWindowPollTimer !== null) {
+      window.clearInterval(this.shortWindowPollTimer);
+      this.shortWindowPollTimer = null;
     }
     this.teardownMobileToolbarAutoHide();
     this.disposeDays();
@@ -3900,32 +3904,58 @@ export class JournalCaptureView extends ItemView {
    * gets shorter than a threshold, force-hide the dock; when it grows back,
    * hand control to the scroll logic (which shows it again near the top).
    *
-   * We observe the scroller element (not the window): it is the view's own DOM,
-   * so it follows the view when it is dragged between windows, and it resizes
-   * with the window. Desktop main window / sidebars are far taller than the
-   * threshold, so this is a no-op there.
+   * We intentionally do NOT use a ResizeObserver here: it lives in the window
+   * realm where it was created, and once the view is dragged into a popout the
+   * scroller migrates to that window's document — the main-window observer then
+   * never fires again. Instead we poll `scroller.clientHeight` on a light
+   * interval: the element is readable from any realm, so the check keeps
+   * working in a popout with no re-arming or migration hooks at all.
+   *
+   * We only touch the dock when the short/long state FLIPS, so this never
+   * fights the scroll handler (which owns the class while scrolled down).
+   * Desktop main window / sidebars are far taller than the threshold, so the
+   * flip happens once at setup and the timer stays idle afterwards.
    */
   private setupShortWindowDockAutoHide() {
     if (!this.tabBarEl) return;
     const scroller = this.containerEl.children[1] as HTMLElement;
     if (!scroller) return;
 
-    const update = () => {
+    // Start from the *scroll* state (not false): if the user has scrolled
+    // down, the scroll handler has already hidden the dock, and a poll that
+    // concludes "window is tall → not short" must not unhide it. Mirroring the
+    // current scroll state makes the first no-flip evaluation a no-op.
+    let wasShort = this.isShortWindow;
+
+    const poll = () => {
       const h = scroller.clientHeight;
-      this.isShortWindow = h > 0 && h < SHORT_WINDOW_DOCK_THRESHOLD;
-      // The scroll handler re-runs on every scroll and consults isShortWindow,
-      // so mirroring the class here keeps it in sync between resizes.
+      // clientHeight is 0 while the view is hidden (e.g. collapsed sidebar or
+      // background tab) — treat only positive heights as "short".
+      const isShort = h > 0 && h < SHORT_WINDOW_DOCK_THRESHOLD;
+      if (isShort === wasShort) return;
+      wasShort = isShort;
+      this.isShortWindow = isShort;
+      // Mirror the full dock state: short window force-hides, otherwise the
+      // scroll position decides (scrolled down → the scroll handler hides the
+      // dock, so don't unhide it here). Merging scrollTop means growing the
+      // window back while scrolled down stays hidden instead of popping in.
       this.tabBarEl.toggleClass(
         'jp-tab-bar-hidden',
-        this.isShortWindow || scroller.scrollTop > 8,
+        isShort || scroller.scrollTop > 8,
       );
     };
 
-    // Stored in this.resizeObs and disconnected in onClose, alongside the
-    // other observers (intersectionObs), so nothing fires after the view dies.
-    this.resizeObs = new ResizeObserver(update);
-    this.resizeObs.observe(scroller);
-    update();
+    // 500ms: a window drag-resize snaps to discrete steps, so we don't need
+    // sub-frame accuracy — but we do need to notice a resize that ends while
+    // the user is idle. Checking layout only on scroll would miss that.
+    this.shortWindowPollTimer = window.setInterval(poll, 500);
+    this.register(() => {
+      if (this.shortWindowPollTimer !== null) {
+        window.clearInterval(this.shortWindowPollTimer);
+        this.shortWindowPollTimer = null;
+      }
+    });
+    poll();
   }
 
   private setToolbarHidden(hidden: boolean) {
