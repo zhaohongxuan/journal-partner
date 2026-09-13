@@ -29,7 +29,6 @@ const EN: Dict = {
   'common.entry': 'entry',
   'common.entries': 'entries',
   'common.audio': 'audio',
-  'common.audios': 'audios',
   'common.word': 'word',
   'common.words': 'words',
   'common.recording': 'recording',
@@ -133,7 +132,7 @@ const EN: Dict = {
   'stats.legendLess': 'Less',
   'stats.legendMore': 'More',
   'stats.notWritten': 'not written',
-  'stats.footer': '{days} days · {words} words · {entries} entries{audios}',
+  'stats.footer': '{days} days · {words} words · {entries} entries',
   'stats.footerAudios': ' · {n} recordings',
   'stats.title': '{year}',
 
@@ -292,7 +291,6 @@ const ZH: Dict = {
   'common.entry': '条',
   'common.entries': '条',
   'common.audio': '段',
-  'common.audios': '段',
   'common.word': '字',
   'common.words': '字',
   'common.recording': '段录音',
@@ -395,7 +393,7 @@ const ZH: Dict = {
   'stats.legendLess': '少',
   'stats.legendMore': '多',
   'stats.notWritten': '未写',
-  'stats.footer': '{days} 天 · {words} 字 · {entries} 条{audios}',
+  'stats.footer': '{days} 天 · {words} 字 · {entries} 条',
   'stats.footerAudios': ' · {n} 段录音',
   'stats.title': '{year} 年',
 
