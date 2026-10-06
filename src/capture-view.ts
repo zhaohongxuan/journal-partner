@@ -40,12 +40,14 @@ import type { EditorView } from '@codemirror/view';
 import {
   FavoriteEntry,
   JournalEntry,
+  JournalPartnerSettings,
   deleteEntryFromSection,
   editEntryInSection,
   toggleTaskInSection,
   extractAudioEmbeds,
   extractTags,
   findSection,
+  normalizeTag,
   parseJournalEntries,
   removeAudioEmbedsFromEntry,
   sortJournalEntries,
@@ -59,6 +61,10 @@ import {
   getHeatmapLevel,
 } from './stats';
 import type JournalPartnerPlugin from './main';
+import {
+  formatQuoteInsertion,
+  pickRandomQuote,
+} from './quotes';
 import {
   formatDate,
   heatmapWeekdayLabel,
@@ -204,6 +210,26 @@ export class JournalCaptureView extends ItemView {
   private extractingImages = false;
   /** Dedupe keys for images already in the pending strip: `r:<url>` remote, `l:<path>` local. */
   private knownImageUrls = new Set<string>();
+
+  // Random-quote ("金句") state
+  private quoteBtn!: HTMLButtonElement;
+  /** True while a pick is in flight — blocks double clicks. */
+  private quoteBusy = false;
+  /**
+   * The text we inserted last, so a second click replaces it ("roll again")
+   * instead of appending. Cleared as soon as the user edits the textarea, or
+   * when the range no longer matches the current value.
+   */
+  private lastQuoteRange: { from: number; to: number; text: string } | null = null;
+  /** Recently inserted highlight keys, so consecutive picks differ. */
+  private recentQuoteKeys: string[] = [];
+  /** Book of the most recent pick — the target of "another line from this book". */
+  private lastQuoteBookId: string | null = null;
+  /**
+   * Dedupe stamp for the same-book gesture. On macOS a Ctrl+click can arrive as
+   * both `contextmenu` and `click`; without this the pick would run twice.
+   */
+  private lastSameBookTrigger = 0;
 
   // Autocomplete state
   private autocompletePopupEl!: HTMLElement;
@@ -898,6 +924,8 @@ export class JournalCaptureView extends ItemView {
       // We listen for that here and pull any image link out of the text into
       // the pending-image strip — the two plugins stay fully decoupled.
       if (!this.extractingImages) this.extractImageLinksFromText();
+      // Any manual edit invalidates the "roll again replaces it" range.
+      this.lastQuoteRange = null;
       this.refreshSubmitState();
       this.autoResizeTextarea();
       this.updateAutocompleteSuggestions();
@@ -1499,6 +1527,35 @@ export class JournalCaptureView extends ItemView {
       this.toggleTagPicker();
     });
 
+    // Random-quote button — pulls one highlight from WeRead and inserts it
+    // into the textarea (the "golden sentence" shortcut). Ctrl/Cmd+click (or
+    // right-click) draws another line from the same book.
+    this.quoteBtn = buttonRow.createEl('button', {
+      cls: 'jp-capture-quote-btn',
+      attr: {
+        'aria-label': t('capture.randomQuote'),
+        title: this.plugin.settings.quoteSameBookReroll
+          ? t('capture.randomQuoteHint')
+          : t('capture.randomQuote'),
+      },
+    });
+    setIcon(this.quoteBtn, 'book-open');
+    this.quoteBtn.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      const sameBook = this.plugin.settings.quoteSameBookReroll
+        && (evt.ctrlKey || evt.metaKey);
+      void this.insertRandomQuote(sameBook);
+    });
+    // macOS turns Ctrl+click into a context menu and never fires `click`, so
+    // the same gesture has to come through here. The button has no context menu
+    // of its own, so hijacking it costs nothing.
+    this.quoteBtn.addEventListener('contextmenu', (evt) => {
+      if (!this.plugin.settings.quoteSameBookReroll) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      void this.insertRandomQuote(true);
+    });
+
     // Image button — opens the hidden file picker. The selected file is
     // handled by github-image-uploader when it's installed: it registers a
     // capture-phase `change` listener on document that runs BEFORE this
@@ -1597,6 +1654,121 @@ export class JournalCaptureView extends ItemView {
     this.isTaskMode = enabled;
     this.taskBtn.toggleClass('is-active', enabled);
     setIcon(this.taskBtn, enabled ? 'square-check' : 'list');
+  }
+
+  // ── Random quote ("金句") ────────────────────────────────────────────────
+
+  /**
+   * Pull one random WeRead highlight and drop it into the input.
+   *
+   * Repeat clicks *replace* the previously inserted quote, so the button reads
+   * as "roll again". As soon as the user edits the textarea, quotes are
+   * inserted at the caret instead and their own text is never overwritten.
+   *
+   * @param sameBook draw another line from the book of the previous pick
+   *                 (Ctrl/Cmd+click). Falls back to a normal pick when there is
+   *                 no previous book, e.g. on the very first click.
+   */
+  private async insertRandomQuote(sameBook = false): Promise<void> {
+    if (this.quoteBusy) return;
+
+    const settings = this.plugin.settings;
+    if (settings.wereadApiKey.trim().length === 0) {
+      new Notice(t('quote.noApiKey'));
+      return;
+    }
+
+    const pluginDir = this.plugin.manifest.dir;
+    if (!pluginDir) {
+      new Notice(t('quote.failed', { msg: t('quote.noPluginDir') }));
+      return;
+    }
+
+    // Collapse the macOS Ctrl+click double gesture (contextmenu + click).
+    if (sameBook) {
+      const now = Date.now();
+      if (now - this.lastSameBookTrigger < 300) return;
+      this.lastSameBookTrigger = now;
+    }
+
+    const bookId = sameBook && this.lastQuoteBookId ? this.lastQuoteBookId : undefined;
+    const wantSameBook = bookId !== undefined;
+
+    // Keep the tooltip honest when the setting was toggled after the view opened.
+    this.quoteBtn.setAttr('title', settings.quoteSameBookReroll
+      ? t('capture.randomQuoteHint')
+      : t('capture.randomQuote'));
+
+    this.quoteBusy = true;
+    this.quoteBtn.addClass('is-loading');
+    try {
+      const quote = await pickRandomQuote(
+        this.app,
+        pluginDir,
+        settings,
+        this.recentQuoteKeys,
+        { bookId },
+      );
+      if (!quote) {
+        new Notice(t(wantSameBook ? 'quote.sameBookEmpty' : 'quote.none'));
+        return;
+      }
+      this.lastQuoteBookId = quote.bookId;
+      this.recentQuoteKeys.push(quote.key);
+      if (this.recentQuoteKeys.length > 30) this.recentQuoteKeys.shift();
+      this.applyQuoteTag(settings);
+      this.insertQuoteText(formatQuoteInsertion(this.app, quote, settings));
+    } catch (err) {
+      console.error('[Journal Partner] random quote failed', err);
+      new Notice(t('quote.failed', { msg: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      this.quoteBusy = false;
+      this.quoteBtn.removeClass('is-loading');
+    }
+  }
+
+  /**
+   * Select the tag configured for reviewed quotes (`quoteTag`, e.g.
+   * `#log/reading`) so the entry lands tagged without typing it. The chip row
+   * above the textarea shows it, and `handleSubmit` prepends it like any other
+   * selected tag.
+   *
+   * This **replaces** the current selection — a reviewed quote is a reading
+   * entry, so the tags seeded from `defaultTags` (e.g. the daily
+   * `#log/thinking`) are dropped rather than stacked on top.
+   */
+  private applyQuoteTag(settings: JournalPartnerSettings): void {
+    const tag = normalizeTag(settings.quoteTag ?? '');
+    if (tag.length === 0) return;
+    if (this.selectedTags.length === 1 && this.selectedTags[0] === tag) return;
+    this.selectedTags = [tag];
+    this.refreshTagChips();
+  }
+
+  /**
+   * Replace the last inserted quote when it is still untouched, otherwise
+   * insert at the caret. `setRangeText` does not fire an `input` event, so the
+   * input listener's "user edited" reset is not triggered by our own insert.
+   */
+  private insertQuoteText(text: string): void {
+    const ta = this.textareaEl;
+    const previous = this.lastQuoteRange;
+    const untouched =
+      previous !== null && ta.value.slice(previous.from, previous.to) === previous.text;
+
+    if (untouched && previous) {
+      ta.setRangeText(text, previous.from, previous.to, 'end');
+      this.lastQuoteRange = { from: previous.from, to: previous.from + text.length, text };
+    } else {
+      const start = ta.selectionStart ?? ta.value.length;
+      const end = ta.selectionEnd ?? start;
+      ta.setRangeText(text, start, end, 'end');
+      this.lastQuoteRange = { from: start, to: start + text.length, text };
+    }
+
+    ta.focus();
+    this.refreshSubmitState();
+    this.autoResizeTextarea();
   }
 
   /**
@@ -4263,6 +4435,7 @@ export class JournalCaptureView extends ItemView {
       if (!ok) return;
 
       this.textareaEl.value = '';
+      this.lastQuoteRange = null;
       this.resetSelectedTags();
       // Free object URLs for any deferred local images (already saved above).
       for (const img of this.pendingImages) {

@@ -51,6 +51,7 @@ import {
   getTimestampRanges,
 } from './section';
 import { CAPTURE_VIEW_TYPE, JournalCaptureView } from './capture-view';
+import { clearQuoteMemo } from './quotes';
 import { setLanguage, t } from './i18n';
 
 // ── CM6 utilities ───────────────────────────────────────────────────────────
@@ -538,6 +539,13 @@ export default class JournalPartnerPlugin extends Plugin {
   async loadSettings() {
     const loaded = (await this.loadData()) as Partial<JournalPartnerSettings> | null;
     this.settings = { ...DEFAULT_SETTINGS, ...loaded };
+    // v2.20.1 introduced the quote template without `{date}`; anyone who already
+    // saved the previous default would otherwise never pick up the highlight
+    // date. Only the untouched default is migrated — a customised template is
+    // left alone.
+    if (this.settings.quoteTemplate === '“{quote}” —— {author}《{link}》') {
+      this.settings.quoteTemplate = DEFAULT_SETTINGS.quoteTemplate;
+    }
     // Keep the i18n module in sync with the persisted language choice.
     if (this.settings.language === 'zh' || this.settings.language === 'en') {
       setLanguage(this.settings.language);
@@ -1138,6 +1146,140 @@ class JournalPartnerSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           }),
       );
+
+    // ── Random highlight (WeRead) ─────────────────────────────────────────
+    new Setting(containerEl).setName(t('settings.heading.quote')).setHeading();
+
+    containerEl.createEl('p', { cls: 'jp-stt-guide', text: t('settings.quoteDesc') });
+
+    let quoteKeyInputEl: HTMLInputElement | null = null;
+    new Setting(containerEl)
+      .setName(t('settings.quoteApiKey'))
+      .setDesc(t('settings.quoteApiKeyDesc'))
+      .addText(text => {
+        text.inputEl.type = 'password';
+        quoteKeyInputEl = text.inputEl;
+        text
+          .setPlaceholder('wrk-…')
+          .setValue(this.plugin.settings.wereadApiKey)
+          .onChange(async value => {
+            this.plugin.settings.wereadApiKey = value.trim();
+            await this.plugin.saveSettings();
+          });
+        return text;
+      })
+      .addExtraButton(button => {
+        let isPassword = true;
+        button.setIcon('eye')
+          .setTooltip(t('settings.quoteApiKeyShowHide'))
+          .onClick(() => {
+            isPassword = !isPassword;
+            if (quoteKeyInputEl) {
+              quoteKeyInputEl.type = isPassword ? 'password' : 'text';
+            }
+            button.setIcon(isPassword ? 'eye' : 'eye-off');
+          });
+        return button;
+      });
+
+    new Setting(containerEl)
+      .setName(t('settings.quoteBoostPopular'))
+      .setDesc(t('settings.quoteBoostPopularDesc'))
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.quoteBoostPopular)
+          .onChange(async value => {
+            this.plugin.settings.quoteBoostPopular = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName(t('settings.quotePopularWeight'))
+      .setDesc(t('settings.quotePopularWeightDesc'))
+      .addSlider(slider =>
+        slider
+          .setLimits(0, 10, 1)
+          .setValue(this.plugin.settings.quotePopularWeight)
+          .setDynamicTooltip()
+          .onChange(async value => {
+            this.plugin.settings.quotePopularWeight = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName(t('settings.quoteMinBookHighlights'))
+      .setDesc(t('settings.quoteMinBookHighlightsDesc'))
+      .addSlider(slider =>
+        slider
+          .setLimits(0, 50, 1)
+          .setValue(this.plugin.settings.quoteMinBookHighlights)
+          .setDynamicTooltip()
+          .onChange(async value => {
+            this.plugin.settings.quoteMinBookHighlights = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName(t('settings.quoteSameBookReroll'))
+      .setDesc(t('settings.quoteSameBookRerollDesc'))
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.quoteSameBookReroll)
+          .onChange(async value => {
+            this.plugin.settings.quoteSameBookReroll = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName(t('settings.quoteTag'))
+      .setDesc(t('settings.quoteTagDesc'))
+      .addText(text =>
+        text
+          .setPlaceholder('#log/reading')
+          .setValue(this.plugin.settings.quoteTag)
+          .onChange(async value => {
+            this.plugin.settings.quoteTag = value.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName(t('settings.quoteTemplate'))
+      .setDesc(t('settings.quoteTemplateDesc'))
+      .addText(text =>
+        text
+          .setValue(this.plugin.settings.quoteTemplate)
+          .onChange(async value => {
+            this.plugin.settings.quoteTemplate = value;
+            await this.plugin.saveSettings();
+          }),
+      )
+      .addExtraButton(button => {
+        button.setIcon('trash')
+          .setTooltip(t('settings.quoteClearCache'))
+          .onClick(() => {
+            void (async () => {
+              clearQuoteMemo();
+              const dir = this.plugin.manifest.dir;
+              if (dir) {
+                try {
+                  const cachePath = `${dir}/cache`;
+                  if (await this.app.vault.adapter.exists(cachePath)) {
+                    await this.app.vault.adapter.rmdir(cachePath, true);
+                  }
+                } catch (err) {
+                  console.error('[Journal Partner] clearing quote cache failed', err);
+                }
+              }
+              new Notice(t('settings.quoteCacheCleared'));
+            })();
+          });
+        return button;
+      });
 
     // ── Shortcut ──────────────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.other')).setHeading();

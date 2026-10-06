@@ -461,6 +461,7 @@
 .jp-capture-mic-btn,
 .jp-capture-clear-btn,
 .jp-capture-task-btn,
+.jp-capture-quote-btn,
 .jp-capture-tag-btn {
   background: transparent !important;
   border: none !important;
@@ -485,6 +486,7 @@
 .jp-capture-mic-btn:hover,
 .jp-capture-clear-btn:hover,
 .jp-capture-task-btn:hover,
+.jp-capture-quote-btn:hover,
 .jp-capture-tag-btn:hover {
   color: var(--jp-tl-dot) !important;
   background-color: color-mix(in srgb, var(--jp-tl-dot) 10%, transparent) !important;
@@ -508,6 +510,16 @@
 @keyframes jp-recording-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+/* Random-quote button: pulsing hint while a highlight is being fetched. */
+.jp-capture-quote-btn.is-loading {
+  color: var(--jp-tl-dot) !important;
+  cursor: progress;
+  animation: jp-quote-pulse 1s ease-in-out infinite;
+}
+@keyframes jp-quote-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 /* Live recording bar: waveform + duration + status */
 .jp-recording-bar {
