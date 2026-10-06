@@ -74,6 +74,13 @@ export interface JournalPartnerSettings {
   quoteTag: string;
   /** Template used when inserting a quote. Placeholders: {quote} {title} {author} {chapter} {date} {time} {link} {count}. */
   quoteTemplate: string;
+  /** Habits pinned to the top of the capture timeline. Empty = the module is hidden. */
+  habits: HabitConfig[];
+  /**
+   * Master switch for the frontmatter mirror. Off (default) = check-ins never
+   * touch frontmatter and the per-habit property inputs are hidden.
+   */
+  habitMirrorFrontmatter: boolean;
 }
 
 export const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -109,6 +116,11 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   // Empty by default: a plugin must not silently tag every user's entries.
   quoteTag: '',
   quoteTemplate: '“{quote}” —— {author}《{link}》 {date}',
+  // Habits are opt-in — with none configured the module stays hidden. Each
+  // habit carries its own optional check-in tag.
+  habits: [],
+  // Off by default: writing to a daily note's frontmatter is opt-in.
+  habitMirrorFrontmatter: false,
 };
 
 export type Rng = { from: number; to: number };
@@ -182,6 +194,25 @@ export interface FavoriteEntry {
   text: string;
   /** Epoch ms when favorited — used to order the list (newest first). */
   favoritedAt: number;
+}
+
+/**
+ * One habit pinned to the top of the capture timeline.
+ *
+ * Completion state is NOT stored here — it is read from today's journal
+ * checkbox task (`- [x] HH:MM #log/habit 早起`). See `habits.ts`.
+ */
+export interface HabitConfig {
+  /** Stable id, used as the DOM key. */
+  id: string;
+  /** Display name; also the text written into the journal entry. */
+  label: string;
+  /** Lucide icon name (see `HABIT_ICON_CHOICES`). */
+  icon: string;
+  /** Optional frontmatter property to mirror the state into. '' = leave frontmatter alone. */
+  field: string;
+  /** Tag added to this habit's check-in entry, e.g. `#log/habit`. '' = no tag. */
+  tag: string;
 }
 
 // ── Section detection ──────────────────────────────────────────────────────

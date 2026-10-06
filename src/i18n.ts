@@ -302,6 +302,27 @@ const EN: Dict = {
   'settings.quoteTemplateDesc': 'Placeholders: {quote} {title} {author} {chapter} {date} {time} {link} {count} — {date}/{time} are when the highlight was made in WeRead',
   'settings.quoteClearCache': 'Clear cached highlights',
   'settings.quoteCacheCleared': 'Highlight cache cleared',
+
+  // ── Habit check-in ─────────────────────────────────────────────────────
+  'habit.markDone': 'Check in: {label}',
+  'habit.markUndone': 'Undo check-in: {label}',
+  'habit.failed': 'Check-in failed: {msg}',
+  'habit.frontmatterFailed': 'Could not update the frontmatter property “{field}”',
+  'settings.heading.habits': 'Habit Check-in',
+  'settings.habitsDesc': 'Pin habits to the top of the timeline. Checking one adds a completed task to today’s journal.',
+  'settings.habitTag': 'Check-in tag',
+  'settings.habitTagPlaceholder': '#log/habit',
+  'settings.habitAdd': 'Add habit',
+  'settings.habitLabel': 'Habit name',
+  'settings.habitLabelPlaceholder': 'Wake up early',
+  'settings.habitIcon': 'Icon',
+  'settings.habitIconPick': 'Pick an icon',
+  'settings.habitMirrorFrontmatter': 'Also write a frontmatter property',
+  'settings.habitMirrorFrontmatterDesc': 'When on, each habit shows a property input and check-ins mirror the state there as true/false. Off by default so nothing is ever written to your notes’ frontmatter.',
+  'settings.habitField': 'Frontmatter property',
+  'settings.habitFieldPlaceholder': 'cold_shower',
+  'settings.habitDelete': 'Delete habit',
+  'settings.habitsEmpty': 'No habits yet — use “Add habit” to pin one above the timeline.',
 };
 
 const ZH: Dict = {
@@ -593,6 +614,27 @@ const ZH: Dict = {
   'settings.quoteTemplateDesc': '可用占位符：{quote} {title} {author} {chapter} {date} {time} {link} {count} —— {date}/{time} 是划线时刻',
   'settings.quoteClearCache': '清除划线缓存',
   'settings.quoteCacheCleared': '划线缓存已清除',
+
+  // ── Habit check-in ─────────────────────────────────────────────────────
+  'habit.markDone': '打卡：{label}',
+  'habit.markUndone': '取消打卡：{label}',
+  'habit.failed': '打卡失败：{msg}',
+  'habit.frontmatterFailed': '无法更新 frontmatter 属性「{field}」',
+  'settings.heading.habits': '习惯打卡',
+  'settings.habitsDesc': '把习惯固定在时间线顶部。勾选会在今天的日记里加一条已完成的任务。',
+  'settings.habitTag': '打卡标签',
+  'settings.habitTagPlaceholder': '#log/habit',
+  'settings.habitAdd': '添加习惯',
+  'settings.habitLabel': '习惯名称',
+  'settings.habitLabelPlaceholder': '早起',
+  'settings.habitIcon': '图标',
+  'settings.habitIconPick': '选择图标',
+  'settings.habitMirrorFrontmatter': '同时写入 frontmatter 属性',
+  'settings.habitMirrorFrontmatterDesc': '打开后，每个习惯会多出一个属性输入框，打卡时把状态以 true/false 镜像到日记的 frontmatter。默认关闭，绝不擅自改动你笔记的 frontmatter。',
+  'settings.habitField': 'frontmatter 属性',
+  'settings.habitFieldPlaceholder': 'cold_shower',
+  'settings.habitDelete': '删除习惯',
+  'settings.habitsEmpty': '还没有习惯，点「添加习惯」把它固定到时间线顶部。',
 };
 
 const DICTS: Record<Language, Dict> = { en: EN, zh: ZH };

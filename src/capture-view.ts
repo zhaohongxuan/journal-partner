@@ -39,6 +39,7 @@ import type { EditorView } from '@codemirror/view';
 
 import {
   FavoriteEntry,
+  HabitConfig,
   JournalEntry,
   JournalPartnerSettings,
   deleteEntryFromSection,
@@ -65,6 +66,14 @@ import {
   formatQuoteInsertion,
   pickRandomQuote,
 } from './quotes';
+import {
+  findHabitEntry,
+  habitFrontmatterValue,
+  habitProgress,
+  habitTaskPayload,
+  isHabitDone,
+  isHabitUsable,
+} from './habits';
 import {
   formatDate,
   heatmapWeekdayLabel,
@@ -231,6 +240,10 @@ export class JournalCaptureView extends ItemView {
    */
   private lastSameBookTrigger = 0;
 
+  // Habit check-in module
+  private habitBarEl!: HTMLElement;
+  private habitRefreshTimer: number | null = null;
+
   // Autocomplete state
   private autocompletePopupEl!: HTMLElement;
   private autocompleteItemsEl!: HTMLElement;
@@ -357,6 +370,8 @@ export class JournalCaptureView extends ItemView {
     this.buildInputCard(stickyHeader);
     this.buildTimelineToolbar(stickyHeader);
     this.buildInlineSearchBar(stickyHeader);
+    // Pinned habit check-in module — sits at the top of the timeline stream.
+    this.buildHabitBar(this.capturePaneEl);
     this.buildTimeline(this.capturePaneEl);
 
     // Stats pane (hidden initially; built lazily on first switch)
@@ -379,6 +394,8 @@ export class JournalCaptureView extends ItemView {
         if (file.extension === 'md') {
           this.scheduleStatsRefresh();
           this.invalidateDiaryTags();
+          // Ticking a habit's box in the editor must repaint the pinned module.
+          this.scheduleHabitRefresh();
         }
       }),
     );
@@ -1771,6 +1788,186 @@ export class JournalCaptureView extends ItemView {
     this.autoResizeTextarea();
   }
 
+  // ── Habits ──────────────────────────────────────────────────────────────
+
+  /** Create the pinned habit module (contents are painted by renderHabitBar). */
+  private buildHabitBar(root: HTMLElement): void {
+    this.habitBarEl = root.createDiv({ cls: 'jp-habit-bar' });
+    void this.renderHabitBar();
+  }
+
+  /** Today's parsed journal entries — the source of truth for habit state. */
+  private async readTodayEntries(): Promise<JournalEntry[]> {
+    try {
+      const file = getDailyNote(moment(), getAllDailyNotes());
+      if (!file) return [];
+      const content = await this.app.vault.cachedRead(file);
+      const section = findSection(
+        content,
+        this.plugin.settings.targetHeading,
+        this.plugin.settings.headingLevel,
+      );
+      if (!section) return [];
+      return parseJournalEntries(
+        content.slice(section.from, section.to),
+        this.plugin.settings.timestampPattern,
+      );
+    } catch (err) {
+      console.error('[Journal Partner] habit read failed', err);
+      return [];
+    }
+  }
+
+  /**
+   * Repaint the pinned module from today's checkbox tasks. Completion is never
+   * cached here: the journal checkbox is the single source of truth, so ticking
+   * the box in the editor or in the timeline keeps this in sync automatically.
+   */
+  private async renderHabitBar(): Promise<void> {
+    if (!this.habitBarEl) return;
+    const habits = (this.plugin.settings.habits ?? []).filter(isHabitUsable);
+    this.habitBarEl.empty();
+    if (habits.length === 0) {
+      this.habitBarEl.hide();
+      return;
+    }
+    this.habitBarEl.show();
+
+    const entries = await this.readTodayEntries();
+
+    this.habitBarEl.createDiv({
+      cls: 'jp-habit-count',
+      text: habitProgress(entries, habits),
+    });
+
+    for (const habit of habits) {
+      const done = isHabitDone(entries, habit);
+      const btn = this.habitBarEl.createEl('button', {
+        cls: done ? 'jp-habit-item is-done' : 'jp-habit-item',
+        attr: {
+          'aria-label': t(done ? 'habit.markUndone' : 'habit.markDone', { label: habit.label }),
+          title: habit.label,
+        },
+      });
+      const iconEl = btn.createSpan({ cls: 'jp-habit-icon' });
+      setIcon(iconEl, habit.icon || 'circle');
+      btn.createSpan({ cls: 'jp-habit-label', text: habit.label });
+      if (done) {
+        const tick = btn.createSpan({ cls: 'jp-habit-tick' });
+        setIcon(tick, 'check');
+      }
+      btn.addEventListener('click', runAsync(() => this.toggleHabit(habit)));
+    }
+  }
+
+  /** Debounced repaint — vault modifies fire in bursts. */
+  private scheduleHabitRefresh(): void {
+    if (this.habitRefreshTimer !== null) window.clearTimeout(this.habitRefreshTimer);
+    this.habitRefreshTimer = window.setTimeout(() => {
+      this.habitRefreshTimer = null;
+      void this.renderHabitBar();
+    }, 150);
+  }
+
+  /** Repaint immediately — called by the settings tab when habit config changes. */
+  public refreshHabitBarNow(): void {
+    void this.renderHabitBar();
+  }
+
+  /**
+   * Check the habit in, or undo it.
+   *
+   * - No entry today yet → append a completed task
+   *   (`- [x] HH:MM #log/habit 早起`) so a timeline node appears.
+   * - Entry exists → flip its checkbox in place, so repeated clicks don't pile
+   *   up duplicate nodes.
+   *
+   * The frontmatter mirror is optional and only touched when the habit has a
+   * property configured.
+   */
+  private async toggleHabit(habit: HabitConfig): Promise<void> {
+    if (!appHasDailyNotesPluginLoaded()) {
+      new Notice(t('notice.dailyNotesRequired'));
+      return;
+    }
+
+    try {
+      const entries = await this.readTodayEntries();
+      const entry = findHabitEntry(entries, habit);
+      const targetDone = entry?.completed !== true;
+
+      if (entry) {
+        const file = getDailyNote(moment(), getAllDailyNotes());
+        if (!file) return;
+        const content = await this.app.vault.read(file);
+        const next = toggleTaskInSection(
+          content,
+          this.plugin.settings,
+          entry.lineIndex,
+          targetDone,
+        );
+        await this.writeFileWithEditor(file, next);
+      } else {
+        const payload = habitTaskPayload(habit, true);
+        const ok = await this.plugin.writeToTodayJournal(payload);
+        if (!ok) return;
+      }
+
+      await this.applyHabitFrontmatter(habit, targetDone);
+      await this.renderHabitBar();
+    } catch (err) {
+      console.error('[Journal Partner] habit toggle failed', err);
+      new Notice(t('habit.failed', { msg: err instanceof Error ? err.message : String(err) }));
+    }
+  }
+
+  /**
+   * Write `newContent` to `file`, keeping an open editor in step.
+   *
+   * Mirrors what the timeline checkbox toggle does inline: when today's note is
+   * open, push the change through CodeMirror first so the visible buffer is not
+   * left stale, then persist. Without this, checking a habit while journaling
+   * would only show up after the editor reloads the file.
+   */
+  private async writeFileWithEditor(file: TFile, newContent: string): Promise<void> {
+    this.app.workspace.iterateAllLeaves(leaf => {
+      if (!(leaf.view instanceof MarkdownView)) return;
+      if (leaf.view.file?.path !== file.path) return;
+      const cm = (leaf.view.editor as unknown as { cm?: EditorView }).cm;
+      if (!cm) return;
+      cm.dispatch({ changes: { from: 0, to: cm.state.doc.length, insert: newContent } });
+    });
+    await this.app.vault.modify(file, newContent);
+  }
+
+  /**
+   * Mirror the check-in into today's frontmatter, if the habit configured a
+   * property. Uses Obsidian's `processFrontMatter` so the YAML is rewritten
+   * safely rather than by string surgery.
+   */
+  private async applyHabitFrontmatter(habit: HabitConfig, done: boolean): Promise<void> {
+    // Master switch off → check-ins never touch frontmatter, even for habits
+    // that still carry a property from when the switch was on.
+    if (!this.plugin.settings.habitMirrorFrontmatter) return;
+
+    const field = habit.field.trim();
+    if (field.length === 0) return;
+
+    const file = getDailyNote(moment(), getAllDailyNotes());
+    if (!file) return;
+
+    const value = habitFrontmatterValue(done);
+
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+        fm[field] = value;
+      });
+    } catch (err) {
+      console.error('[Journal Partner] habit frontmatter write failed', err);
+      new Notice(t('habit.frontmatterFailed', { field }));
+    }
+  }
+
   /**
    * Resolve the full vault path to save an attachment at.
    *
@@ -2944,6 +3141,8 @@ export class JournalCaptureView extends ItemView {
 
     // Then load the first batch of historical non-empty days.
     await this.loadMore();
+    // Habit state comes from today's journal, so repaint it with the rebuild.
+    void this.renderHabitBar();
     // Re-apply the active filter to freshly-rendered rows (in-DOM display
     // state is lost on rebuild).
     this.applyEntryFilter();
@@ -3225,6 +3424,10 @@ export class JournalCaptureView extends ItemView {
 
             // Show success feedback
             new Notice(entry.completed ? t('notice.taskDone') : t('notice.taskUndone'));
+
+            // A habit is "done" exactly when its timeline box is ticked, so keep
+            // the pinned module in step with this inline toggle.
+            this.scheduleHabitRefresh();
 
             // Clear the marking after a brief delay
             window.setTimeout(() => {

@@ -41,6 +41,7 @@ import {
 
 import {
   DEFAULT_SETTINGS,
+  HabitConfig,
   JournalPartnerSettings,
   appendToJournalSection,
   buildDecorations,
@@ -51,6 +52,7 @@ import {
   getTimestampRanges,
 } from './section';
 import { CAPTURE_VIEW_TYPE, JournalCaptureView } from './capture-view';
+import { HABIT_ICON_CHOICES, makeHabit } from './habits';
 import { clearQuoteMemo } from './quotes';
 import { setLanguage, t } from './i18n';
 
@@ -546,6 +548,17 @@ export default class JournalPartnerPlugin extends Plugin {
     if (this.settings.quoteTemplate === '“{quote}” —— {author}《{link}》') {
       this.settings.quoteTemplate = DEFAULT_SETTINGS.quoteTemplate;
     }
+    // The habit check-in tag moved from one global setting to a per-habit one.
+    // Carry the old value into habits that don't have their own yet, so entries
+    // written after the upgrade keep the tag they used to get.
+    const legacyTag = (loaded as { habitTag?: unknown } | null)?.habitTag;
+    if (typeof legacyTag === 'string' && legacyTag.trim().length > 0) {
+      for (const habit of this.settings.habits) {
+        if (!habit.tag) habit.tag = legacyTag.trim();
+      }
+      // Drop the dead key; the next saveSettings() removes it from data.json.
+      delete (this.settings as unknown as Record<string, unknown>)['habitTag'];
+    }
     // Keep the i18n module in sync with the persisted language choice.
     if (this.settings.language === 'zh' || this.settings.language === 'en') {
       setLanguage(this.settings.language);
@@ -556,6 +569,12 @@ export default class JournalPartnerPlugin extends Plugin {
     await this.saveData(this.settings);
     this.applyCSSVariables();
     this.refreshEditors();
+    // Habit config lives in settings but is rendered by the capture view, so
+    // push changes to any open view instead of waiting for a reopen.
+    this.app.workspace.getLeavesOfType(CAPTURE_VIEW_TYPE).forEach(leaf => {
+      const view = leaf.view;
+      if (view instanceof JournalCaptureView) view.refreshHabitBarNow();
+    });
   }
 
   private refreshEditors() {
@@ -603,6 +622,13 @@ class JournalPartnerSettingTab extends PluginSettingTab {
   private presetTagListEl!: HTMLElement;
   /** Container for the default-tag toggle rows in the settings tab. */
   private defaultTagListEl!: HTMLElement;
+  /** Container for the habit config rows in the settings tab. */
+  private habitListEl!: HTMLElement;
+  /** Open habit icon popup, plus its document-level dismiss listeners. */
+  private habitIconPopupEl: HTMLElement | null = null;
+  private habitIconPopupCleanup: (() => void) | null = null;
+  /** Debounce timer for the habit name input. */
+  private habitSaveTimer: number | null = null;
 
   constructor(app: App, plugin: JournalPartnerPlugin) {
     super(app, plugin);
@@ -738,6 +764,177 @@ class JournalPartnerSettingTab extends PluginSettingTab {
    * the list length changes (add / delete). A blank row is kept while the
    * user types; empty entries are pruned on save.
    */
+  /**
+   * Rebuild the habit config rows. Each habit is one block: name + icon +
+   * optional frontmatter mirror. Rows are rebuilt (not patched) after add or
+   * delete so indices in the onChange closures stay correct.
+   */
+  private renderHabitRows(): void {
+    this.habitListEl.empty();
+    const habits = this.plugin.settings.habits;
+
+    if (habits.length === 0) {
+      this.habitListEl.createDiv({ cls: 'jp-capture-empty', text: t('settings.habitsEmpty') });
+      return;
+    }
+
+    habits.forEach((habit, index) => {
+      // Everything for one habit lives on a single line:
+      //   [icon ▾] [name] [frontmatter property] [delete]
+      // The property input only exists while the mirror switch is on.
+      const row = this.habitListEl.createDiv({ cls: 'jp-settings-habit-row' });
+      const head = row.createDiv({ cls: 'jp-settings-habit-head' });
+
+      const iconBtn = head.createEl('button', {
+        cls: 'jp-habit-icon-picker',
+        attr: { 'aria-label': t('settings.habitIcon'), title: t('settings.habitIconPick') },
+      });
+      const iconGlyph = iconBtn.createSpan({ cls: 'jp-habit-icon-picker-glyph' });
+      setIcon(iconGlyph, habit.icon || HABIT_ICON_CHOICES[0]);
+      const caret = iconBtn.createSpan({ cls: 'jp-habit-icon-picker-caret' });
+      setIcon(caret, 'chevron-down');
+      iconBtn.addEventListener('click', evt => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.openHabitIconPicker(iconBtn, habit);
+      });
+
+      const nameInput = head.createEl('input', {
+        cls: 'jp-habit-name-input',
+        attr: {
+          type: 'text',
+          'aria-label': t('settings.habitLabel'),
+          placeholder: t('settings.habitLabelPlaceholder'),
+        },
+      });
+      nameInput.value = habit.label;
+      nameInput.addEventListener('input', () => {
+        habit.label = nameInput.value.trim();
+        this.queueHabitSave();
+      });
+
+      if (this.plugin.settings.habitMirrorFrontmatter) {
+        const fieldInput = head.createEl('input', {
+          cls: 'jp-habit-field-input',
+          attr: {
+            type: 'text',
+            'aria-label': t('settings.habitField'),
+            placeholder: t('settings.habitFieldPlaceholder'),
+          },
+        });
+        fieldInput.value = habit.field;
+        fieldInput.addEventListener('input', () => {
+          habit.field = fieldInput.value.trim();
+          this.queueHabitSave();
+        });
+      }
+
+      const tagInput = head.createEl('input', {
+        cls: 'jp-habit-tag-input',
+        attr: {
+          type: 'text',
+          'aria-label': t('settings.habitTag'),
+          placeholder: t('settings.habitTagPlaceholder'),
+        },
+      });
+      tagInput.value = habit.tag ?? '';
+      tagInput.addEventListener('input', () => {
+        habit.tag = tagInput.value.trim();
+        this.queueHabitSave();
+      });
+
+      const del = head.createEl('button', {
+        cls: 'jp-habit-delete',
+        attr: { 'aria-label': t('settings.habitDelete'), title: t('settings.habitDelete') },
+      });
+      setIcon(del, 'trash');
+      del.addEventListener('click', evt => {
+        evt.preventDefault();
+        habits.splice(index, 1);
+        this.closeHabitIconPicker();
+        void this.plugin.saveSettings().then(() => this.renderHabitRows());
+      });
+    });
+  }
+
+  /**
+   * Icon popup for one habit. Rendered icons in a grid — the reason this is a
+   * custom popup rather than a `DropdownComponent` is that `<option>` elements
+   * cannot contain SVG.
+   */
+  private openHabitIconPicker(anchor: HTMLElement, habit: HabitConfig): void {
+    this.closeHabitIconPicker();
+    const doc = anchor.ownerDocument;
+    const popup = doc.body.createDiv({ cls: 'jp-habit-icon-popup' });
+    this.habitIconPopupEl = popup;
+
+    for (const icon of HABIT_ICON_CHOICES) {
+      const choice = popup.createEl('button', {
+        cls: icon === habit.icon ? 'jp-habit-icon-choice is-active' : 'jp-habit-icon-choice',
+        attr: { 'aria-label': icon, title: icon },
+      });
+      setIcon(choice, icon);
+      choice.addEventListener('click', evt => {
+        evt.preventDefault();
+        habit.icon = icon;
+        this.closeHabitIconPicker();
+        void this.plugin.saveSettings().then(() => this.renderHabitRows());
+      });
+    }
+
+    const rect = anchor.getBoundingClientRect();
+    popup.setCssProps({
+      position: 'fixed',
+      left: `${Math.round(rect.left)}px`,
+      top: `${Math.round(rect.bottom + 4)}px`,
+    });
+
+    // Dismiss on outside click / Escape. Registered on the anchor's own
+    // document so it also works in a popout window.
+    const onDown = (evt: MouseEvent) => {
+      if (!popup.contains(evt.target as Node)) this.closeHabitIconPicker();
+    };
+    const onKey = (evt: KeyboardEvent) => {
+      if (evt.key === 'Escape') this.closeHabitIconPicker();
+    };
+    this.habitIconPopupCleanup = () => {
+      doc.removeEventListener('mousedown', onDown);
+      doc.removeEventListener('keydown', onKey);
+    };
+    window.setTimeout(() => {
+      doc.addEventListener('mousedown', onDown);
+      doc.addEventListener('keydown', onKey);
+    }, 0);
+  }
+
+  /** Tear down the icon popup and its listeners (safe to call when closed). */
+  private closeHabitIconPicker(): void {
+    this.habitIconPopupCleanup?.();
+    this.habitIconPopupCleanup = null;
+    this.habitIconPopupEl?.remove();
+    this.habitIconPopupEl = null;
+  }
+
+  /** Leaving the tab must not leave a floating icon grid behind. */
+  hide(): void {
+    this.closeHabitIconPicker();
+    if (this.habitSaveTimer !== null) {
+      window.clearTimeout(this.habitSaveTimer);
+      this.habitSaveTimer = null;
+      void this.plugin.saveSettings();
+    }
+    super.hide();
+  }
+
+  /** Debounced save for per-keystroke edits (the name input). */
+  private queueHabitSave(): void {
+    if (this.habitSaveTimer !== null) window.clearTimeout(this.habitSaveTimer);
+    this.habitSaveTimer = window.setTimeout(() => {
+      this.habitSaveTimer = null;
+      void this.plugin.saveSettings();
+    }, 300);
+  }
+
   private renderPresetTagInputs(): void {
     this.presetTagListEl.empty();
     const tags = this.plugin.settings.presetTags;
@@ -1280,6 +1477,40 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           });
         return button;
       });
+
+    // ── Habit Check-in ────────────────────────────────────────────────────
+    new Setting(containerEl).setName(t('settings.heading.habits')).setHeading();
+
+    containerEl.createEl('p', { cls: 'jp-stt-guide', text: t('settings.habitsDesc') });
+
+    new Setting(containerEl)
+      .setName(t('settings.habitMirrorFrontmatter'))
+      .setDesc(t('settings.habitMirrorFrontmatterDesc'))
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.habitMirrorFrontmatter)
+          .onChange(async value => {
+            this.plugin.settings.habitMirrorFrontmatter = value;
+            await this.plugin.saveSettings();
+            // The per-habit property inputs appear/disappear with the switch.
+            this.renderHabitRows();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName(t('settings.habitAdd'))
+      .addButton(btn =>
+        btn
+          .setButtonText(t('settings.habitAdd'))
+          .setCta()
+          .onClick(() => {
+            this.plugin.settings.habits.push(makeHabit());
+            void this.plugin.saveSettings().then(() => this.renderHabitRows());
+          }),
+      );
+
+    this.habitListEl = containerEl.createDiv({ cls: 'jp-settings-habit-list' });
+    this.renderHabitRows();
 
     // ── Shortcut ──────────────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.other')).setHeading();
