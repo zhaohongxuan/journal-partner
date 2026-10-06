@@ -68,7 +68,6 @@ import {
 } from './quotes';
 import {
   findHabitEntry,
-  habitFrontmatterValue,
   habitProgress,
   habitTaskPayload,
   isHabitDone,
@@ -1956,11 +1955,11 @@ export class JournalCaptureView extends ItemView {
     const file = getDailyNote(moment(), getAllDailyNotes());
     if (!file) return;
 
-    const value = habitFrontmatterValue(done);
-
     try {
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-        fm[field] = value;
+        // Boolean by design: checked → true, unchecked → false. Never a number,
+        // never a deleted key.
+        fm[field] = done;
       });
     } catch (err) {
       console.error('[Journal Partner] habit frontmatter write failed', err);

@@ -121,18 +121,6 @@ export function habitTaskPayload(habit: HabitConfig, completed: boolean): string
   return parts.join(' ');
 }
 
-/**
- * Value mirrored into the optional frontmatter property.
- *
- * Pure boolean by design: the settings no longer offer a custom value, so a
- * mapped property is `true` when checked in and `false` when unchecked. Use a
- * dedicated boolean property (e.g. `habit_morning`) rather than an existing
- * numeric one, whose type would change.
- */
-export function habitFrontmatterValue(done: boolean): boolean {
-  return done;
-}
-
 /** Progress for the module header, e.g. `2/5`. */
 export function habitProgress(entries: JournalEntry[], habits: HabitConfig[]): string {
   const total = habits.length;
