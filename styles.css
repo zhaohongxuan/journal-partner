@@ -461,6 +461,7 @@
 .jp-capture-mic-btn,
 .jp-capture-clear-btn,
 .jp-capture-task-btn,
+.jp-capture-quote-btn,
 .jp-capture-tag-btn {
   background: transparent !important;
   border: none !important;
@@ -485,6 +486,7 @@
 .jp-capture-mic-btn:hover,
 .jp-capture-clear-btn:hover,
 .jp-capture-task-btn:hover,
+.jp-capture-quote-btn:hover,
 .jp-capture-tag-btn:hover {
   color: var(--jp-tl-dot) !important;
   background-color: color-mix(in srgb, var(--jp-tl-dot) 10%, transparent) !important;
@@ -508,6 +510,16 @@
 @keyframes jp-recording-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+/* Random-quote button: pulsing hint while a highlight is being fetched. */
+.jp-capture-quote-btn.is-loading {
+  color: var(--jp-tl-dot) !important;
+  cursor: progress;
+  animation: jp-quote-pulse 1s ease-in-out infinite;
+}
+@keyframes jp-quote-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 /* Live recording bar: waveform + duration + status */
 .jp-recording-bar {
@@ -1984,7 +1996,193 @@
   transition: margin-top 0.3s ease, min-height 0.3s ease;
 }
 
-/* ── Settings tab: preview badge & URL scheme reference ─────────────────── */
+/* ── Pinned habit check-in module (top of the timeline) ─────────────────── */
+.jp-habit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 2px 10px;
+}
+.jp-habit-count {
+  margin-right: 2px;
+  font-size: 0.72em;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.jp-habit-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 0.78em;
+  line-height: 1.4;
+  cursor: pointer;
+  box-shadow: none;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+.jp-habit-item:hover {
+  color: var(--text-normal);
+  border-color: var(--jp-tl-dot);
+  background: var(--background-secondary-alt, var(--background-secondary));
+}
+.jp-habit-icon {
+  display: inline-flex;
+  align-items: center;
+}
+.jp-habit-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.jp-habit-tick {
+  display: inline-flex;
+  align-items: center;
+  color: var(--jp-tl-dot);
+}
+.jp-habit-tick svg {
+  width: 12px;
+  height: 12px;
+}
+.jp-habit-item.is-done {
+  color: var(--jp-tl-dot);
+  border-color: color-mix(in srgb, var(--jp-tl-dot) 45%, transparent);
+  background: color-mix(in srgb, var(--jp-tl-dot) 12%, transparent);
+}
+.jp-habit-item.is-done .jp-habit-icon {
+  opacity: 0.9;
+}
+
+/* Settings tab: habit rows — all controls on one line. */
+.jp-settings-habit-row {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.jp-settings-habit-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.jp-habit-icon-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  box-shadow: none;
+}
+.jp-habit-icon-picker:hover {
+  color: var(--jp-tl-dot);
+  border-color: var(--jp-tl-dot);
+}
+.jp-habit-icon-picker-glyph,
+.jp-habit-icon-picker-caret {
+  display: inline-flex;
+  align-items: center;
+}
+.jp-habit-icon-picker-glyph svg {
+  width: 15px;
+  height: 15px;
+}
+.jp-habit-icon-picker-caret {
+  opacity: 0.55;
+}
+.jp-habit-icon-picker-caret svg {
+  width: 11px;
+  height: 11px;
+}
+.jp-habit-name-input {
+  flex: 1 1 auto;
+  min-width: 100px;
+}
+/* Optional frontmatter property, shown only while the mirror switch is on. */
+.jp-habit-field-input {
+  flex: 1 1 auto;
+  min-width: 100px;
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+}
+/* Optional check-in tag, per habit. */
+.jp-habit-tag-input {
+  flex: 1 1 auto;
+  min-width: 90px;
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+}
+.jp-habit-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+.jp-habit-delete:hover {
+  color: var(--text-error);
+  background: var(--background-modifier-hover);
+}
+.jp-habit-delete svg {
+  width: 15px;
+  height: 15px;
+}
+/* Popup grid of rendered icons (a native <select> cannot hold SVGs). */
+.jp-habit-icon-popup {
+  z-index: 200;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s, 0 4px 12px rgba(0, 0, 0, 0.18));
+  max-height: 220px;
+  overflow-y: auto;
+}
+.jp-habit-icon-choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+.jp-habit-icon-choice:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.jp-habit-icon-choice.is-active {
+  color: var(--jp-tl-dot);
+  background: color-mix(in srgb, var(--jp-tl-dot) 14%, transparent);
+}
+.jp-habit-icon-choice svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Settings tab: preview badge & URL scheme reference ─────────────────── */
 .jp-settings-preview {
   margin-top: 24px;
   padding: 16px;

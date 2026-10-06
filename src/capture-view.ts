@@ -39,13 +39,16 @@ import type { EditorView } from '@codemirror/view';
 
 import {
   FavoriteEntry,
+  HabitConfig,
   JournalEntry,
+  JournalPartnerSettings,
   deleteEntryFromSection,
   editEntryInSection,
   toggleTaskInSection,
   extractAudioEmbeds,
   extractTags,
   findSection,
+  normalizeTag,
   parseJournalEntries,
   removeAudioEmbedsFromEntry,
   sortJournalEntries,
@@ -59,6 +62,17 @@ import {
   getHeatmapLevel,
 } from './stats';
 import type JournalPartnerPlugin from './main';
+import {
+  formatQuoteInsertion,
+  pickRandomQuote,
+} from './quotes';
+import {
+  findHabitEntry,
+  habitProgress,
+  habitTaskPayload,
+  isHabitDone,
+  isHabitUsable,
+} from './habits';
 import {
   formatDate,
   heatmapWeekdayLabel,
@@ -205,6 +219,30 @@ export class JournalCaptureView extends ItemView {
   /** Dedupe keys for images already in the pending strip: `r:<url>` remote, `l:<path>` local. */
   private knownImageUrls = new Set<string>();
 
+  // Random-quote ("金句") state
+  private quoteBtn!: HTMLButtonElement;
+  /** True while a pick is in flight — blocks double clicks. */
+  private quoteBusy = false;
+  /**
+   * The text we inserted last, so a second click replaces it ("roll again")
+   * instead of appending. Cleared as soon as the user edits the textarea, or
+   * when the range no longer matches the current value.
+   */
+  private lastQuoteRange: { from: number; to: number; text: string } | null = null;
+  /** Recently inserted highlight keys, so consecutive picks differ. */
+  private recentQuoteKeys: string[] = [];
+  /** Book of the most recent pick — the target of "another line from this book". */
+  private lastQuoteBookId: string | null = null;
+  /**
+   * Dedupe stamp for the same-book gesture. On macOS a Ctrl+click can arrive as
+   * both `contextmenu` and `click`; without this the pick would run twice.
+   */
+  private lastSameBookTrigger = 0;
+
+  // Habit check-in module
+  private habitBarEl!: HTMLElement;
+  private habitRefreshTimer: number | null = null;
+
   // Autocomplete state
   private autocompletePopupEl!: HTMLElement;
   private autocompleteItemsEl!: HTMLElement;
@@ -331,6 +369,8 @@ export class JournalCaptureView extends ItemView {
     this.buildInputCard(stickyHeader);
     this.buildTimelineToolbar(stickyHeader);
     this.buildInlineSearchBar(stickyHeader);
+    // Pinned habit check-in module — sits at the top of the timeline stream.
+    this.buildHabitBar(this.capturePaneEl);
     this.buildTimeline(this.capturePaneEl);
 
     // Stats pane (hidden initially; built lazily on first switch)
@@ -353,6 +393,8 @@ export class JournalCaptureView extends ItemView {
         if (file.extension === 'md') {
           this.scheduleStatsRefresh();
           this.invalidateDiaryTags();
+          // Ticking a habit's box in the editor must repaint the pinned module.
+          this.scheduleHabitRefresh();
         }
       }),
     );
@@ -791,7 +833,7 @@ export class JournalCaptureView extends ItemView {
     const headerCard = headerRow.createDiv({ cls: 'jp-timeline-header-card' });
     const headerText = headerCard.createDiv({ cls: 'jp-timeline-header-text' });
     headerText.createDiv({ cls: 'jp-timeline-header-title', text: headerLabel.title });
-    headerText.createDiv({ cls: 'jp-timeline-header-sub', text: t('timeline.matches', { count: entries.length }) });
+    headerText.createDiv({ cls: 'jp-timeline-header-sub', text: this.countLabel(entries.length, 'search') });
     this.addOpenNoteBtn(headerCard, day);
 
     const sourcePath = day.filePath ?? '';
@@ -898,6 +940,8 @@ export class JournalCaptureView extends ItemView {
       // We listen for that here and pull any image link out of the text into
       // the pending-image strip — the two plugins stay fully decoupled.
       if (!this.extractingImages) this.extractImageLinksFromText();
+      // Any manual edit invalidates the "roll again replaces it" range.
+      this.lastQuoteRange = null;
       this.refreshSubmitState();
       this.autoResizeTextarea();
       this.updateAutocompleteSuggestions();
@@ -1499,6 +1543,35 @@ export class JournalCaptureView extends ItemView {
       this.toggleTagPicker();
     });
 
+    // Random-quote button — pulls one highlight from WeRead and inserts it
+    // into the textarea (the "golden sentence" shortcut). Ctrl/Cmd+click (or
+    // right-click) draws another line from the same book.
+    this.quoteBtn = buttonRow.createEl('button', {
+      cls: 'jp-capture-quote-btn',
+      attr: {
+        'aria-label': t('capture.randomQuote'),
+        title: this.plugin.settings.quoteSameBookReroll
+          ? t('capture.randomQuoteHint')
+          : t('capture.randomQuote'),
+      },
+    });
+    setIcon(this.quoteBtn, 'book-open');
+    this.quoteBtn.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      const sameBook = this.plugin.settings.quoteSameBookReroll
+        && (evt.ctrlKey || evt.metaKey);
+      void this.insertRandomQuote(sameBook);
+    });
+    // macOS turns Ctrl+click into a context menu and never fires `click`, so
+    // the same gesture has to come through here. The button has no context menu
+    // of its own, so hijacking it costs nothing.
+    this.quoteBtn.addEventListener('contextmenu', (evt) => {
+      if (!this.plugin.settings.quoteSameBookReroll) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      void this.insertRandomQuote(true);
+    });
+
     // Image button — opens the hidden file picker. The selected file is
     // handled by github-image-uploader when it's installed: it registers a
     // capture-phase `change` listener on document that runs BEFORE this
@@ -1597,6 +1670,301 @@ export class JournalCaptureView extends ItemView {
     this.isTaskMode = enabled;
     this.taskBtn.toggleClass('is-active', enabled);
     setIcon(this.taskBtn, enabled ? 'square-check' : 'list');
+  }
+
+  // ── Random quote ("金句") ────────────────────────────────────────────────
+
+  /**
+   * Pull one random WeRead highlight and drop it into the input.
+   *
+   * Repeat clicks *replace* the previously inserted quote, so the button reads
+   * as "roll again". As soon as the user edits the textarea, quotes are
+   * inserted at the caret instead and their own text is never overwritten.
+   *
+   * @param sameBook draw another line from the book of the previous pick
+   *                 (Ctrl/Cmd+click). Falls back to a normal pick when there is
+   *                 no previous book, e.g. on the very first click.
+   */
+  private async insertRandomQuote(sameBook = false): Promise<void> {
+    if (this.quoteBusy) return;
+
+    const settings = this.plugin.settings;
+    if (settings.wereadApiKey.trim().length === 0) {
+      new Notice(t('quote.noApiKey'));
+      return;
+    }
+
+    const pluginDir = this.plugin.manifest.dir;
+    if (!pluginDir) {
+      new Notice(t('quote.failed', { msg: t('quote.noPluginDir') }));
+      return;
+    }
+
+    // Collapse the macOS Ctrl+click double gesture (contextmenu + click).
+    if (sameBook) {
+      const now = Date.now();
+      if (now - this.lastSameBookTrigger < 300) return;
+      this.lastSameBookTrigger = now;
+    }
+
+    const bookId = sameBook && this.lastQuoteBookId ? this.lastQuoteBookId : undefined;
+    const wantSameBook = bookId !== undefined;
+
+    // Keep the tooltip honest when the setting was toggled after the view opened.
+    this.quoteBtn.setAttr('title', settings.quoteSameBookReroll
+      ? t('capture.randomQuoteHint')
+      : t('capture.randomQuote'));
+
+    this.quoteBusy = true;
+    this.quoteBtn.addClass('is-loading');
+    try {
+      const quote = await pickRandomQuote(
+        this.app,
+        pluginDir,
+        settings,
+        this.recentQuoteKeys,
+        { bookId },
+      );
+      if (!quote) {
+        new Notice(t(wantSameBook ? 'quote.sameBookEmpty' : 'quote.none'));
+        return;
+      }
+      this.lastQuoteBookId = quote.bookId;
+      this.recentQuoteKeys.push(quote.key);
+      if (this.recentQuoteKeys.length > 30) this.recentQuoteKeys.shift();
+      this.applyQuoteTag(settings);
+      this.insertQuoteText(formatQuoteInsertion(this.app, quote, settings));
+    } catch (err) {
+      console.error('[Journal Partner] random quote failed', err);
+      new Notice(t('quote.failed', { msg: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      this.quoteBusy = false;
+      this.quoteBtn.removeClass('is-loading');
+    }
+  }
+
+  /**
+   * Select the tag configured for reviewed quotes (`quoteTag`, e.g.
+   * `#log/reading`) so the entry lands tagged without typing it. The chip row
+   * above the textarea shows it, and `handleSubmit` prepends it like any other
+   * selected tag.
+   *
+   * This **replaces** the current selection — a reviewed quote is a reading
+   * entry, so the tags seeded from `defaultTags` (e.g. the daily
+   * `#log/thinking`) are dropped rather than stacked on top.
+   */
+  private applyQuoteTag(settings: JournalPartnerSettings): void {
+    const tag = normalizeTag(settings.quoteTag ?? '');
+    if (tag.length === 0) return;
+    if (this.selectedTags.length === 1 && this.selectedTags[0] === tag) return;
+    this.selectedTags = [tag];
+    this.refreshTagChips();
+  }
+
+  /**
+   * Replace the last inserted quote when it is still untouched, otherwise
+   * insert at the caret. `setRangeText` does not fire an `input` event, so the
+   * input listener's "user edited" reset is not triggered by our own insert.
+   */
+  private insertQuoteText(text: string): void {
+    const ta = this.textareaEl;
+    const previous = this.lastQuoteRange;
+    const untouched =
+      previous !== null && ta.value.slice(previous.from, previous.to) === previous.text;
+
+    if (untouched && previous) {
+      ta.setRangeText(text, previous.from, previous.to, 'end');
+      this.lastQuoteRange = { from: previous.from, to: previous.from + text.length, text };
+    } else {
+      const start = ta.selectionStart ?? ta.value.length;
+      const end = ta.selectionEnd ?? start;
+      ta.setRangeText(text, start, end, 'end');
+      this.lastQuoteRange = { from: start, to: start + text.length, text };
+    }
+
+    ta.focus();
+    this.refreshSubmitState();
+    this.autoResizeTextarea();
+  }
+
+  // ── Habits ──────────────────────────────────────────────────────────────
+
+  /** Create the pinned habit module (contents are painted by renderHabitBar). */
+  private buildHabitBar(root: HTMLElement): void {
+    this.habitBarEl = root.createDiv({ cls: 'jp-habit-bar' });
+    void this.renderHabitBar();
+  }
+
+  /** Today's parsed journal entries — the source of truth for habit state. */
+  private async readTodayEntries(): Promise<JournalEntry[]> {
+    try {
+      const file = getDailyNote(moment(), getAllDailyNotes());
+      if (!file) return [];
+      const content = await this.app.vault.cachedRead(file);
+      const section = findSection(
+        content,
+        this.plugin.settings.targetHeading,
+        this.plugin.settings.headingLevel,
+      );
+      if (!section) return [];
+      return parseJournalEntries(
+        content.slice(section.from, section.to),
+        this.plugin.settings.timestampPattern,
+      );
+    } catch (err) {
+      console.error('[Journal Partner] habit read failed', err);
+      return [];
+    }
+  }
+
+  /**
+   * Repaint the pinned module from today's checkbox tasks. Completion is never
+   * cached here: the journal checkbox is the single source of truth, so ticking
+   * the box in the editor or in the timeline keeps this in sync automatically.
+   */
+  private async renderHabitBar(): Promise<void> {
+    if (!this.habitBarEl) return;
+    const habits = (this.plugin.settings.habits ?? []).filter(isHabitUsable);
+    this.habitBarEl.empty();
+    if (habits.length === 0) {
+      this.habitBarEl.hide();
+      return;
+    }
+    this.habitBarEl.show();
+
+    const entries = await this.readTodayEntries();
+
+    this.habitBarEl.createDiv({
+      cls: 'jp-habit-count',
+      text: habitProgress(entries, habits),
+    });
+
+    for (const habit of habits) {
+      const done = isHabitDone(entries, habit);
+      const btn = this.habitBarEl.createEl('button', {
+        cls: done ? 'jp-habit-item is-done' : 'jp-habit-item',
+        attr: {
+          'aria-label': t(done ? 'habit.markUndone' : 'habit.markDone', { label: habit.label }),
+          title: habit.label,
+        },
+      });
+      const iconEl = btn.createSpan({ cls: 'jp-habit-icon' });
+      setIcon(iconEl, habit.icon || 'circle');
+      btn.createSpan({ cls: 'jp-habit-label', text: habit.label });
+      if (done) {
+        const tick = btn.createSpan({ cls: 'jp-habit-tick' });
+        setIcon(tick, 'check');
+      }
+      btn.addEventListener('click', runAsync(() => this.toggleHabit(habit)));
+    }
+  }
+
+  /** Debounced repaint — vault modifies fire in bursts. */
+  private scheduleHabitRefresh(): void {
+    if (this.habitRefreshTimer !== null) window.clearTimeout(this.habitRefreshTimer);
+    this.habitRefreshTimer = window.setTimeout(() => {
+      this.habitRefreshTimer = null;
+      void this.renderHabitBar();
+    }, 150);
+  }
+
+  /** Repaint immediately — called by the settings tab when habit config changes. */
+  public refreshHabitBarNow(): void {
+    void this.renderHabitBar();
+  }
+
+  /**
+   * Check the habit in, or undo it.
+   *
+   * - No entry today yet → append a completed task
+   *   (`- [x] HH:MM #log/habit 早起`) so a timeline node appears.
+   * - Entry exists → flip its checkbox in place, so repeated clicks don't pile
+   *   up duplicate nodes.
+   *
+   * The frontmatter mirror is optional and only touched when the habit has a
+   * property configured.
+   */
+  private async toggleHabit(habit: HabitConfig): Promise<void> {
+    if (!appHasDailyNotesPluginLoaded()) {
+      new Notice(t('notice.dailyNotesRequired'));
+      return;
+    }
+
+    try {
+      const entries = await this.readTodayEntries();
+      const entry = findHabitEntry(entries, habit);
+      const targetDone = entry?.completed !== true;
+
+      if (entry) {
+        const file = getDailyNote(moment(), getAllDailyNotes());
+        if (!file) return;
+        const content = await this.app.vault.read(file);
+        const next = toggleTaskInSection(
+          content,
+          this.plugin.settings,
+          entry.lineIndex,
+          targetDone,
+        );
+        await this.writeFileWithEditor(file, next);
+      } else {
+        const payload = habitTaskPayload(habit, true);
+        const ok = await this.plugin.writeToTodayJournal(payload);
+        if (!ok) return;
+      }
+
+      await this.applyHabitFrontmatter(habit, targetDone);
+      await this.renderHabitBar();
+    } catch (err) {
+      console.error('[Journal Partner] habit toggle failed', err);
+      new Notice(t('habit.failed', { msg: err instanceof Error ? err.message : String(err) }));
+    }
+  }
+
+  /**
+   * Write `newContent` to `file`, keeping an open editor in step.
+   *
+   * Mirrors what the timeline checkbox toggle does inline: when today's note is
+   * open, push the change through CodeMirror first so the visible buffer is not
+   * left stale, then persist. Without this, checking a habit while journaling
+   * would only show up after the editor reloads the file.
+   */
+  private async writeFileWithEditor(file: TFile, newContent: string): Promise<void> {
+    this.app.workspace.iterateAllLeaves(leaf => {
+      if (!(leaf.view instanceof MarkdownView)) return;
+      if (leaf.view.file?.path !== file.path) return;
+      const cm = (leaf.view.editor as unknown as { cm?: EditorView }).cm;
+      if (!cm) return;
+      cm.dispatch({ changes: { from: 0, to: cm.state.doc.length, insert: newContent } });
+    });
+    await this.app.vault.modify(file, newContent);
+  }
+
+  /**
+   * Mirror the check-in into today's frontmatter, if the habit configured a
+   * property. Uses Obsidian's `processFrontMatter` so the YAML is rewritten
+   * safely rather than by string surgery.
+   */
+  private async applyHabitFrontmatter(habit: HabitConfig, done: boolean): Promise<void> {
+    // Master switch off → check-ins never touch frontmatter, even for habits
+    // that still carry a property from when the switch was on.
+    if (!this.plugin.settings.habitMirrorFrontmatter) return;
+
+    const field = habit.field.trim();
+    if (field.length === 0) return;
+
+    const file = getDailyNote(moment(), getAllDailyNotes());
+    if (!file) return;
+
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+        // Boolean by design: checked → true, unchecked → false. Never a number,
+        // never a deleted key.
+        fm[field] = done;
+      });
+    } catch (err) {
+      console.error('[Journal Partner] habit frontmatter write failed', err);
+      new Notice(t('habit.frontmatterFailed', { field }));
+    }
   }
 
   /**
@@ -2772,6 +3140,8 @@ export class JournalCaptureView extends ItemView {
 
     // Then load the first batch of historical non-empty days.
     await this.loadMore();
+    // Habit state comes from today's journal, so repaint it with the rebuild.
+    void this.renderHabitBar();
     // Re-apply the active filter to freshly-rendered rows (in-DOM display
     // state is lost on rebuild).
     this.applyEntryFilter();
@@ -3054,6 +3424,10 @@ export class JournalCaptureView extends ItemView {
             // Show success feedback
             new Notice(entry.completed ? t('notice.taskDone') : t('notice.taskUndone'));
 
+            // A habit is "done" exactly when its timeline box is ticked, so keep
+            // the pinned module in step with this inline toggle.
+            this.scheduleHabitRefresh();
+
             // Clear the marking after a brief delay
             window.setTimeout(() => {
               this.taskModifyingFiles.delete(day.filePath);
@@ -3121,13 +3495,28 @@ export class JournalCaptureView extends ItemView {
   }
 
   /** Build a human-readable date label. */
+  /**
+   * Subtitle for a timeline list header.
+   *
+   * The wording depends on what the list actually is: the daily stream and the
+   * favorites list count *entries*, while search/tag results count *matches*.
+   * Both used to share one string, which is why the plain timeline showed
+   * "N matches" on days that were never searched.
+   */
+  private countLabel(count: number, variant: 'daily' | 'search'): string {
+    if (count === 0) return t('timeline.noMemos');
+    if (variant === 'search') return t('timeline.matches', { count });
+    return count === 1 ? t('timeline.oneEntry') : t('timeline.entries', { count });
+  }
+
   private formatDateHeader(d: moment.Moment, count: number): { title: string; subtitle: string } {
     const dateLabel = formatDate(d) + ` · ${weekdayShort(d.day())}`;
     const today = moment().startOf('day');
     const diff = d.diff(today, 'days');
     const relative = relativeDayLabel(diff);
     const title = dateLabel + relative;
-    const subtitle = count === 0 ? t('timeline.noMemos') : t('timeline.matches', { count });
+    // Daily wording — search results ignore this and build their own subtitle.
+    const subtitle = this.countLabel(count, 'daily');
     return { title, subtitle };
   }
 
@@ -3397,7 +3786,7 @@ export class JournalCaptureView extends ItemView {
     headerText.createDiv({ cls: 'jp-timeline-header-title', text: t('tab.favorites') });
     headerText.createDiv({
       cls: 'jp-timeline-header-sub',
-      text: t('timeline.matches', { count: survivors.length }),
+      text: this.countLabel(survivors.length, 'daily'),
     });
 
     for (const fav of survivors) {
@@ -4263,6 +4652,7 @@ export class JournalCaptureView extends ItemView {
       if (!ok) return;
 
       this.textareaEl.value = '';
+      this.lastQuoteRange = null;
       this.resetSelectedTags();
       // Free object URLs for any deferred local images (already saved above).
       for (const img of this.pendingImages) {

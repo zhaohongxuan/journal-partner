@@ -60,6 +60,27 @@ export interface JournalPartnerSettings {
   mobileOpenInSidebar: boolean;
   /** User-favorited journal entries, newest favorited first. */
   favorites: FavoriteEntry[];
+  /** WeRead official agent-gateway API key (`wrk-…`). Empty disables the random-quote button. */
+  wereadApiKey: string;
+  /** Give my highlights that are also popular highlights a higher sampling weight. Others' highlights are never inserted. */
+  quoteBoostPopular: boolean;
+  /** Extra sampling weight for a popular line (a plain highlight weighs 1; a popular one weighs 1 + this). */
+  quotePopularWeight: number;
+  /** Books with fewer highlights than this are skipped when picking a book. */
+  quoteMinBookHighlights: number;
+  /** Ctrl/Cmd+click the quote button to draw another line from the same book. */
+  quoteSameBookReroll: boolean;
+  /** Tag auto-selected when a random quote is inserted, e.g. `#log/reading`. Empty = none. */
+  quoteTag: string;
+  /** Template used when inserting a quote. Placeholders: {quote} {title} {author} {chapter} {date} {time} {link} {count}. */
+  quoteTemplate: string;
+  /** Habits pinned to the top of the capture timeline. Empty = the module is hidden. */
+  habits: HabitConfig[];
+  /**
+   * Master switch for the frontmatter mirror. Off (default) = check-ins never
+   * touch frontmatter and the per-habit property inputs are hidden.
+   */
+  habitMirrorFrontmatter: boolean;
 }
 
 export const DEFAULT_SETTINGS: JournalPartnerSettings = {
@@ -87,9 +108,38 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   language: 'en',
   mobileOpenInSidebar: false,
   favorites: [],
+  wereadApiKey: '',
+  quoteBoostPopular: true,
+  quotePopularWeight: 3,
+  quoteMinBookHighlights: 10,
+  quoteSameBookReroll: true,
+  // Empty by default: a plugin must not silently tag every user's entries.
+  quoteTag: '',
+  quoteTemplate: '“{quote}” —— {author}《{link}》 {date}',
+  // Habits are opt-in — with none configured the module stays hidden. Each
+  // habit carries its own optional check-in tag.
+  habits: [],
+  // Off by default: writing to a daily note's frontmatter is opt-in.
+  habitMirrorFrontmatter: false,
 };
 
 export type Rng = { from: number; to: number };
+
+/** Tag charset shared by `extractTags` and `normalizeTag`: Obsidian accepts
+ *  Unicode letters, digits, `_`, `-` and `/` inside a tag. */
+const TAG_CHARSET_RE = /^[\p{L}\p{N}_/-]+$/u;
+
+/**
+ * Normalise a user-entered tag into its canonical `#tag` form.
+ * Accepts `log/reading`, `#log/reading`, ` #log/reading ` and returns
+ * `#log/reading`. Returns `''` when the input cannot be a valid Obsidian tag
+ * (empty, spaces, punctuation such as `#log reading`).
+ */
+export function normalizeTag(raw: string): string {
+  const body = raw.trim().replace(/^#+/, '').trim();
+  if (body.length === 0 || !TAG_CHARSET_RE.test(body)) return '';
+  return `#${body}`;
+}
 
 /**
  * Extract Obsidian hashtag tokens from entry text. Matches `#tag`,
@@ -144,6 +194,25 @@ export interface FavoriteEntry {
   text: string;
   /** Epoch ms when favorited — used to order the list (newest first). */
   favoritedAt: number;
+}
+
+/**
+ * One habit pinned to the top of the capture timeline.
+ *
+ * Completion state is NOT stored here — it is read from today's journal
+ * checkbox task (`- [x] HH:MM #log/habit 早起`). See `habits.ts`.
+ */
+export interface HabitConfig {
+  /** Stable id, used as the DOM key. */
+  id: string;
+  /** Display name; also the text written into the journal entry. */
+  label: string;
+  /** Lucide icon name (see `HABIT_ICON_CHOICES`). */
+  icon: string;
+  /** Optional frontmatter property to mirror the state into. '' = leave frontmatter alone. */
+  field: string;
+  /** Tag added to this habit's check-in entry, e.g. `#log/habit`. '' = no tag. */
+  tag: string;
 }
 
 // ── Section detection ──────────────────────────────────────────────────────

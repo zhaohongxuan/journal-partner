@@ -1,9 +1,9 @@
 {
   "id": "journal-partner",
   "name": "Journal Partner",
-  "version": "2.20.1",
+  "version": "2.21.0",
   "minAppVersion": "1.7.2",
-  "description": "Highlight timestamps in your Journal section, capture quick notes, images, and audio from a sidebar, dictate with real-time speech-to-text, review your year with a heatmap, and organize tasks with TODO support.",
+  "description": "Highlight timestamps in your Journal section, capture quick notes, images, and audio from a sidebar, dictate with real-time speech-to-text, recall random highlights from WeRead, check in daily habits, review your year with a heatmap, and organize tasks with TODO support.",
   "author": "hankzhao",
   "authorUrl": "https://github.com/zhaohongxuan",
   "isDesktopOnly": false
