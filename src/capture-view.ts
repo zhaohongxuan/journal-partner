@@ -817,7 +817,7 @@ export class JournalCaptureView extends ItemView {
     const headerCard = headerRow.createDiv({ cls: 'jp-timeline-header-card' });
     const headerText = headerCard.createDiv({ cls: 'jp-timeline-header-text' });
     headerText.createDiv({ cls: 'jp-timeline-header-title', text: headerLabel.title });
-    headerText.createDiv({ cls: 'jp-timeline-header-sub', text: t('timeline.matches', { count: entries.length }) });
+    headerText.createDiv({ cls: 'jp-timeline-header-sub', text: this.countLabel(entries.length, 'search') });
     this.addOpenNoteBtn(headerCard, day);
 
     const sourcePath = day.filePath ?? '';
@@ -3293,13 +3293,28 @@ export class JournalCaptureView extends ItemView {
   }
 
   /** Build a human-readable date label. */
+  /**
+   * Subtitle for a timeline list header.
+   *
+   * The wording depends on what the list actually is: the daily stream and the
+   * favorites list count *entries*, while search/tag results count *matches*.
+   * Both used to share one string, which is why the plain timeline showed
+   * "N matches" on days that were never searched.
+   */
+  private countLabel(count: number, variant: 'daily' | 'search'): string {
+    if (count === 0) return t('timeline.noMemos');
+    if (variant === 'search') return t('timeline.matches', { count });
+    return count === 1 ? t('timeline.oneEntry') : t('timeline.entries', { count });
+  }
+
   private formatDateHeader(d: moment.Moment, count: number): { title: string; subtitle: string } {
     const dateLabel = formatDate(d) + ` · ${weekdayShort(d.day())}`;
     const today = moment().startOf('day');
     const diff = d.diff(today, 'days');
     const relative = relativeDayLabel(diff);
     const title = dateLabel + relative;
-    const subtitle = count === 0 ? t('timeline.noMemos') : t('timeline.matches', { count });
+    // Daily wording — search results ignore this and build their own subtitle.
+    const subtitle = this.countLabel(count, 'daily');
     return { title, subtitle };
   }
 
@@ -3569,7 +3584,7 @@ export class JournalCaptureView extends ItemView {
     headerText.createDiv({ cls: 'jp-timeline-header-title', text: t('tab.favorites') });
     headerText.createDiv({
       cls: 'jp-timeline-header-sub',
-      text: t('timeline.matches', { count: survivors.length }),
+      text: this.countLabel(survivors.length, 'daily'),
     });
 
     for (const fav of survivors) {
