@@ -187,6 +187,55 @@
 .jp-capture-input::placeholder {
   color: var(--text-faint);
 }
+
+/* Embedded Live Preview editor (Obsidian's own CM6 Markdown editor). The
+   textarea rules above set the box (height limits, font); these reset what
+   the note editor brings with it: full-height flex layout, file margins,
+   readable line width, gutters. */
+.jp-capture-editor {
+  height: auto;
+  cursor: text;
+}
+.jp-capture-editor .markdown-source-view.mod-cm6 {
+  height: auto;
+}
+.jp-capture-editor .cm-editor {
+  min-height: 60px;
+  max-height: 240px;
+  background: transparent;
+}
+.jp-capture-editor .cm-editor.cm-focused {
+  outline: none;
+}
+.jp-capture-editor .cm-scroller {
+  padding: 0 !important;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-y: auto;
+}
+.jp-capture-editor .cm-sizer {
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: 60px;
+}
+.jp-capture-editor .cm-content {
+  padding: 0;
+}
+.jp-capture-editor .cm-gutters {
+  display: none;
+}
+.jp-capture-editor .cm-placeholder {
+  color: var(--text-faint);
+}
+/* Headings in a quick note shouldn't blow up the input box. */
+.jp-capture-editor .HyperMD-header {
+  font-size: 1.1em;
+}
+.is-mobile .jp-capture-editor .cm-content {
+  padding: 2px 4px;
+}
 .jp-capture-input-wrapper {
   position: relative;
 }

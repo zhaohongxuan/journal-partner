@@ -37,6 +37,8 @@ import {
 } from 'obsidian-daily-notes-interface';
 import type { EditorView } from '@codemirror/view';
 
+import { CaptureInput, createCaptureInput } from './capture-input';
+
 import {
   FavoriteEntry,
   HabitConfig,
@@ -188,7 +190,8 @@ export class JournalCaptureView extends ItemView {
   private inputCardEl!: HTMLElement;
   private timelineEl!: HTMLElement;
   private sentinelEl!: HTMLElement;
-  private textareaEl!: HTMLTextAreaElement;
+  /** Capture text input — embedded Live Preview editor (textarea fallback). */
+  private input!: CaptureInput;
   private submitBtn!: HTMLButtonElement;
   private taskBtn!: HTMLButtonElement;
   private isTaskMode = false;
@@ -213,9 +216,6 @@ export class JournalCaptureView extends ItemView {
   // appended at the END of the text on submit.
   private pendingImages: PendingImage[] = [];
   private pendingImagesRowEl!: HTMLElement;
-  /** True while we're mutating textarea.value during image extraction — guards
-   *  against the synchronous `input` event re-entering extractImageLinksFromText. */
-  private extractingImages = false;
   /** Dedupe keys for images already in the pending strip: `r:<url>` remote, `l:<path>` local. */
   private knownImageUrls = new Set<string>();
 
@@ -921,81 +921,44 @@ export class JournalCaptureView extends ItemView {
     this.buildTagPickerItems();
     this.tagPickerEl.hide();
 
-    this.textareaEl = inputWrapper.createEl('textarea', {
-      cls: 'jp-capture-input',
-      attr: {
-        placeholder: t('capture.placeholder'),
-        rows: '3',
-      },
+    this.input = createCaptureInput(this.app, inputWrapper, this, {
+      placeholder: t('capture.placeholder'),
+      submitShortcut: () => this.plugin.settings.submitShortcut,
+      onSubmit: () => { void this.handleSubmit(); },
+      onChange: userEdit => this.onInputChanged(userEdit),
     });
 
-    // Pending-image strip — below the textarea, shows thumbnails of images
-    // attached to the entry (links stay out of the textarea).
+    // Pending-image strip — below the input, shows thumbnails of images
+    // attached to the entry (links stay out of the text).
     this.pendingImagesRowEl = inputWrapper.createDiv({ cls: 'jp-pending-images' });
     this.refreshPendingImages();
 
-    this.textareaEl.addEventListener('input', () => {
-      // github-image-uploader inserts markdown image links by setting
-      // textarea.value directly and dispatching a bubbling `input` event.
-      // We listen for that here and pull any image link out of the text into
-      // the pending-image strip — the two plugins stay fully decoupled.
-      if (!this.extractingImages) this.extractImageLinksFromText();
-      // Any manual edit invalidates the "roll again replaces it" range.
-      this.lastQuoteRange = null;
-      this.refreshSubmitState();
-      this.autoResizeTextarea();
-      this.updateAutocompleteSuggestions();
-    });
-    // Configurable shortcut to submit (default Shift+Enter).
-    this.textareaEl.addEventListener('keydown', evt => {
-      // Handle autocomplete navigation first
-      if (this.autocompleteActive) {
-        if (evt.key === 'ArrowUp') {
-          evt.preventDefault();
-          this.navigateSuggestions('up');
-          return;
-        } else if (evt.key === 'ArrowDown') {
-          evt.preventDefault();
-          this.navigateSuggestions('down');
-          return;
-        } else if (evt.key === 'Enter') {
-          evt.preventDefault();
-          this.selectCurrentSuggestion();
-          return;
-        } else if (evt.key === 'Escape') {
-          evt.preventDefault();
-          this.hideAutocompletePopup();
-          return;
-        }
-      }
-
-      if (evt.key !== 'Enter' || evt.isComposing) return;
-      const shortcut = this.plugin.settings.submitShortcut;
-      const matches =
-        (shortcut.includes('shift') ? evt.shiftKey : !evt.shiftKey) &&
-        (shortcut.includes('ctrl') ? evt.ctrlKey : !evt.ctrlKey) &&
-        (shortcut.includes('alt') ? evt.altKey : !evt.altKey);
-      if (matches) {
+    // Our own suggestion popup (`@` file mentions; also `[[`/`#` when the
+    // textarea fallback is in use). Capture phase so arrow/Enter/Escape are
+    // handled before the editor moves the cursor or inserts a newline.
+    inputWrapper.addEventListener('keydown', evt => {
+      if (!this.autocompleteActive || evt.isComposing) return;
+      let handled = true;
+      if (evt.key === 'ArrowUp') this.navigateSuggestions('up');
+      else if (evt.key === 'ArrowDown') this.navigateSuggestions('down');
+      else if (evt.key === 'Enter' || evt.key === 'Tab') this.selectCurrentSuggestion();
+      else if (evt.key === 'Escape') this.hideAutocompletePopup();
+      else handled = false;
+      if (handled) {
         evt.preventDefault();
-        void this.handleSubmit();
+        evt.stopPropagation();
       }
-    });
+    }, true);
     // Image paste — handled by github-image-uploader when it's installed and
     // enabled: its document CAPTURE-phase listener runs first and calls
-    // stopImmediatePropagation, so this bubble-phase listener below never
-    // fires. Without the uploader we fall back to staging the pasted image
-    // locally (saved to the vault at submit time).
+    // stopImmediatePropagation, so this listener never fires. Without the
+    // uploader we fall back to staging the pasted image locally (saved to the
+    // vault at submit time).
     //
-    // Listen on the view's own document (containerEl.ownerDocument) rather than
-    // the global `document`: when the view lives in a popout window its paste
-    // events fire in the popout's document, and the main-window `document`
-    // never sees them.
-    const ownDoc = this.containerEl.ownerDocument;
-    this.registerDomEvent(ownDoc, 'paste', (evt: ClipboardEvent) => {
-      // Only intercept when focus is inside our textarea. `activeElement`
-      // belongs to the same window as the paste event (ownDoc), not the main
-      // window's `document`.
-      if (!this.inputCardEl.contains(ownDoc.activeElement)) return;
+    // Capture phase on the input itself: the embedded editor's own paste
+    // handler would otherwise save the image as a vault attachment right away.
+    // An element listener also works when the view lives in a popout window.
+    this.registerDomEvent(this.input.el, 'paste', (evt: ClipboardEvent) => {
       const items = evt.clipboardData?.items;
       if (!items) return;
       for (const item of Array.from(items)) {
@@ -1014,9 +977,10 @@ export class JournalCaptureView extends ItemView {
         })();
         return;
       }
-    });
+    }, { capture: true });
     // Image drag & drop is not supported — tell the user to paste instead.
-    this.textareaEl.addEventListener('drop', runAsync(async (e: DragEvent) => {
+    // Capture phase so the editor doesn't import dropped files itself.
+    this.registerDomEvent(this.input.el, 'drop', (e: DragEvent) => {
       const files = e.dataTransfer?.files;
       if (!files) return;
       for (const file of Array.from(files)) {
@@ -1026,10 +990,10 @@ export class JournalCaptureView extends ItemView {
         new Notice(t('notice.imageNoDrag'));
         return;
       }
-    }));
-    this.textareaEl.addEventListener('dragover', (e) => {
+    }, { capture: true });
+    this.registerDomEvent(this.input.el, 'dragover', (e: DragEvent) => {
       if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
-    }, true);
+    }, { capture: true });
 
     // Autocomplete popup
     this.autocompletePopupEl = inputWrapper.createDiv({ cls: 'jp-autocomplete-popup' });
@@ -1245,15 +1209,10 @@ export class JournalCaptureView extends ItemView {
     // Append streamed text right after the streaming cursor, keeping the
     // caret at the end so the next chunk lands next to it.
     const appendStreamedText = (text: string) => {
-      const ta = this.textareaEl;
-      const pos = realtimeBaseCursor;
-      const before = ta.value.substring(0, pos);
-      const after = ta.value.substring(pos);
-      ta.value = before + text + after;
+      // Clamp: the user may have deleted text while dictation was running.
+      const pos = Math.min(realtimeBaseCursor, this.input.getValue().length);
+      this.input.replaceRange(text, pos, pos);
       realtimeBaseCursor = pos + text.length;
-      ta.setSelectionRange(realtimeBaseCursor, realtimeBaseCursor);
-      this.refreshSubmitState();
-      this.autoResizeTextarea();
     };
 
     // Encode captured Float32 PCM frames into a standalone 16-bit PCM WAV
@@ -1364,17 +1323,8 @@ export class JournalCaptureView extends ItemView {
     };
 
     const insertAtCursor = (text: string) => {
-      const textarea = this.textareaEl;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const before = textarea.value.substring(0, start);
-      const after = textarea.value.substring(end);
-      const piece = text + ' ';
-      textarea.value = before + piece + after;
-      const newPos = start + piece.length;
-      textarea.setSelectionRange(newPos, newPos);
-      this.refreshSubmitState();
-      this.autoResizeTextarea();
+      const { from, to } = this.input.getSelection();
+      this.input.replaceRange(text + ' ', from, to);
     };
 
     const startRecording = async () => {
@@ -1471,7 +1421,7 @@ export class JournalCaptureView extends ItemView {
           // Realtime capture: tap the same source via a ScriptProcessor and
           // segment by voice activity (silence boundaries) for transcription.
           if (realtimeActive) {
-            realtimeRegionStart = this.textareaEl.selectionStart;
+            realtimeRegionStart = this.input.getSelection().from;
             realtimeBaseCursor = realtimeRegionStart;
             lastTranscript = '';
             segmentFrames = [];
@@ -1585,6 +1535,9 @@ export class JournalCaptureView extends ItemView {
     });
     setIcon(imageBtn, 'image');
     imageBtn.addEventListener('click', () => {
+      // Point workspace.activeEditor at the capture box so an uploader that
+      // inserts via the editor API writes here, not into the open note.
+      this.input.markActive();
       imageFileInput.click();
     });
 
@@ -1763,28 +1716,25 @@ export class JournalCaptureView extends ItemView {
 
   /**
    * Replace the last inserted quote when it is still untouched, otherwise
-   * insert at the caret. `setRangeText` does not fire an `input` event, so the
-   * input listener's "user edited" reset is not triggered by our own insert.
+   * insert at the caret. Writes through the input adapter report
+   * `userEdit=false`, so they don't trigger the "user edited" reset.
    */
   private insertQuoteText(text: string): void {
-    const ta = this.textareaEl;
+    const value = this.input.getValue();
     const previous = this.lastQuoteRange;
     const untouched =
-      previous !== null && ta.value.slice(previous.from, previous.to) === previous.text;
+      previous !== null && value.slice(previous.from, previous.to) === previous.text;
 
     if (untouched && previous) {
-      ta.setRangeText(text, previous.from, previous.to, 'end');
+      this.input.replaceRange(text, previous.from, previous.to);
       this.lastQuoteRange = { from: previous.from, to: previous.from + text.length, text };
     } else {
-      const start = ta.selectionStart ?? ta.value.length;
-      const end = ta.selectionEnd ?? start;
-      ta.setRangeText(text, start, end, 'end');
-      this.lastQuoteRange = { from: start, to: start + text.length, text };
+      const { from, to } = this.input.getSelection();
+      this.input.replaceRange(text, from, to);
+      this.lastQuoteRange = { from, to: from + text.length, text };
     }
 
-    ta.focus();
-    this.refreshSubmitState();
-    this.autoResizeTextarea();
+    this.input.focus();
   }
 
   // ── Habits ──────────────────────────────────────────────────────────────
@@ -2176,8 +2126,7 @@ export class JournalCaptureView extends ItemView {
    * reads what's in the textarea. Two plugins stay independent.
    */
   private extractImageLinksFromText(): void {
-    const ta = this.textareaEl;
-    const value = ta.value;
+    const value = this.input.getValue();
     if (value.length === 0) return;
 
     const imageExt = '(?:png|jpe?g|gif|webp|svg|avif|bmp|ico)';
@@ -2241,17 +2190,10 @@ export class JournalCaptureView extends ItemView {
     }
     cleaned += value.slice(cursor);
 
-    // Rewrite the textarea and push the cursor to the end. Guard against the
-    // synchronous `input` event re-entering this method.
-    this.extractingImages = true;
-    ta.value = cleaned;
-    const len = ta.value.length;
-    ta.setSelectionRange(len, len);
-    this.extractingImages = false;
-
-    this.autoResizeTextarea();
+    // Rewrite the text and push the cursor to the end. The adapter reports
+    // this as a non-user edit, so onInputChanged won't re-enter this method.
+    this.input.setValue(cleaned);
     this.refreshPendingImages();
-    this.refreshSubmitState();
   }
 
   /**
@@ -2888,7 +2830,7 @@ export class JournalCaptureView extends ItemView {
   private refreshSubmitState() {
     // A pending image alone makes the entry submittable (image-only entry).
     const hasContent =
-      this.textareaEl.value.trim().length > 0 || this.pendingImages.length > 0;
+      this.input.getValue().trim().length > 0 || this.pendingImages.length > 0;
     this.submitBtn.toggleClass('jp-capture-submit--disabled', !hasContent);
     this.submitBtn.disabled = !hasContent;
   }
@@ -3053,7 +2995,7 @@ export class JournalCaptureView extends ItemView {
           console.error(`[Journal Partner] trash audio failed: ${path}`, err);
         }
       }
-      this.textareaEl.value = '';
+      this.input.clear();
       // Clear pending images too — a cleared draft shouldn't carry them.
       for (const img of this.pendingImages) {
         if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
@@ -3062,7 +3004,6 @@ export class JournalCaptureView extends ItemView {
       this.knownImageUrls.clear();
       this.refreshPendingImages();
       this.refreshSubmitState();
-      this.autoResizeTextarea();
       new Notice(
         audioPaths.length > 0
           ? t('notice.clearedWithTrash', { trashed, total: audioPaths.length })
@@ -3073,10 +3014,21 @@ export class JournalCaptureView extends ItemView {
     modal.open();
   }
 
-  private autoResizeTextarea() {
-    this.textareaEl.setCssProps({ height: 'auto' });
-    const next = Math.min(this.textareaEl.scrollHeight, 240);
-    this.textareaEl.setCssProps({ height: `${next}px` });
+  /**
+   * Runs after every change to the capture input (typing, paste, our own
+   * inserts). github-image-uploader / Obsidian may drop image links straight
+   * into the text — pull them into the pending strip so the two stay decoupled.
+   */
+  private onInputChanged(userEdit: boolean) {
+    if (userEdit) {
+      this.extractImageLinksFromText();
+      // Any manual edit invalidates the "roll again replaces it" range.
+      this.lastQuoteRange = null;
+      this.updateAutocompleteSuggestions();
+    } else {
+      this.hideAutocompletePopup();
+    }
+    this.refreshSubmitState();
   }
 
   private scheduleFullRebuild() {
@@ -4270,11 +4222,11 @@ export class JournalCaptureView extends ItemView {
     // Mobile keyboard: when the input gains focus the on-screen keyboard
     // covers the bottom of the viewport, so hide the dock. Restore it on blur
     // (unless we're scrolled down — the scroll handler takes over again).
-    if (Platform.isMobile && this.textareaEl) {
-      this.registerDomEvent(this.textareaEl, 'focusin', () => {
+    if (Platform.isMobile && this.input) {
+      this.registerDomEvent(this.input.el, 'focusin', () => {
         this.tabBarEl?.toggleClass('jp-tab-bar-hidden', true);
       });
-      this.registerDomEvent(this.textareaEl, 'focusout', () => {
+      this.registerDomEvent(this.input.el, 'focusout', () => {
         const atTop = (this.containerEl.children[1] as HTMLElement)?.scrollTop <= 8;
         this.tabBarEl?.toggleClass('jp-tab-bar-hidden', !atTop);
       });
@@ -4599,7 +4551,7 @@ export class JournalCaptureView extends ItemView {
   // ── Submit / write path ─────────────────────────────────────────────────
 
   private async handleSubmit(): Promise<void> {
-    const raw = this.textareaEl.value;
+    const raw = this.input.getValue();
     // An entry needs text, a selected tag, or pending images — any one makes
     // it a valid entry (e.g. a pure image or a note that's just `#log/code`).
     if (raw.trim().length === 0 && this.selectedTags.length === 0 && this.pendingImages.length === 0) return;
@@ -4651,7 +4603,7 @@ export class JournalCaptureView extends ItemView {
       );
       if (!ok) return;
 
-      this.textareaEl.value = '';
+      this.input.clear();
       this.lastQuoteRange = null;
       this.resetSelectedTags();
       // Free object URLs for any deferred local images (already saved above).
@@ -4661,7 +4613,6 @@ export class JournalCaptureView extends ItemView {
       this.pendingImages = [];
       this.knownImageUrls.clear();
       this.refreshPendingImages();
-      this.autoResizeTextarea();
 
       // vault.modify will catch-up the today section automatically; if
       // today's section wasn't mounted (e.g. plugin just opened with no
@@ -4728,9 +4679,11 @@ export class JournalCaptureView extends ItemView {
    * For #: trigger unless it's a markdown heading (i.e., followed by space at line start)
    */
   private getTriggerInfo(): { type: '@' | '#' | '[['; query: string; pos: number } | null {
-    const textarea = this.textareaEl;
-    const cursorPos = textarea.selectionStart;
-    const text = textarea.value;
+    const cursorPos = this.input.getSelection().from;
+    const text = this.input.getValue();
+    // The embedded editor runs Obsidian's own `[[` / `#` suggesters — only
+    // handle those ourselves in the textarea fallback.
+    const native = this.input.nativeSuggest;
 
     // Scan backwards to find @, #, or [[
     for (let i = cursorPos - 1; i >= 0; i--) {
@@ -4739,6 +4692,7 @@ export class JournalCaptureView extends ItemView {
 
       // Check for [[ trigger
       if (char === '[' && nextChar === '[') {
+        if (native) break;
         // [[ can trigger anywhere for file mention
         const rawQuery = text.slice(i + 2, cursorPos);
         // Only trigger if no ] closes the bracket yet and no spaces
@@ -4755,6 +4709,7 @@ export class JournalCaptureView extends ItemView {
         }
         break;
       } else if (char === '#') {
+        if (native) break;
         // Check if this is a markdown heading: "# " at line start
         // Only skip if: it's at line start AND immediately followed by space
         const lineStart = text.lastIndexOf('\n', i) + 1;
@@ -4969,12 +4924,11 @@ export class JournalCaptureView extends ItemView {
    * Replace the trigger + query with the formatted suggestion.
    */
   private insertSuggestion(suggestion: string, type: '@' | '#'): void {
-    const textarea = this.textareaEl;
     const trigger = this.getTriggerInfo();
     if (!trigger) return;
 
     const startPos = trigger.pos;
-    const endPos = textarea.selectionStart;
+    const endPos = this.input.getSelection().from;
 
     // Replace @query or #query with the suggestion
     let replacement = '';
@@ -4984,20 +4938,9 @@ export class JournalCaptureView extends ItemView {
       replacement = `#${suggestion}`;
     }
 
-    const before = textarea.value.substring(0, startPos);
-    const after = textarea.value.substring(endPos);
-    textarea.value = before + replacement + ' ' + after;
-
-    // Move cursor after the inserted suggestion + space
-    const newPos = startPos + replacement.length + 1;
-    textarea.setSelectionRange(newPos, newPos);
-
+    this.input.replaceRange(replacement + ' ', startPos, endPos);
     this.hideAutocompletePopup();
-    this.refreshSubmitState();
-    this.autoResizeTextarea();
-
-    // Focus back on textarea
-    textarea.focus();
+    this.input.focus();
   }
 }
 
