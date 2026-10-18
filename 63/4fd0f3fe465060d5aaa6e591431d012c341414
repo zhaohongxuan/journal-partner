@@ -1,0 +1,41 @@
+src/capture-view.ts
+  s_edb45c8c93c56b::t_8c38f16117359b 1212-1214,1326-1327,1424
+  s_edb45c8c93c56b::t_e6e31056050b27 40-41,193-194
+  s_edb45c8c93c56b::t_a2645c77c4f83e 2129,2193-2195
+  s_edb45c8c93c56b::t_27d5e05c827478 1719-1720,1723,1726,1729,1732-1734,1737
+  s_edb45c8c93c56b::t_04958f8156ca7f 954-956,958-961,980,982-983,993-994,996
+  s_edb45c8c93c56b::t_4c1f92d1376805 2833,2998,3017-3031,4225-4226,4229,4554,4606
+  s_edb45c8c93c56b::t_b7949d41cfe995 924-928,931-932,936-947,949,951
+  s_edb45c8c93c56b::t_509ded15c283ea 1538-1540
+  s_edb45c8c93c56b::t_3bb4c56ad4cc1a 4682-4686,4695,4712,4931,4941,4943
+src/capture-input.ts
+  s_edb45c8c93c56b::t_6a3989617912ea 37-39
+  s_edb45c8c93c56b::t_23046fe212f32d 45-46
+  s_edb45c8c93c56b::t_9cb1eb4c1d738b 169-199,201-211,213-233,235-296,304-343,346-366,368-437
+  s_edb45c8c93c56b::t_e59bac410fc97c 1-15,27-36,40-44,47-52,55-168
+  s_edb45c8c93c56b::t_90ad4564407eb0 16-18,20-25
+  s_edb45c8c93c56b::t_580420acbf76a8 19,26
+  s_edb45c8c93c56b::t_07e8a9f0fa59e8 53-54
+  s_edb45c8c93c56b::t_e8431b5a658313 212,234,297-303
+  s_edb45c8c93c56b::t_40e6119e9805c8 344-345
+  s_edb45c8c93c56b::t_bed2225713fd88 200
+  s_edb45c8c93c56b::t_29dd57f9d479fd 367
+styles.css
+  s_edb45c8c93c56b::t_fb83ddab2ddc1d 190-238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.50-trip",
+  "base_commit_sha": "634fd0f3fe465060d5aaa6e591431d012c341414",
+  "prompts": {},
+  "sessions": {
+    "s_edb45c8c93c56b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0d8cfb7b-2e15-426f-8d1a-20995005e188",
+        "model": "claude-opus-5.5"
+      },
+      "human_author": "zhaohongxuan <hxzhenu@gmail.com>"
+    }
+  }
+}
