@@ -52,6 +52,7 @@ import {
   getTimestampRanges,
 } from './section';
 import { CAPTURE_VIEW_TYPE, JournalCaptureView } from './capture-view';
+import { MentionSuggest } from './mention-suggest';
 import { HABIT_ICON_CHOICES, makeHabit } from './habits';
 import { clearQuoteMemo } from './quotes';
 import { setLanguage, t } from './i18n';
@@ -70,6 +71,8 @@ export default class JournalPartnerPlugin extends Plugin {
     await this.loadSettings();
     this.applyCSSVariables();
     this.registerEditorExtension(this.createEditorExtensions());
+    // `@` file mentions in the capture box, same behaviour as `[[`.
+    this.registerEditorSuggest(new MentionSuggest(this.app));
     this.registerMarkdownPostProcessor((el, ctx) => this.postProcessor(el, ctx));
     this.addSettingTab(new JournalPartnerSettingTab(this.app, this));
 

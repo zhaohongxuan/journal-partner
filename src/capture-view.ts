@@ -933,9 +933,9 @@ export class JournalCaptureView extends ItemView {
     this.pendingImagesRowEl = inputWrapper.createDiv({ cls: 'jp-pending-images' });
     this.refreshPendingImages();
 
-    // Our own suggestion popup (`@` file mentions; also `[[`/`#` when the
-    // textarea fallback is in use). Capture phase so arrow/Enter/Escape are
-    // handled before the editor moves the cursor or inserts a newline.
+    // Our own suggestion popup — only used by the textarea fallback (the
+    // embedded editor uses Obsidian's suggesters + MentionSuggest). Capture
+    // phase so arrow/Enter/Escape are handled before the input sees them.
     inputWrapper.addEventListener('keydown', evt => {
       if (!this.autocompleteActive || evt.isComposing) return;
       let handled = true;
@@ -4681,9 +4681,9 @@ export class JournalCaptureView extends ItemView {
   private getTriggerInfo(): { type: '@' | '#' | '[['; query: string; pos: number } | null {
     const cursorPos = this.input.getSelection().from;
     const text = this.input.getValue();
-    // The embedded editor runs Obsidian's own `[[` / `#` suggesters — only
-    // handle those ourselves in the textarea fallback.
-    const native = this.input.nativeSuggest;
+    // The embedded editor gets `[[` / `#` from Obsidian and `@` from
+    // MentionSuggest — this popup only serves the textarea fallback.
+    if (this.input.nativeSuggest) return null;
 
     // Scan backwards to find @, #, or [[
     for (let i = cursorPos - 1; i >= 0; i--) {
@@ -4692,7 +4692,6 @@ export class JournalCaptureView extends ItemView {
 
       // Check for [[ trigger
       if (char === '[' && nextChar === '[') {
-        if (native) break;
         // [[ can trigger anywhere for file mention
         const rawQuery = text.slice(i + 2, cursorPos);
         // Only trigger if no ] closes the bracket yet and no spaces
@@ -4709,7 +4708,6 @@ export class JournalCaptureView extends ItemView {
         }
         break;
       } else if (char === '#') {
-        if (native) break;
         // Check if this is a markdown heading: "# " at line start
         // Only skip if: it's at line start AND immediately followed by space
         const lineStart = text.lastIndexOf('\n', i) + 1;
