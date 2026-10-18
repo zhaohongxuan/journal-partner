@@ -60,6 +60,8 @@ export interface JournalPartnerSettings {
   mobileOpenInSidebar: boolean;
   /** User-favorited journal entries, newest favorited first. */
   favorites: FavoriteEntry[];
+  /** Show the random-quote (WeRead highlight) button in the capture input. */
+  quoteEnabled: boolean;
   /** WeRead official agent-gateway API key (`wrk-…`). Empty disables the random-quote button. */
   wereadApiKey: string;
   /** Give my highlights that are also popular highlights a higher sampling weight. Others' highlights are never inserted. */
@@ -108,6 +110,8 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   language: 'en',
   mobileOpenInSidebar: false,
   favorites: [],
+  // Opt-in: the button is useless without a WeRead API key.
+  quoteEnabled: false,
   wereadApiKey: '',
   quoteBoostPopular: true,
   quotePopularWeight: 3,

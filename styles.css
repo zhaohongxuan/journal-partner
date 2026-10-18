@@ -561,6 +561,10 @@
   50% { opacity: 0.5; }
 }
 /* Random-quote button: pulsing hint while a highlight is being fetched. */
+/* Quote button switched off in settings (overrides the !important display above). */
+.jp-capture-quote-btn.jp-hidden {
+  display: none !important;
+}
 .jp-capture-quote-btn.is-loading {
   color: var(--jp-tl-dot) !important;
   cursor: progress;

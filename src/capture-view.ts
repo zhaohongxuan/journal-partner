@@ -1506,6 +1506,7 @@ export class JournalCaptureView extends ItemView {
       },
     });
     setIcon(this.quoteBtn, 'book-open');
+    this.refreshQuoteButton();
     this.quoteBtn.addEventListener('click', (evt) => {
       evt.stopPropagation();
       const sameBook = this.plugin.settings.quoteSameBookReroll
@@ -1816,6 +1817,12 @@ export class JournalCaptureView extends ItemView {
       this.habitRefreshTimer = null;
       void this.renderHabitBar();
     }, 150);
+  }
+
+  /** Show the quote button only when the feature is enabled in settings. */
+  public refreshQuoteButton(): void {
+    // A class, not .toggle(): the button's display is set with !important.
+    this.quoteBtn?.toggleClass('jp-hidden', !this.plugin.settings.quoteEnabled);
   }
 
   /** Repaint immediately — called by the settings tab when habit config changes. */
