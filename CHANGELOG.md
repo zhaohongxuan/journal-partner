@@ -5,6 +5,39 @@ All notable changes to **Journal Partner** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.0] — 2026-10-07
+
+### Added
+
+- **随机回顾读书划线**：记录输入框左下角（标签按钮之后）新增书本图标，点一下从微信读书随机抽一条**自己划的线**插入输入框，连点换一条，`Ctrl/Cmd+点击`（macOS 上右键同效）从同一本书再抽。
+  - 数据源走**微信读书官方 agent gateway**（API Key），不依赖 weread 插件的同步结果；用到 `/user/notebooks`、`/book/bookmarklist`、`/book/bestbookmarks` 三个接口。
+  - **只抽自己的划线**，他人的热门划线永不插入；热门仅作加权信号（普通划线 1，既是自己的又热门的 `1 + quotePopularWeight`，默认 3）。
+  - 去重按同章内**归一化文本前缀包含**匹配 —— 热门版常是截断版（实测同一条 46 字 vs 133 字），只比 `(chapterUid, range)` 会漏掉重复。
+  - **选书会筛**：跳过划线少于 `quoteMinBookHighlights`（默认 10）的书，已读完（`markedStatus === 4`）的书权重 ×3。
+  - 自动带上书名双链与作者，`{date}` / `{time}` 输出**划线时刻**；模板占位符 `{quote} {title} {author} {chapter} {date} {time} {link} {count}`，可空占位符连同其前分隔符一起清理。
+  - 本地分片缓存 `<pluginDir>/cache/`（笔记本列表 24h、单本 7d TTL），命中缓存时**零网络请求**。
+  - 新增设置：`wereadApiKey` / `quoteBoostPopular` / `quotePopularWeight` / `quoteMinBookHighlights` / `quoteSameBookReroll` / `quoteTag` / `quoteTemplate`。
+- **习惯打卡**：时间线顶部固定一排习惯胶囊，点一下即可打卡。
+  - **无独立状态存储**：习惯「今天完成」= 今天 `## Journal` 里存在一条已勾选且文本匹配该习惯的任务（`- [x] 07:12 #log/habit 早起`），因此编辑器里勾、时间线里勾、顶部栏勾三处天然一致。
+  - 当天还没有节点时追加一条已完成任务；已有节点则**原地翻转 checkbox**，反复点击不堆叠重复节点。
+  - 每个习惯独立配置名称、图标（弹出式网格选择器 —— 原生 `<select>` 的 `<option>` 无法承载 SVG）、打卡标签（归一化，非法值忽略）、可选 frontmatter 属性。
+  - frontmatter 镜像由总开关控制，**默认关闭**；开启后写布尔 `true` / `false`，不写数字也不删键。
+  - 编辑器打开今天的日记时，打卡会同时 dispatch 到 CodeMirror 缓冲，避免画面不同步。
+  - 旧的全局 `habitTag` 设置会**迁移**到已有习惯，避免升级后新打卡丢标签。
+  - 新增设置：`habits` / `habitMirrorFrontmatter`。
+- 设计文档 `docs/superpowers/specs/2026-10-06-random-reading-quote-design.md`（含真实语料与 API 实测数据）。
+
+### Fixed
+
+- **日常时间线与收藏列表误用搜索文案「N 条匹配」**：`formatDateHeader()` 的副标题写死了 `timeline.matches`，而它实际只被**日常时间线**消费（搜索结果自己另写了一遍）—— 于是正常写日记的时间线也在显示「N 条匹配」，收藏列表同样。现抽出 `countLabel(count, variant)` 按列表性质区分：日常/收藏 = `N 条记录`，搜索/标签筛选 = `N 条匹配`。
+- 英文单复数修正：`1 entry` / `N entries`（此前沿用 `match(es)` 的写法）。
+
+### Changed
+
+- `habitFrontmatterValue()` 内联 —— 值策略已确定为纯布尔，该包装不再承载任何决策。
+- 移除无人使用的 i18n key `timeline.noResults`（搜索/标签筛选空态各有自己的 key）。
+- `manifest.json` 描述补充两个新功能。
+
 ## [2.12.3] — 2026-08-17
 
 ### Changed
