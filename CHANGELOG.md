@@ -5,6 +5,12 @@ All notable changes to **Journal Partner** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.1] — 2026-10-28
+
+### Fixed
+
+- **修复社区插件目录下架（无法在 Obsidian 内搜索安装）**：`manifest.json` 的 `description` 长度 271 字符，超过 Obsidian 自动审核的 250 字符上限（高风险项），导致 2.21.0 发布后插件被从社区目录移除、「Add to Obsidian」按钮置灰。现缩短为 217 字符。
+
 ## [2.12.3] — 2026-08-17
 
 ### Changed
