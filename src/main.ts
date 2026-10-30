@@ -122,7 +122,7 @@ export default class JournalPartnerPlugin extends Plugin {
         // and raises the on-screen keyboard. focusInputOnOpen() also retries
         // across the next few frames for cold / slow mounts.
         const view = existing[0].view as unknown as JournalCaptureView | undefined;
-        view?.focusInputOnOpen?.();
+        view?.focusInputOnOpen?.(true);
         void this.app.workspace.revealLeaf(existing[0]);
         return;
       }
@@ -139,7 +139,7 @@ export default class JournalPartnerPlugin extends Plugin {
     // because onOpen can run before the leaf is actually painted, and the
     // retry schedule is idempotent (it bails once the input is focused).
     const view = leaf.view as unknown as JournalCaptureView | undefined;
-    view?.focusInputOnOpen?.();
+    view?.focusInputOnOpen?.(true);
   }
 
   /** True when the leaf lives somewhere inside the right sidebar / mobile drawer. */
@@ -555,6 +555,17 @@ export default class JournalPartnerPlugin extends Plugin {
   async loadSettings() {
     const loaded = (await this.loadData()) as Partial<JournalPartnerSettings> | null;
     this.settings = { ...DEFAULT_SETTINGS, ...loaded };
+    // The auto-focus toggle shipped (pre-release) as `mobileAutoFocusInput`; it
+    // now governs all platforms. Carry the old value onto the new key.
+    const legacyAutoFocus = (loaded as { mobileAutoFocusInput?: unknown } | null)
+      ?.mobileAutoFocusInput;
+    if (
+      loaded &&
+      (loaded as { autoFocusInput?: unknown }).autoFocusInput === undefined &&
+      typeof legacyAutoFocus === 'boolean'
+    ) {
+      this.settings.autoFocusInput = legacyAutoFocus;
+    }
     // v2.20.1 introduced the quote template without `{date}`; anyone who already
     // saved the previous default would otherwise never pick up the highlight
     // date. Only the untouched default is migrated — a customised template is
@@ -1589,15 +1600,15 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           }),
       );
 
-    // ── Mobile auto-focus (raise the on-screen keyboard) ──────────────────
+    // ── Auto-focus the input when the view opens ──────────────────────────
     new Setting(containerEl)
-      .setName(t('settings.mobileAutoFocus'))
-      .setDesc(t('settings.mobileAutoFocusDesc'))
+      .setName(t('settings.autoFocus'))
+      .setDesc(t('settings.autoFocusDesc'))
       .addToggle(toggle =>
         toggle
-          .setValue(this.plugin.settings.mobileAutoFocusInput)
+          .setValue(this.plugin.settings.autoFocusInput)
           .onChange(async (value: boolean) => {
-            this.plugin.settings.mobileAutoFocusInput = value;
+            this.plugin.settings.autoFocusInput = value;
             await this.plugin.saveSettings();
           }),
       );

@@ -460,6 +460,15 @@ export class JournalCaptureView extends ItemView {
       this.app.workspace.onLayoutReady(() => this.focusForForeground());
     }
 
+    // Focus whenever this leaf becomes the active one. This covers clicking
+    // the view's tab on desktop — Obsidian re-shows the existing leaf without
+    // firing onOpen, so without this the input wouldn't be focused.
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', leaf => {
+        if (leaf === this.leaf) this.focusInputOnOpen(true);
+      }),
+    );
+
     // Pre-warm the full-vault tag scan so the tag-filter menu is complete the
     // first time it opens (the rendered timeline alone only covers recent days).
     void this.ensureDiaryTags();
@@ -533,7 +542,7 @@ export class JournalCaptureView extends ItemView {
       if (this.timelineMode !== 'daily') this.restoreDailyMode();
       // Tapping the Journal Partner tab means "write something" — bring the
       // keyboard up (no-op on desktop / when the setting is off).
-      this.focusInputOnOpen();
+      this.focusInputOnOpen(true);
     });
 
     // 随机回顾 — random-day review. Lives here (top tab bar) so it appears
@@ -4219,9 +4228,6 @@ export class JournalCaptureView extends ItemView {
       this.registerEvent(
         this.app.workspace.on('active-leaf-change', leaf => {
           this.setToolbarHidden(leaf === this.leaf);
-          // Re-focus the input (and raise the keyboard) whenever the user
-          // switches back to this view — e.g. from a note or another tab.
-          if (leaf === this.leaf) this.focusInputOnOpen();
         }),
       );
     }
@@ -4282,24 +4288,34 @@ export class JournalCaptureView extends ItemView {
   // ── Mobile input auto-focus (raise the on-screen keyboard) ───────────────
 
   /**
-   * Focus the capture input on mobile so the on-screen keyboard appears
-   * without the user having to tap the input first.
+   * Focus the capture input so the user can start typing immediately.
    *
-   * iOS only raises the keyboard for a `focus()` that happens inside a user
-   * gesture, so the first attempt runs synchronously — callers on the tap path
-   * (ribbon / command / tab) invoke this before any `await`. A cold view mount
-   * is asynchronous, though, so we retry over the next few seconds until the
-   * input is focused; each attempt bails out if the view isn't visible, a modal
-   * opened, or the user has moved focus to another editable field. Any real
-   * user tap cancels the remaining retries so we never steal focus.
+   * On mobile, iOS only raises the keyboard for a `focus()` that happens inside
+   * a user gesture, so the first attempt runs synchronously — callers on the tap
+   * path (ribbon / command / tab) invoke this before any `await`. A cold view
+   * mount is asynchronous, though, so we retry over the next few seconds until
+   * the input is focused; each attempt bails out if the view isn't visible, a
+   * modal opened, or the user has moved focus to another editable field. Any
+   * real user tap cancels the remaining retries so we never steal focus.
+   *
+   * On desktop this fixes the sidebar's "first click just activates the pane,
+   * you have to click the box again" behaviour by focusing the input as soon
+   * as the view is opened/activated (see the `force` flag).
    *
    * Safe to call repeatedly (onOpen + activateCaptureView + foreground +
    * tab switch) — once the input is focused the remaining timers are cancelled.
    */
-  public focusInputOnOpen(): void {
-    if (!Platform.isMobile) return;
-    if (!this.plugin.settings.mobileAutoFocusInput) return;
+  public focusInputOnOpen(force = false): void {
+    if (!this.plugin.settings.autoFocusInput) return;
     if (this.currentTab !== 'capture') return;
+
+    // On desktop the view often lives in a sidebar that stays restored in the
+    // background. Only take focus when it's the active leaf, or when the open
+    // was user-initiated (`force`) — otherwise a startup restore would yank the
+    // caret out of the note the user was editing.
+    if (!Platform.isMobile && !force && this.app.workspace.activeLeaf !== this.leaf) {
+      return;
+    }
 
     const input = this.input;
     if (!input) return;
