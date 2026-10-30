@@ -206,6 +206,8 @@ export class JournalCaptureView extends ItemView {
   /** Pending timers from {@link focusInputOnOpen}. Cleared on close / when the
    *  input is already focused, so we never steal focus long after opening. */
   private autoFocusTimers: number[] = [];
+  /** Detaches the one-shot listeners that cancel pending auto-focus retries. */
+  private autoFocusCancel: (() => void) | null = null;
 
   // Quick-tag picker (preset tags in the input card's left button row)
   private tagBtn!: HTMLButtonElement;
@@ -440,6 +442,23 @@ export class JournalCaptureView extends ItemView {
     // Mobile: focus the capture input right away so the on-screen keyboard
     // comes up automatically instead of requiring a tap on the input.
     this.focusInputOnOpen();
+
+    // Mobile re-entry triggers. The view is often kept alive in the background:
+    // opening Journal Partner again (e.g. from a Shortcut / Action Button that
+    // foregrounds the app) does NOT fire onOpen or active-leaf-change, so the
+    // input would otherwise never be focused. Observe the OS/webview coming
+    // back to the foreground, plus layout-ready for views restored on launch.
+    if (Platform.isMobile) {
+      const doc = this.containerEl.ownerDocument;
+      const win = doc.defaultView;
+      if (win) {
+        this.registerDomEvent(win, 'focus', () => this.focusForForeground());
+      }
+      this.registerDomEvent(doc, 'visibilitychange', () => {
+        if (doc.visibilityState === 'visible') this.focusForForeground();
+      });
+      this.app.workspace.onLayoutReady(() => this.focusForForeground());
+    }
 
     // Pre-warm the full-vault tag scan so the tag-filter menu is complete the
     // first time it opens (the rendered timeline alone only covers recent days).
@@ -4269,12 +4288,13 @@ export class JournalCaptureView extends ItemView {
    * iOS only raises the keyboard for a `focus()` that happens inside a user
    * gesture, so the first attempt runs synchronously — callers on the tap path
    * (ribbon / command / tab) invoke this before any `await`. A cold view mount
-   * is asynchronous, though, so we retry across the next few frames until the
+   * is asynchronous, though, so we retry over the next few seconds until the
    * input is focused; each attempt bails out if the view isn't visible, a modal
-   * opened, or the user has moved focus to another editable field.
+   * opened, or the user has moved focus to another editable field. Any real
+   * user tap cancels the remaining retries so we never steal focus.
    *
-   * Safe to call repeatedly (onOpen + activateCaptureView + tab switch) — once
-   * the input is focused the remaining timers are cancelled.
+   * Safe to call repeatedly (onOpen + activateCaptureView + foreground +
+   * tab switch) — once the input is focused the remaining timers are cancelled.
    */
   public focusInputOnOpen(): void {
     if (!Platform.isMobile) return;
@@ -4286,12 +4306,15 @@ export class JournalCaptureView extends ItemView {
 
     this.clearAutoFocusTimers();
 
+    let nativeRequested = false;
+
     const attempt = (): boolean => {
       // Stop if the view was closed / the input was rebuilt under us.
       if (!this.input || this.input !== input || !input.el.isConnected) return true;
-      // Only focus while our view is actually on screen (skip a leaf that was
-      // restored in the background at startup).
-      if (!this.containerEl.isShown()) return false;
+      // Only focus while our view is actually on screen. During app launch the
+      // leaf can exist before it's painted, so keep retrying rather than
+      // giving up on the first pass.
+      if (!this.isCaptureViewVisible()) return false;
 
       const doc = input.el.ownerDocument;
       const active = doc.activeElement as HTMLElement | null;
@@ -4312,18 +4335,47 @@ export class JournalCaptureView extends ItemView {
       // focus where it is.
       if (doc.querySelector('.modal-container')) return true;
 
-      input.focus();
-      const nowActive = doc.activeElement;
-      return !!(nowActive && input.el.contains(nowActive));
+      try {
+        // Announce the capture box as the workspace's active editor so
+        // Obsidian's mobile editing machinery treats it as a real editor.
+        input.markActive();
+        input.focus();
+        // Fallback: if the editor's own focus() didn't move the caret (some iOS
+        // builds are picky), focus the underlying editable DOM directly.
+        const nowActive = doc.activeElement;
+        if (!nowActive || !input.el.contains(nowActive)) {
+          const domTarget = input.el.querySelector<HTMLElement>(
+            'textarea, [contenteditable="true"], .cm-content',
+          );
+          domTarget?.focus();
+        }
+      } catch (err) {
+        console.error('[Journal Partner] focus capture input failed', err);
+      }
+
+      const focused = doc.activeElement;
+      const isFocused = !!(focused && input.el.contains(focused));
+      if (isFocused && !nativeRequested) {
+        nativeRequested = true;
+        // Best-effort native keyboard request. Android implements `show()`;
+        // iOS stock Capacitor leaves it unimplemented, in which case the
+        // rejected promise is swallowed here.
+        this.requestNativeKeyboard();
+      }
+      return isFocused;
     };
 
     // Synchronous first try: this is the one that counts as "inside the user
     // gesture" when the caller is a tap handler.
     if (attempt()) return;
 
-    // Cold mount / slower devices: keep trying briefly as the leaf paints and
-    // the keyboard subsystem settles.
-    const delays = [0, 60, 180, 400, 800];
+    // Cancel pending retries as soon as the user interacts with the view.
+    this.armAutoFocusCancel();
+
+    // Cold mount / slow app launch / foreground wake: retry while the leaf
+    // paints and the OS keyboard subsystem settles. The list stays bounded and
+    // any user tap clears it.
+    const delays = [0, 60, 150, 300, 550, 900, 1400, 2000, 3000, 4500];
     for (const delay of delays) {
       const id = window.setTimeout(() => {
         if (attempt()) this.clearAutoFocusTimers();
@@ -4332,9 +4384,72 @@ export class JournalCaptureView extends ItemView {
     }
   }
 
+  /**
+   * Foreground / layout-ready entry point: focus only when this view is the
+   * one currently on screen, so switching away (or restoring a background
+   * leaf) never yanks focus.
+   */
+  private focusForForeground(): void {
+    if (!Platform.isMobile) return;
+    if (!this.isCaptureViewVisible()) return;
+    const activeLeaf = this.app.workspace.activeLeaf;
+    if (activeLeaf && activeLeaf !== this.leaf) return;
+    this.focusInputOnOpen();
+  }
+
+  /** True when the capture view's container is attached and displayed. */
+  private isCaptureViewVisible(): boolean {
+    try {
+      if (this.containerEl.isShown()) return true;
+    } catch {
+      /* fall through to the rect check */
+    }
+    return this.containerEl.getClientRects().length > 0;
+  }
+
+  /**
+   * Ask the native shell to raise the keyboard, if it exposes a working bridge.
+   * Wrapped in feature checks so it is a harmless no-op everywhere else.
+   */
+  private requestNativeKeyboard(): void {
+    type KeyboardBridge = { show?: () => Promise<unknown> };
+    type CapacitorWindow = { Capacitor?: { Plugins?: { Keyboard?: KeyboardBridge } } };
+    try {
+      const win = this.containerEl.ownerDocument.defaultView as
+        | (Window & CapacitorWindow)
+        | null;
+      const keyboard = win?.Capacitor?.Plugins?.Keyboard;
+      if (!keyboard || typeof keyboard.show !== 'function') return;
+      // `show()` may resolve or reject (stock iOS Capacitor leaves it
+      // unimplemented) — swallow both without letting a rejection go unhandled.
+      void Promise.resolve(keyboard.show()).catch(() => undefined);
+    } catch {
+      /* bridge absent or unsupported — ignore */
+    }
+  }
+
+  /** Cancel pending auto-focus retries on the user's next interaction. */
+  private armAutoFocusCancel(): void {
+    if (this.autoFocusCancel) return;
+    const doc = this.containerEl.ownerDocument;
+    const cancel = (): void => this.clearAutoFocusTimers();
+    doc.addEventListener('pointerdown', cancel, true);
+    doc.addEventListener('touchstart', cancel, { capture: true, passive: true });
+    doc.addEventListener('keydown', cancel, true);
+    this.autoFocusCancel = () => {
+      doc.removeEventListener('pointerdown', cancel, true);
+      doc.removeEventListener('touchstart', cancel, true);
+      doc.removeEventListener('keydown', cancel, true);
+    };
+  }
+
   private clearAutoFocusTimers(): void {
     for (const id of this.autoFocusTimers) window.clearTimeout(id);
     this.autoFocusTimers = [];
+    if (this.autoFocusCancel) {
+      this.autoFocusCancel();
+      this.autoFocusCancel = null;
+    }
   }
 
   /**
