@@ -5,6 +5,15 @@ All notable changes to **Journal Partner** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.23.0] — 2026-10-30
+
+### Added
+
+- **移动端自动弹出键盘**：在手机端打开（或切回）记录视图时，自动聚焦输入框并唤起系统键盘，无需再手点一次输入框。
+  - 打开路径（图标 / 命令 / 协议 / 切回标签页）都会触发；冷启动视图挂载慢时会在随后几帧内重试。
+  - 不会抢走搜索框、弹窗等其它输入框的焦点。
+  - 新增设置项 `mobileAutoFocusInput`（默认开启），可在「移动端自动弹出键盘」中关闭。
+
 ## [2.22.1] — 2026-10-28
 
 ### Fixed

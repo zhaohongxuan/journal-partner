@@ -58,6 +58,8 @@ export interface JournalPartnerSettings {
   language: 'en' | 'zh';
   /** On mobile, open the capture view in the right sidebar (slide-out drawer) instead of the full editor area. Desktop always uses the sidebar. */
   mobileOpenInSidebar: boolean;
+  /** On mobile, focus the capture input and raise the on-screen keyboard automatically whenever the view opens/activates. */
+  mobileAutoFocusInput: boolean;
   /** User-favorited journal entries, newest favorited first. */
   favorites: FavoriteEntry[];
   /** Show the random-quote (WeRead highlight) button in the capture input. */
@@ -109,6 +111,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   maxDiaryTags: 15,
   language: 'en',
   mobileOpenInSidebar: false,
+  mobileAutoFocusInput: true,
   favorites: [],
   // Opt-in: the button is useless without a WeRead API key.
   quoteEnabled: false,

@@ -117,6 +117,12 @@ export default class JournalPartnerPlugin extends Plugin {
     // detached before rebuilding at the intended location.
     if (existing.length > 0) {
       if (wantSidebar && this.isInRightSidebar(existing[0])) {
+        // Focus synchronously (before any await) so that when this runs inside
+        // a tap gesture on mobile, iOS still treats focus() as user-initiated
+        // and raises the on-screen keyboard. focusInputOnOpen() also retries
+        // across the next few frames for cold / slow mounts.
+        const view = existing[0].view as unknown as JournalCaptureView | undefined;
+        view?.focusInputOnOpen?.();
         void this.app.workspace.revealLeaf(existing[0]);
         return;
       }
@@ -129,6 +135,11 @@ export default class JournalPartnerPlugin extends Plugin {
     if (!leaf) return;
     await leaf.setViewState({ type: CAPTURE_VIEW_TYPE, active: true });
     void this.app.workspace.revealLeaf(leaf);
+    // The view's own onOpen() already schedules a focus; repeat here as well
+    // because onOpen can run before the leaf is actually painted, and the
+    // retry schedule is idempotent (it bails once the input is focused).
+    const view = leaf.view as unknown as JournalCaptureView | undefined;
+    view?.focusInputOnOpen?.();
   }
 
   /** True when the leaf lives somewhere inside the right sidebar / mobile drawer. */
@@ -1574,6 +1585,19 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.mobileOpenInSidebar)
           .onChange(async (value: boolean) => {
             this.plugin.settings.mobileOpenInSidebar = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    // ── Mobile auto-focus (raise the on-screen keyboard) ──────────────────
+    new Setting(containerEl)
+      .setName(t('settings.mobileAutoFocus'))
+      .setDesc(t('settings.mobileAutoFocusDesc'))
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.mobileAutoFocusInput)
+          .onChange(async (value: boolean) => {
+            this.plugin.settings.mobileAutoFocusInput = value;
             await this.plugin.saveSettings();
           }),
       );
