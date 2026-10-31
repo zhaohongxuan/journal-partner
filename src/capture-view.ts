@@ -1082,6 +1082,10 @@ export class JournalCaptureView extends ItemView {
     let realtimeActive = false; // whether live streaming is on for this session
     let pendingFlush: Promise<void> = Promise.resolve(); // serialize segment sends
     let vadFirstSegment = true; // until the first segment flushes, allow an early first-word cut
+    // Realtime STT swallows per-segment failures so one bad chunk doesn't kill
+    // the session — but the user must hear about a systemic failure (wrong
+    // endpoint/model/key) once, instead of "recording works, nothing appears".
+    let sttErrorNotified = false;
     // VAD tuning (sample-based so it adapts to any sample rate).
     const VAD_FRAME = 4096;            // ScriptProcessor buffer size
     const VAD_ENERGY_RMS = 0.012;      // below this RMS → considered silence (lowered so brief in-speech dips aren't misread as pauses)
@@ -1311,8 +1315,18 @@ export class JournalCaptureView extends ItemView {
             appendStreamedText(t);
             lastTranscript = (lastTranscript + t).slice(-256);
           }
-        } catch {
-          // A failed segment shouldn't kill the live session — drop and continue.
+        } catch (err) {
+          // A failed segment shouldn't kill the live session — drop and continue,
+          // but surface the first failure so a bad endpoint/model/key isn't a
+          // silent dead end.
+          if (!sttErrorNotified) {
+            sttErrorNotified = true;
+            new Notice(
+              t('notice.sttFailed', {
+                msg: err instanceof Error ? err.message : String(err),
+              }),
+            );
+          }
         }
       });
     };
@@ -2381,8 +2395,21 @@ export class JournalCaptureView extends ItemView {
       },
       body: body.buffer,
     });
-    const text = (resp.json as { text?: string } | undefined)?.text;
-    return typeof text === 'string' ? text : '';
+    const payload = resp.json as
+      | { text?: unknown; error?: { message?: unknown } | string }
+      | undefined;
+    if (typeof payload?.text === 'string') return payload.text;
+    // Some OpenAI-compatible providers return `{ error: … }` with a 200, or a
+    // shape we don't understand. Throw with the provider's message so callers
+    // can show it instead of silently producing an empty transcript.
+    const errField = payload?.error;
+    const errMessage =
+      typeof errField === 'string'
+        ? errField
+        : errField && typeof errField === 'object' && typeof errField.message === 'string'
+          ? errField.message
+          : 'Transcription response has no "text" field';
+    throw new Error(errMessage);
   }
 
   private buildTimeline(root: HTMLElement) {
