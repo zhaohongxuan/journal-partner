@@ -3657,23 +3657,80 @@ export class JournalCaptureView extends ItemView {
   }
 
   /**
-   * Loose parser: treat every top-level list item as an entry timestamped 00:00.
-   * Used when the section has no standard `- HH:MM ...` format.
+   * Loose parser: used by random review / favorites when the section has no
+   * standard `- HH:MM ...` format. Treats, in order:
+   * 1. top-level list items (`- some note`) as entries timestamped 00:00;
+   * 2. paragraphs that start with a timestamp (`08:37 something`);
+   * 3. any other non-empty plain paragraph (grouping consecutive lines).
+   *
+   * Step 3 is what makes older journals written as free paragraphs — without
+   * `- ` bullets — show up in random review (#46) instead of rendering
+   * "这天没有日记内容".
    */
   private parseLooseEntries(sectionText: string): Array<{ timestamp: string; text: string; lineIndex: number }> {
     const result: Array<{ timestamp: string; text: string; lineIndex: number }> = [];
-    const lines = sectionText.split('\n');
+    const lines = sectionText.replace(/\r\n?/g, '\n').split('\n');
+    const tsRe = new RegExp(`^(${this.plugin.settings.timestampPattern})\\s+(.+)$`);
+    // Structural markdown we must not report as journal text.
+    const isSpecial = (line: string): boolean =>
+      /^\s*#{1,6}\s/.test(line) || // heading
+      /^\s*```/.test(line) || // code fence
+      /^\s*([-*_])\1{2,}\s*$/.test(line) || // horizontal rule
+      /^\s*\|/.test(line); // table row
+
     for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(/^[-*+]\s+(.+)$/);
-      if (!m) continue;
-      let text = m[1].trim();
-      // Collect indented continuation lines
+      const raw = lines[i];
+      if (raw.trim().length === 0) continue;
+
+      // 1) List item — collect its indented continuation lines.
+      const listMatch = raw.match(/^[-*+]\s+(?:\[[ xX]\]\s+)?(.+)$/);
+      if (listMatch) {
+        let text = listMatch[1].trim();
+        let j = i + 1;
+        while (j < lines.length && /^\s+\S/.test(lines[j])) {
+          text += '\n' + lines[j].replace(/^\s{0,2}/, '');
+          j++;
+        }
+        result.push({ timestamp: '00:00', text, lineIndex: i });
+        i = j - 1;
+        continue;
+      }
+
+      if (isSpecial(raw)) continue;
+
+      // 2) Paragraph that starts with a timestamp: `08:37 ...`.
+      const tsMatch = tsRe.exec(raw.trim());
+      if (tsMatch) {
+        let text = tsMatch[2].trim();
+        let j = i + 1;
+        while (
+          j < lines.length &&
+          lines[j].trim() &&
+          !/^[-*+]\s+/.test(lines[j]) &&
+          !isSpecial(lines[j])
+        ) {
+          text += '\n' + lines[j].trim();
+          j++;
+        }
+        result.push({ timestamp: tsMatch[1], text, lineIndex: i });
+        i = j - 1;
+        continue;
+      }
+
+      // 3) Plain paragraph — group consecutive non-list, non-structural lines.
+      let text = raw.trim();
       let j = i + 1;
-      while (j < lines.length && /^\s+\S/.test(lines[j])) {
-        text += '\n' + lines[j].replace(/^\s{0,2}/, '');
+      while (
+        j < lines.length &&
+        lines[j].trim() &&
+        !/^[-*+]\s+/.test(lines[j]) &&
+        !isSpecial(lines[j])
+      ) {
+        text += '\n' + lines[j].trim();
         j++;
       }
       result.push({ timestamp: '00:00', text, lineIndex: i });
+      i = j - 1;
     }
     return result;
   }
