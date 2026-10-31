@@ -513,6 +513,111 @@ export function buildEntryLine(text: string, ts: string, marker = '-'): string {
 }
 
 /**
+ * The three layouts a journal entry head can take. Kept in one place so the
+ * delete / edit / remove-audio functions recognise exactly what
+ * `parseJournalEntries` recognises.
+ */
+interface ParsedEntryHead {
+  kind: 'memo' | 'task';
+  /** List marker: '-', '*' or '+'. */
+  marker: string;
+  /** Raw timestamp text (e.g. "08:37"). */
+  timestamp: string;
+  /** Remaining body text after the timestamp (for a legacy task, after its checkbox). */
+  text: string;
+  /** Task completion state (only meaningful for `kind === 'task'`). */
+  completed: boolean;
+  /** True when the checkbox sits AFTER the timestamp (`- 08:37 [ ] …`, legacy layout). */
+  legacyTask: boolean;
+}
+
+/**
+ * Parse a single line as an entry head, or return `null` when it isn't one
+ * (continuation line, blank line, unrelated text…).
+ *
+ * Supported layouts (mirrors `parseJournalEntries`):
+ * - `- HH:MM text`               memo
+ * - `- [ ] HH:MM text`           current task (also `[x]`)
+ * - `- HH:MM [ ] text`           legacy task (also `[x]`)
+ */
+function parseEntryHeadLine(line: string, pattern: string): ParsedEntryHead | null {
+  // Tolerate CRLF files: `$` does not anchor before a lone trailing `\r`, so
+  // strip it before matching (the caller keeps the original line for offsets).
+  const probe = line.endsWith('\r') ? line.slice(0, -1) : line;
+
+  // Current task layout: marker + checkbox + timestamp + body.
+  const newTaskRe = new RegExp(
+    `^([-*+])\\s+\\[([ xX])\\]\\s+(${pattern})(?=\\s|$)(?:\\s+(.*))?$`,
+  );
+  const newTask = newTaskRe.exec(probe);
+  if (newTask) {
+    return {
+      kind: 'task',
+      marker: newTask[1],
+      completed: newTask[2].toLowerCase() === 'x',
+      timestamp: newTask[3],
+      text: newTask[4] ?? '',
+      legacyTask: false,
+    };
+  }
+
+  // Memo layout, or legacy task layout (checkbox after the timestamp).
+  const memoRe = new RegExp(
+    `^([-*+])\\s+(${pattern})(?=\\s|$)(?:\\s+(.*))?$`,
+  );
+  const memo = memoRe.exec(probe);
+  if (!memo) return null;
+
+  const body = memo[3] ?? '';
+  const legacyTask = /^\[([ xX])\]\s*(.*)$/.exec(body);
+  if (legacyTask) {
+    return {
+      kind: 'task',
+      marker: memo[1],
+      completed: legacyTask[1].toLowerCase() === 'x',
+      timestamp: memo[2],
+      text: legacyTask[2],
+      legacyTask: true,
+    };
+  }
+  return {
+    kind: 'memo',
+    marker: memo[1],
+    timestamp: memo[2],
+    text: body,
+    completed: false,
+    legacyTask: false,
+  };
+}
+
+/**
+ * Build a task entry using the **legacy** layout `- HH:MM [ ] text`, preserving
+ * a legacy task's shape when it is edited (otherwise editing would silently
+ * convert it to the current `- [ ] HH:MM text` layout).
+ */
+function buildLegacyTaskLine(
+  text: string,
+  ts: string,
+  completed: boolean,
+  marker = '-',
+): string {
+  const checkbox = completed ? '[x]' : '[ ]';
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return `${marker} ${ts} ${checkbox}`;
+
+  const parts = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  if (parts.length === 1) return `${marker} ${ts} ${checkbox} ${parts[0]}`;
+
+  const head = `${marker} ${ts} ${checkbox} ${parts[0]}  `;
+  const tail = parts
+    .slice(1)
+    .map((line, idx) =>
+      idx === parts.length - 2 ? `  ${line}` : `  ${line}  `,
+    );
+  return [head, ...tail].join('\n');
+}
+
+/**
  * Append a built entry line to the journal section of `content`.
  *
  * - If the section exists, the line is inserted at the section's end (just
@@ -619,8 +724,9 @@ export function deleteEntryFromSection(
 
   // Validate that the target line is an entry head, not a continuation or
   // unrelated line — avoids "deleting from the middle of a multi-line memo".
-  const tsRe = new RegExp(`^[-*+]\\s+(${settings.timestampPattern})(?=\\s|$)`);
-  if (!tsRe.test(lines[lineIndex])) return content;
+  // Uses the shared parser so task layouts (`- [ ] HH:MM`, `- HH:MM [ ]`) are
+  // recognised exactly like `parseJournalEntries` does.
+  if (!parseEntryHeadLine(lines[lineIndex], settings.timestampPattern)) return content;
 
   // Find end (exclusive) of the entry: head + continuation lines.
   let end = lineIndex + 1;
@@ -683,13 +789,13 @@ export function editEntryInSection(
   const lines = sectionText.split('\n');
   if (lineIndex < 0 || lineIndex >= lines.length) return content;
 
-  // Extract the original list marker + timestamp from the head line so the
-  // rebuilt entry stays consistent with the surrounding list style.
-  const tsRe = new RegExp(`^([-*+])\\s+(${settings.timestampPattern})(?=\\s|$)`);
-  const headMatch = tsRe.exec(lines[lineIndex]);
-  if (!headMatch) return content;
-  const marker = headMatch[1];
-  const ts = headMatch[2];
+  // Extract the original list marker + timestamp + entry kind from the head
+  // line so the rebuilt entry keeps the surrounding list style, the task type
+  // and its completion state.
+  const head = parseEntryHeadLine(lines[lineIndex], settings.timestampPattern);
+  if (!head) return content;
+  const marker = head.marker;
+  const ts = head.timestamp;
 
   // Find end (exclusive) of the entry: head + continuation lines.
   let end = lineIndex + 1;
@@ -697,7 +803,12 @@ export function editEntryInSection(
     end++;
   }
 
-  const replacement = buildEntryLine(newText, ts, marker);
+  // Rebuild with the same layout: task → task (checkbox preserved), memo → memo.
+  const replacement = head.kind === 'task'
+    ? head.legacyTask
+      ? buildLegacyTaskLine(newText, ts, head.completed, marker)
+      : buildTaskLine(newText, ts, head.completed, marker)
+    : buildEntryLine(newText, ts, marker);
   const newLines = [
     ...lines.slice(0, lineIndex),
     ...replacement.split('\n'),
@@ -794,8 +905,8 @@ export function removeAudioEmbedsFromEntry(
   const lines = sectionText.split('\n');
   if (lineIndex < 0 || lineIndex >= lines.length) return content;
 
-  const tsRe = new RegExp(`^[-*+]\\s+(${settings.timestampPattern})(?=\\s|$)`);
-  if (!tsRe.test(lines[lineIndex])) return content;
+  // Validate via the shared parser so task layouts are recognised too.
+  if (!parseEntryHeadLine(lines[lineIndex], settings.timestampPattern)) return content;
 
   // Find inclusive range of this entry: head + continuation lines.
   let end = lineIndex + 1;

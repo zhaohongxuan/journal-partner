@@ -5,6 +5,15 @@ All notable changes to **Journal Partner** are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.2] — 2026-10-31
+
+### Fixed
+
+- **时间线无法删除/编辑带复选框的任务（#50）**：`deleteEntryFromSection()`、`editEntryInSection()`、`removeAudioEmbedsFromEntry()` 的记录头识别与 `parseJournalEntries()` 不一致，新版任务格式 `- [ ] HH:MM` / `- [x] HH:MM` 匹配失败导致删除被判定为「日记内容已变化」。
+  - 三个函数统一改用共享的 `parseEntryHeadLine()`，同时支持普通 memo、新版任务、旧版任务（`- HH:MM [ ]`）。
+  - 编辑任务时保留原有列表标记、任务类型与完成状态（新版 `- [ ] HH:MM`、旧版 `- HH:MM [ ]` 均保持各自格式）；编辑普通 memo 行为不变。
+  - 仅删除录音时也支持任务格式，且只移除音频链接、保留其它附件与文字。
+
 ## [2.22.1] — 2026-10-28
 
 ### Fixed
