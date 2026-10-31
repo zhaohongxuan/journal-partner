@@ -2105,7 +2105,12 @@ export class JournalCaptureView extends ItemView {
       const vaultFile = await this.app.vault.createBinary(filePath, buffer);
       img.vaultPath = vaultFile.path;
       img.url = vaultFile.path;
-      img.markdown = `![](${vaultFile.path})`;
+      // Use a wiki embed rather than `![](vault-relative-path)`: markdown image
+      // links resolve relative to the *note's* folder, so a vault-root path
+      // breaks whenever the attachment folder differs from the daily-note
+      // folder (spaces/Chinese in the path make it worse). Wiki embeds resolve
+      // against the vault root and are what `saveAudioToVault` already uses.
+      img.markdown = `![[${vaultFile.path}]]`;
       // Free the object URL — the thumbnail now renders via getResourcePath.
       if (img.previewUrl) {
         URL.revokeObjectURL(img.previewUrl);
