@@ -203,6 +203,11 @@ export class JournalCaptureView extends ItemView {
    *  created in the main window silently stops firing. Reading clientHeight on
    *  a timer works in any realm, so we use that instead. */
   private shortWindowPollTimer: number | null = null;
+  /** Pending timers from {@link focusInputOnOpen}. Cleared on close / when the
+   *  input is already focused, so we never steal focus long after opening. */
+  private autoFocusTimers: number[] = [];
+  /** Detaches the one-shot listeners that cancel pending auto-focus retries. */
+  private autoFocusCancel: (() => void) | null = null;
 
   // Quick-tag picker (preset tags in the input card's left button row)
   private tagBtn!: HTMLButtonElement;
@@ -434,6 +439,36 @@ export class JournalCaptureView extends ItemView {
     this.setupShortWindowDockAutoHide();
     this.setupScrollTopButton();
 
+    // Mobile: focus the capture input right away so the on-screen keyboard
+    // comes up automatically instead of requiring a tap on the input.
+    this.focusInputOnOpen();
+
+    // Mobile re-entry triggers. The view is often kept alive in the background:
+    // opening Journal Partner again (e.g. from a Shortcut / Action Button that
+    // foregrounds the app) does NOT fire onOpen or active-leaf-change, so the
+    // input would otherwise never be focused. Observe the OS/webview coming
+    // back to the foreground, plus layout-ready for views restored on launch.
+    if (Platform.isMobile) {
+      const doc = this.containerEl.ownerDocument;
+      const win = doc.defaultView;
+      if (win) {
+        this.registerDomEvent(win, 'focus', () => this.focusForForeground());
+      }
+      this.registerDomEvent(doc, 'visibilitychange', () => {
+        if (doc.visibilityState === 'visible') this.focusForForeground();
+      });
+      this.app.workspace.onLayoutReady(() => this.focusForForeground());
+    }
+
+    // Focus whenever this leaf becomes the active one. This covers clicking
+    // the view's tab on desktop — Obsidian re-shows the existing leaf without
+    // firing onOpen, so without this the input wouldn't be focused.
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', leaf => {
+        if (leaf === this.leaf) this.focusInputOnOpen(true);
+      }),
+    );
+
     // Pre-warm the full-vault tag scan so the tag-filter menu is complete the
     // first time it opens (the rendered timeline alone only covers recent days).
     void this.ensureDiaryTags();
@@ -486,6 +521,7 @@ export class JournalCaptureView extends ItemView {
       window.clearInterval(this.shortWindowPollTimer);
       this.shortWindowPollTimer = null;
     }
+    this.clearAutoFocusTimers();
     this.teardownMobileToolbarAutoHide();
     this.disposeDays();
     this.containerEl.children[1].empty();
@@ -504,6 +540,9 @@ export class JournalCaptureView extends ItemView {
       // is a no-op when already on capture, so this is what actually exits
       // review/search/tag mode.
       if (this.timelineMode !== 'daily') this.restoreDailyMode();
+      // Tapping the Journal Partner tab means "write something" — bring the
+      // keyboard up (no-op on desktop / when the setting is off).
+      this.focusInputOnOpen(true);
     });
 
     // 随机回顾 — random-day review. Lives here (top tab bar) so it appears
@@ -1043,6 +1082,10 @@ export class JournalCaptureView extends ItemView {
     let realtimeActive = false; // whether live streaming is on for this session
     let pendingFlush: Promise<void> = Promise.resolve(); // serialize segment sends
     let vadFirstSegment = true; // until the first segment flushes, allow an early first-word cut
+    // Realtime STT swallows per-segment failures so one bad chunk doesn't kill
+    // the session — but the user must hear about a systemic failure (wrong
+    // endpoint/model/key) once, instead of "recording works, nothing appears".
+    let sttErrorNotified = false;
     // VAD tuning (sample-based so it adapts to any sample rate).
     const VAD_FRAME = 4096;            // ScriptProcessor buffer size
     const VAD_ENERGY_RMS = 0.012;      // below this RMS → considered silence (lowered so brief in-speech dips aren't misread as pauses)
@@ -1272,8 +1315,18 @@ export class JournalCaptureView extends ItemView {
             appendStreamedText(t);
             lastTranscript = (lastTranscript + t).slice(-256);
           }
-        } catch {
-          // A failed segment shouldn't kill the live session — drop and continue.
+        } catch (err) {
+          // A failed segment shouldn't kill the live session — drop and continue,
+          // but surface the first failure so a bad endpoint/model/key isn't a
+          // silent dead end.
+          if (!sttErrorNotified) {
+            sttErrorNotified = true;
+            new Notice(
+              t('notice.sttFailed', {
+                msg: err instanceof Error ? err.message : String(err),
+              }),
+            );
+          }
         }
       });
     };
@@ -2105,7 +2158,12 @@ export class JournalCaptureView extends ItemView {
       const vaultFile = await this.app.vault.createBinary(filePath, buffer);
       img.vaultPath = vaultFile.path;
       img.url = vaultFile.path;
-      img.markdown = `![](${vaultFile.path})`;
+      // Use a wiki embed rather than `![](vault-relative-path)`: markdown image
+      // links resolve relative to the *note's* folder, so a vault-root path
+      // breaks whenever the attachment folder differs from the daily-note
+      // folder (spaces/Chinese in the path make it worse). Wiki embeds resolve
+      // against the vault root and are what `saveAudioToVault` already uses.
+      img.markdown = `![[${vaultFile.path}]]`;
       // Free the object URL — the thumbnail now renders via getResourcePath.
       if (img.previewUrl) {
         URL.revokeObjectURL(img.previewUrl);
@@ -2337,8 +2395,21 @@ export class JournalCaptureView extends ItemView {
       },
       body: body.buffer,
     });
-    const text = (resp.json as { text?: string } | undefined)?.text;
-    return typeof text === 'string' ? text : '';
+    const payload = resp.json as
+      | { text?: unknown; error?: { message?: unknown } | string }
+      | undefined;
+    if (typeof payload?.text === 'string') return payload.text;
+    // Some OpenAI-compatible providers return `{ error: … }` with a 200, or a
+    // shape we don't understand. Throw with the provider's message so callers
+    // can show it instead of silently producing an empty transcript.
+    const errField = payload?.error;
+    const errMessage =
+      typeof errField === 'string'
+        ? errField
+        : errField && typeof errField === 'object' && typeof errField.message === 'string'
+          ? errField.message
+          : 'Transcription response has no "text" field';
+    throw new Error(errMessage);
   }
 
   private buildTimeline(root: HTMLElement) {
@@ -3613,23 +3684,80 @@ export class JournalCaptureView extends ItemView {
   }
 
   /**
-   * Loose parser: treat every top-level list item as an entry timestamped 00:00.
-   * Used when the section has no standard `- HH:MM ...` format.
+   * Loose parser: used by random review / favorites when the section has no
+   * standard `- HH:MM ...` format. Treats, in order:
+   * 1. top-level list items (`- some note`) as entries timestamped 00:00;
+   * 2. paragraphs that start with a timestamp (`08:37 something`);
+   * 3. any other non-empty plain paragraph (grouping consecutive lines).
+   *
+   * Step 3 is what makes older journals written as free paragraphs — without
+   * `- ` bullets — show up in random review (#46) instead of rendering
+   * "这天没有日记内容".
    */
   private parseLooseEntries(sectionText: string): Array<{ timestamp: string; text: string; lineIndex: number }> {
     const result: Array<{ timestamp: string; text: string; lineIndex: number }> = [];
-    const lines = sectionText.split('\n');
+    const lines = sectionText.replace(/\r\n?/g, '\n').split('\n');
+    const tsRe = new RegExp(`^(${this.plugin.settings.timestampPattern})\\s+(.+)$`);
+    // Structural markdown we must not report as journal text.
+    const isSpecial = (line: string): boolean =>
+      /^\s*#{1,6}\s/.test(line) || // heading
+      /^\s*```/.test(line) || // code fence
+      /^\s*([-*_])\1{2,}\s*$/.test(line) || // horizontal rule
+      /^\s*\|/.test(line); // table row
+
     for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(/^[-*+]\s+(.+)$/);
-      if (!m) continue;
-      let text = m[1].trim();
-      // Collect indented continuation lines
+      const raw = lines[i];
+      if (raw.trim().length === 0) continue;
+
+      // 1) List item — collect its indented continuation lines.
+      const listMatch = raw.match(/^[-*+]\s+(?:\[[ xX]\]\s+)?(.+)$/);
+      if (listMatch) {
+        let text = listMatch[1].trim();
+        let j = i + 1;
+        while (j < lines.length && /^\s+\S/.test(lines[j])) {
+          text += '\n' + lines[j].replace(/^\s{0,2}/, '');
+          j++;
+        }
+        result.push({ timestamp: '00:00', text, lineIndex: i });
+        i = j - 1;
+        continue;
+      }
+
+      if (isSpecial(raw)) continue;
+
+      // 2) Paragraph that starts with a timestamp: `08:37 ...`.
+      const tsMatch = tsRe.exec(raw.trim());
+      if (tsMatch) {
+        let text = tsMatch[2].trim();
+        let j = i + 1;
+        while (
+          j < lines.length &&
+          lines[j].trim() &&
+          !/^[-*+]\s+/.test(lines[j]) &&
+          !isSpecial(lines[j])
+        ) {
+          text += '\n' + lines[j].trim();
+          j++;
+        }
+        result.push({ timestamp: tsMatch[1], text, lineIndex: i });
+        i = j - 1;
+        continue;
+      }
+
+      // 3) Plain paragraph — group consecutive non-list, non-structural lines.
+      let text = raw.trim();
       let j = i + 1;
-      while (j < lines.length && /^\s+\S/.test(lines[j])) {
-        text += '\n' + lines[j].replace(/^\s{0,2}/, '');
+      while (
+        j < lines.length &&
+        lines[j].trim() &&
+        !/^[-*+]\s+/.test(lines[j]) &&
+        !isSpecial(lines[j])
+      ) {
+        text += '\n' + lines[j].trim();
         j++;
       }
       result.push({ timestamp: '00:00', text, lineIndex: i });
+      i = j - 1;
     }
     return result;
   }
@@ -4244,6 +4372,189 @@ export class JournalCaptureView extends ItemView {
     // Always restore on close — never leave the user without their navbar.
     this.setToolbarHidden(false);
     this.tabBarEl?.toggleClass('jp-tab-bar-hidden', false);
+  }
+
+  // ── Mobile input auto-focus (raise the on-screen keyboard) ───────────────
+
+  /**
+   * Focus the capture input so the user can start typing immediately.
+   *
+   * On mobile, iOS only raises the keyboard for a `focus()` that happens inside
+   * a user gesture, so the first attempt runs synchronously — callers on the tap
+   * path (ribbon / command / tab) invoke this before any `await`. A cold view
+   * mount is asynchronous, though, so we retry over the next few seconds until
+   * the input is focused; each attempt bails out if the view isn't visible, a
+   * modal opened, or the user has moved focus to another editable field. Any
+   * real user tap cancels the remaining retries so we never steal focus.
+   *
+   * On desktop this fixes the sidebar's "first click just activates the pane,
+   * you have to click the box again" behaviour by focusing the input as soon
+   * as the view is opened/activated (see the `force` flag).
+   *
+   * Safe to call repeatedly (onOpen + activateCaptureView + foreground +
+   * tab switch) — once the input is focused the remaining timers are cancelled.
+   */
+  public focusInputOnOpen(force = false): void {
+    if (!this.plugin.settings.autoFocusInput) return;
+    if (this.currentTab !== 'capture') return;
+
+    // On desktop the view often lives in a sidebar that stays restored in the
+    // background. Only take focus when it's the active leaf, or when the open
+    // was user-initiated (`force`) — otherwise a startup restore would yank the
+    // caret out of the note the user was editing.
+    if (!Platform.isMobile && !force && this.app.workspace.activeLeaf !== this.leaf) {
+      return;
+    }
+
+    const input = this.input;
+    if (!input) return;
+
+    this.clearAutoFocusTimers();
+
+    let nativeRequested = false;
+
+    const attempt = (): boolean => {
+      // Stop if the view was closed / the input was rebuilt under us.
+      if (!this.input || this.input !== input || !input.el.isConnected) return true;
+      // Only focus while our view is actually on screen. During app launch the
+      // leaf can exist before it's painted, so keep retrying rather than
+      // giving up on the first pass.
+      if (!this.isCaptureViewVisible()) return false;
+
+      const doc = input.el.ownerDocument;
+      const active = doc.activeElement as HTMLElement | null;
+      // Already focused inside the capture input (CM contenteditable, or the
+      // textarea fallback)? Then we're done.
+      if (active && input.el.contains(active)) return true;
+      // Never yank focus away from another editable field the user deliberately
+      // focused (inline search, edit dialog, etc.).
+      if (
+        active &&
+        (active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.isContentEditable)
+      ) {
+        return true;
+      }
+      // A modal (e.g. clear/delete confirmation) sits above the view — leave
+      // focus where it is.
+      if (doc.querySelector('.modal-container')) return true;
+
+      try {
+        // Announce the capture box as the workspace's active editor so
+        // Obsidian's mobile editing machinery treats it as a real editor.
+        input.markActive();
+        input.focus();
+        // Fallback: if the editor's own focus() didn't move the caret (some iOS
+        // builds are picky), focus the underlying editable DOM directly.
+        const nowActive = doc.activeElement;
+        if (!nowActive || !input.el.contains(nowActive)) {
+          const domTarget = input.el.querySelector<HTMLElement>(
+            'textarea, [contenteditable="true"], .cm-content',
+          );
+          domTarget?.focus();
+        }
+      } catch (err) {
+        console.error('[Journal Partner] focus capture input failed', err);
+      }
+
+      const focused = doc.activeElement;
+      const isFocused = !!(focused && input.el.contains(focused));
+      if (isFocused && !nativeRequested) {
+        nativeRequested = true;
+        // Best-effort native keyboard request. Android implements `show()`;
+        // iOS stock Capacitor leaves it unimplemented, in which case the
+        // rejected promise is swallowed here.
+        this.requestNativeKeyboard();
+      }
+      return isFocused;
+    };
+
+    // Synchronous first try: this is the one that counts as "inside the user
+    // gesture" when the caller is a tap handler.
+    if (attempt()) return;
+
+    // Cancel pending retries as soon as the user interacts with the view.
+    this.armAutoFocusCancel();
+
+    // Cold mount / slow app launch / foreground wake: retry while the leaf
+    // paints and the OS keyboard subsystem settles. The list stays bounded and
+    // any user tap clears it.
+    const delays = [0, 60, 150, 300, 550, 900, 1400, 2000, 3000, 4500];
+    for (const delay of delays) {
+      const id = window.setTimeout(() => {
+        if (attempt()) this.clearAutoFocusTimers();
+      }, delay);
+      this.autoFocusTimers.push(id);
+    }
+  }
+
+  /**
+   * Foreground / layout-ready entry point: focus only when this view is the
+   * one currently on screen, so switching away (or restoring a background
+   * leaf) never yanks focus.
+   */
+  private focusForForeground(): void {
+    if (!Platform.isMobile) return;
+    if (!this.isCaptureViewVisible()) return;
+    const activeLeaf = this.app.workspace.activeLeaf;
+    if (activeLeaf && activeLeaf !== this.leaf) return;
+    this.focusInputOnOpen();
+  }
+
+  /** True when the capture view's container is attached and displayed. */
+  private isCaptureViewVisible(): boolean {
+    try {
+      if (this.containerEl.isShown()) return true;
+    } catch {
+      /* fall through to the rect check */
+    }
+    return this.containerEl.getClientRects().length > 0;
+  }
+
+  /**
+   * Ask the native shell to raise the keyboard, if it exposes a working bridge.
+   * Wrapped in feature checks so it is a harmless no-op everywhere else.
+   */
+  private requestNativeKeyboard(): void {
+    type KeyboardBridge = { show?: () => Promise<unknown> };
+    type CapacitorWindow = { Capacitor?: { Plugins?: { Keyboard?: KeyboardBridge } } };
+    try {
+      const win = this.containerEl.ownerDocument.defaultView as
+        | (Window & CapacitorWindow)
+        | null;
+      const keyboard = win?.Capacitor?.Plugins?.Keyboard;
+      if (!keyboard || typeof keyboard.show !== 'function') return;
+      // `show()` may resolve or reject (stock iOS Capacitor leaves it
+      // unimplemented) — swallow both without letting a rejection go unhandled.
+      void Promise.resolve(keyboard.show()).catch(() => undefined);
+    } catch {
+      /* bridge absent or unsupported — ignore */
+    }
+  }
+
+  /** Cancel pending auto-focus retries on the user's next interaction. */
+  private armAutoFocusCancel(): void {
+    if (this.autoFocusCancel) return;
+    const doc = this.containerEl.ownerDocument;
+    const cancel = (): void => this.clearAutoFocusTimers();
+    doc.addEventListener('pointerdown', cancel, true);
+    doc.addEventListener('touchstart', cancel, { capture: true, passive: true });
+    doc.addEventListener('keydown', cancel, true);
+    this.autoFocusCancel = () => {
+      doc.removeEventListener('pointerdown', cancel, true);
+      doc.removeEventListener('touchstart', cancel, true);
+      doc.removeEventListener('keydown', cancel, true);
+    };
+  }
+
+  private clearAutoFocusTimers(): void {
+    for (const id of this.autoFocusTimers) window.clearTimeout(id);
+    this.autoFocusTimers = [];
+    if (this.autoFocusCancel) {
+      this.autoFocusCancel();
+      this.autoFocusCancel = null;
+    }
   }
 
   /**

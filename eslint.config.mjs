@@ -7,7 +7,7 @@ import obsidianmd from "eslint-plugin-obsidianmd";
 export default defineConfig([
   ...obsidianmd.configs.recommended,
   {
-    ignores: ["dist/**", "node_modules/**", "main.js", "styles.css"],
+    ignores: ["dist/**", "node_modules/**", "main.js", "styles.css", "test/**"],
   },
   {
     files: ["**/*.ts"],
