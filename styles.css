@@ -135,31 +135,24 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border-radius: 6px;
-  background: var(--background-secondary);
-}
-/* 桌面侧栏背景为 --background-secondary。移动端主面板是 --background-primary，
-   secondary 色块会显得突兀 —— 改用 primary 与其融合。 */
-.is-mobile .jp-capture-sticky {
-  background: var(--background-primary);
+  /* This wrapper also contains the timeline toolbar. Only the input card
+     should paint a surface; a second background exposes square strips around
+     its rounded corners. */
+  background: transparent;
 }
 
-/* Input card */
+/* One surface owns the input's background, outline and rounded corners.
+   Keep overflow visible so tag pickers and suggestions can leave the card. */
 .jp-capture-card {
+  box-sizing: border-box;
+  min-width: 0;
   background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
   border-radius: 12px;
   padding: 14px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: none;
 }
-
-/* Mobile: the surrounding workspace gives less visual structure than the
-   desktop sidebar, so wrap the input card with a soft gray border to
-   make it read clearly as an interactive surface. Matches the weight of
-   the NOTE submit button's border. */
-.is-mobile .jp-capture-card {
-  border: 1px solid var(--background-modifier-border);
-}
-.is-mobile .jp-capture-card:focus-within {
+.jp-capture-card:focus-within {
   border-color: var(--background-modifier-border-hover);
 }
 /* iOS WebView clips the first character of a <textarea> placeholder when
@@ -194,15 +187,27 @@
    readable line width, gutters. */
 .jp-capture-editor {
   height: auto;
+  /* The scroller, not the outer mount, limits long drafts. Otherwise the
+     editor's own padding can push content into the action row. */
+  max-height: none;
+  min-width: 0;
+  padding: 0;
   cursor: text;
 }
-.jp-capture-editor .markdown-source-view.mod-cm6 {
+.jp-capture-editor .markdown-source-view.mod-cm6,
+.jp-capture-editor .cm-editor {
   height: auto;
+  min-height: 60px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .jp-capture-editor .cm-editor {
-  min-height: 60px;
   max-height: 240px;
-  background: transparent;
 }
 .jp-capture-editor .cm-editor.cm-focused {
   outline: none;
@@ -1067,9 +1072,6 @@
 }
 
 /* Dark theme adjustments */
-.theme-dark .jp-capture-card {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-}
 .theme-dark .jp-timeline-bubble {
   background: color-mix(in srgb, var(--jp-tl-dot) 12%, var(--background-primary));
   border-color: color-mix(in srgb, var(--jp-tl-dot) 22%, transparent);
