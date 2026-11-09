@@ -56,8 +56,8 @@ export interface JournalPartnerSettings {
   defaultTags: string[];
   /** How many journal-derived tags (ranked by frequency + recency) the tag-filter menu shows. 0 = no limit. */
   maxDiaryTags: number;
-  /** UI language: 'en' (default) | 'zh'. */
-  language: 'en' | 'zh';
+  /** UI language; system follows the device locale, falling back to English. */
+  language: 'system' | 'en' | 'zh';
   /** On mobile, open the capture view in the right sidebar (slide-out drawer) instead of the full editor area. Desktop always uses the sidebar. */
   mobileOpenInSidebar: boolean;
   /** When a capture view opens/activates, focus the input automatically (and raise the on-screen keyboard on mobile). */
@@ -114,7 +114,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   presetTags: ['#log/fitness', '#log/code'],
   defaultTags: [],
   maxDiaryTags: 15,
-  language: 'en',
+  language: 'system',
   mobileOpenInSidebar: false,
   autoFocusInput: true,
   favorites: [],

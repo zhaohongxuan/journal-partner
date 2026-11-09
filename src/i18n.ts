@@ -3,12 +3,13 @@
  *
  * No third-party dependency: a single translation table keyed by semantic
  * strings, plus a `t()` helper and locale-aware date/number formatting.
- * Default language is English; Chinese is the second language.
+ * Supports English and Chinese; system mode falls back to English.
  */
 
 import type { Moment } from 'moment';
 
 export type Language = 'en' | 'zh';
+export type LanguageSetting = Language | 'system';
 
 type Dict = { [key: string]: string };
 
@@ -229,7 +230,8 @@ const EN: Dict = {
   'settings.sameFolder': 'Same folder as the note',
   'settings.pickFolder': 'Pick folder',
   'settings.language': 'Language',
-  'settings.languageDesc': 'Interface language (default English)',
+  'settings.languageDesc': 'Choose an interface language. System uses Chinese for Chinese locales and English for other languages.',
+  'settings.languageSystem': 'Follow system',
   'settings.mobileSidebar': 'Open in sidebar on mobile',
   'settings.mobileSidebarDesc': 'When on, the capture view opens in the right slide-out drawer on mobile instead of taking over the editor area.',
   'settings.autoFocus': 'Auto-focus the input on open',
@@ -554,7 +556,8 @@ const ZH: Dict = {
   'settings.sameFolder': '与日记同目录',
   'settings.pickFolder': '选择目录',
   'settings.language': '语言',
-  'settings.languageDesc': '界面语言（默认英文）',
+  'settings.languageDesc': '选择界面语言。跟随系统时，中文系统使用中文，其他语言使用英文。',
+  'settings.languageSystem': '跟随系统',
   'settings.mobileSidebar': '移动端从侧边栏打开',
   'settings.mobileSidebarDesc': '开启后，移动端从右侧滑出抽屉打开记录视图，而非占据主编辑区。',
   'settings.autoFocus': '打开时自动聚焦输入框',
@@ -667,10 +670,19 @@ const DICTS: Record<Language, Dict> = { en: EN, zh: ZH };
 
 let currentLanguage: Language = 'en';
 
-/** Set the active language. Returns the previous value. */
-export function setLanguage(lang: Language): Language {
+/** Resolve supported device locales; explicit choices override the system. */
+export function resolveLanguage(
+  lang: LanguageSetting,
+  systemLocale = typeof navigator === 'undefined' ? 'en' : navigator.language,
+): Language {
+  if (lang === 'en' || lang === 'zh') return lang;
+  return /^zh(?:[-_]|$)/i.test(systemLocale) ? 'zh' : 'en';
+}
+
+/** Set the active language. Returns the previous resolved value. */
+export function setLanguage(lang: LanguageSetting): Language {
   const prev = currentLanguage;
-  currentLanguage = lang;
+  currentLanguage = resolveLanguage(lang);
   return prev;
 }
 

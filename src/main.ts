@@ -74,7 +74,14 @@ export default class JournalPartnerPlugin extends Plugin {
     // `@` file mentions in the capture box, same behaviour as `[[`.
     this.registerEditorSuggest(new MentionSuggest(this.app));
     this.registerMarkdownPostProcessor((el, ctx) => this.postProcessor(el, ctx));
-    this.addSettingTab(new JournalPartnerSettingTab(this.app, this));
+    const settingsTab = new JournalPartnerSettingTab(this.app, this);
+    this.addSettingTab(settingsTab);
+    this.registerDomEvent(window, 'languagechange', () => {
+      if (this.settings.language !== 'system') return;
+      setLanguage('system');
+      if (settingsTab.containerEl.isShown()) settingsTab.display();
+      this.refreshCaptureViews();
+    });
 
     // Capture sidebar view
     this.registerView(
@@ -596,9 +603,7 @@ export default class JournalPartnerPlugin extends Plugin {
       delete (this.settings as unknown as Record<string, unknown>)['habitTag'];
     }
     // Keep the i18n module in sync with the persisted language choice.
-    if (this.settings.language === 'zh' || this.settings.language === 'en') {
-      setLanguage(this.settings.language);
-    }
+    setLanguage(this.settings.language);
   }
 
   async saveSettings() {
@@ -1239,6 +1244,25 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     });
     containerEl.empty();
 
+    // Keep language first so users can find it regardless of the active locale.
+    new Setting(containerEl)
+      .setName(t('settings.language'))
+      .setDesc(t('settings.languageDesc'))
+      .addDropdown(dd => {
+        dd.addOption('system', t('settings.languageSystem'));
+        dd.addOption('en', 'English');
+        dd.addOption('zh', '中文');
+        dd.setValue(this.plugin.settings.language);
+        dd.onChange(async value => {
+          if (value !== 'system' && value !== 'en' && value !== 'zh') return;
+          this.plugin.settings.language = value;
+          setLanguage(value);
+          await this.plugin.saveSettings();
+          this.display();
+          this.plugin.refreshCaptureViews();
+        });
+      });
+
     // ── Timestamp Settings ────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.timestamp')).setHeading();
 
@@ -1622,25 +1646,6 @@ class JournalPartnerSettingTab extends PluginSettingTab {
 
     // ── Shortcut ──────────────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.other')).setHeading();
-
-    // ── Language ──────────────────────────────────────────────────────────
-    new Setting(containerEl)
-      .setName(t('settings.language'))
-      .setDesc(t('settings.languageDesc'))
-      .addDropdown(dd => {
-        dd.addOption('en', 'English (default)');
-        dd.addOption('zh', '中文');
-        dd.setValue(this.plugin.settings.language);
-        dd.onChange(async (value: string) => {
-          this.plugin.settings.language = value as 'en' | 'zh';
-          setLanguage(this.plugin.settings.language);
-          await this.plugin.saveSettings();
-          // Re-render the whole settings tab AND any open capture views so
-          // every label switches immediately.
-          this.display();
-          this.plugin.refreshCaptureViews();
-        });
-      });
 
     // ── Mobile sidebar option ─────────────────────────────────────────────
     new Setting(containerEl)
