@@ -555,6 +555,12 @@ export default class JournalPartnerPlugin extends Plugin {
   async loadSettings() {
     const loaded = (await this.loadData()) as Partial<JournalPartnerSettings> | null;
     this.settings = { ...DEFAULT_SETTINGS, ...loaded };
+    // Preserve STT for existing configured users; new installs start disabled.
+    if (loaded?.sttEnabled === undefined) {
+      this.settings.sttEnabled = Boolean(
+        loaded?.sttEndpoint?.trim() && loaded?.sttApiKey?.trim(),
+      );
+    }
     // The auto-focus toggle shipped (pre-release) as `mobileAutoFocusInput`; it
     // now governs all platforms. Carry the old value onto the new key.
     const legacyAutoFocus = (loaded as { mobileAutoFocusInput?: unknown } | null)
@@ -664,6 +670,20 @@ class JournalPartnerSettingTab extends PluginSettingTab {
   /** Debounce timer for the habit name input. */
   private habitSaveTimer: number | null = null;
 
+  /** Disclosure state survives settings redraws, including temporarily hidden sections. */
+  private settingsDetailsOpen = new Map<string, boolean>();
+
+  private createSettingsDetails(parent: HTMLElement, key: string, title: string): HTMLDetailsElement {
+    const details = parent.createEl('details', { cls: 'jp-settings-details' });
+    details.dataset.jpSettingsKey = key;
+    details.open = this.settingsDetailsOpen.get(key) ?? false;
+    details.createEl('summary', { text: title });
+    details.addEventListener('toggle', () => {
+      this.settingsDetailsOpen.set(key, details.open);
+    });
+    return details;
+  }
+
   constructor(app: App, plugin: JournalPartnerPlugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -714,6 +734,21 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName(t('settings.quoteTag'))
+      .setDesc(t('settings.quoteTagDesc'))
+      .addText(text =>
+        text
+          .setPlaceholder('#log/reading')
+          .setValue(this.plugin.settings.quoteTag)
+          .onChange(async value => {
+            this.plugin.settings.quoteTag = value.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    const advanced = this.createSettingsDetails(containerEl, 'quote-advanced', t('settings.advanced'));
+
+    new Setting(advanced)
       .setName(t('settings.quoteBoostPopular'))
       .setDesc(t('settings.quoteBoostPopularDesc'))
       .addToggle(toggle =>
@@ -725,7 +760,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
+    new Setting(advanced)
       .setName(t('settings.quotePopularWeight'))
       .setDesc(t('settings.quotePopularWeightDesc'))
       .addSlider(slider =>
@@ -739,7 +774,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
+    new Setting(advanced)
       .setName(t('settings.quoteMinBookHighlights'))
       .setDesc(t('settings.quoteMinBookHighlightsDesc'))
       .addSlider(slider =>
@@ -753,7 +788,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
+    new Setting(advanced)
       .setName(t('settings.quoteSameBookReroll'))
       .setDesc(t('settings.quoteSameBookRerollDesc'))
       .addToggle(toggle =>
@@ -765,20 +800,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
-      .setName(t('settings.quoteTag'))
-      .setDesc(t('settings.quoteTagDesc'))
-      .addText(text =>
-        text
-          .setPlaceholder('#log/reading')
-          .setValue(this.plugin.settings.quoteTag)
-          .onChange(async value => {
-            this.plugin.settings.quoteTag = value.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
+    new Setting(advanced)
       .setName(t('settings.quoteTemplate'))
       .setDesc(t('settings.quoteTemplateDesc'))
       .addText(text =>
@@ -819,6 +841,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
    * to their defaults.
    */
   private addColorSetting(
+    containerEl: HTMLElement,
     name: string,
     desc: string,
     lightKey: 'timestampColor' | 'timestampBgColor',
@@ -826,7 +849,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     lightDefault: string,
     darkDefault: string,
   ): void {
-    new Setting(this.containerEl)
+    new Setting(containerEl)
       .setName(name)
       .setDesc(desc)
       .addColorPicker(cp =>
@@ -1161,12 +1184,6 @@ class JournalPartnerSettingTab extends PluginSettingTab {
    * instead of a row of toggles.
    */
   private renderDefaultTagToggles(): void {
-    // (Re)create the container only when needed: after display() empties the
-    // tab, the old element is detached — reuse it otherwise so chip clicks
-    // re-render in place instead of stacking containers.
-    if (!this.defaultTagListEl || !this.defaultTagListEl.isConnected) {
-      this.defaultTagListEl = this.containerEl.createDiv({ cls: 'jp-settings-tag-select' });
-    }
     this.defaultTagListEl.empty();
 
     const presetTags = (this.plugin.settings.presetTags ?? [])
@@ -1216,6 +1233,10 @@ class JournalPartnerSettingTab extends PluginSettingTab {
 
   display() {
     const { containerEl } = this;
+    // Capture synchronously as native toggle events may still be queued.
+    containerEl.querySelectorAll<HTMLDetailsElement>('details[data-jp-settings-key]').forEach(details => {
+      this.settingsDetailsOpen.set(details.dataset.jpSettingsKey, details.open);
+    });
     containerEl.empty();
 
     // ── Timestamp Settings ────────────────────────────────────────────────
@@ -1273,24 +1294,6 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName(t('settings.pattern'))
-      .setDesc(t('settings.patternDesc'))
-      .addText(text =>
-        text
-          .setPlaceholder('\\d{2}:\\d{2}')
-          .setValue(this.plugin.settings.timestampPattern)
-          .onChange(async value => {
-            try {
-              new RegExp(value);
-              this.plugin.settings.timestampPattern = value;
-              await this.plugin.saveSettings();
-            } catch {
-              new Notice(t('notice.invalidRegex'));
-            }
-          }),
-      );
-
-    new Setting(containerEl)
       .setName(t('settings.sortOrder'))
       .setDesc(t('settings.sortOrderDesc'))
       .addDropdown(dropdown =>
@@ -1311,10 +1314,29 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     previewEl.createSpan({ cls: 'jp-timestamp', text: '07:31' });
     previewEl.createSpan({ text: t('settings.previewSample') });
 
-    // ── Tag Settings ──────────────────────────────────────────────────────
-    new Setting(containerEl).setName(t('settings.heading.tags')).setHeading();
+    const timestampAdvanced = this.createSettingsDetails(containerEl, 'timestamp-advanced', t('settings.advanced'));
+    new Setting(timestampAdvanced)
+      .setName(t('settings.pattern'))
+      .setDesc(t('settings.patternDesc'))
+      .addText(text =>
+        text
+          .setPlaceholder('\\d{2}:\\d{2}')
+          .setValue(this.plugin.settings.timestampPattern)
+          .onChange(async value => {
+            try {
+              new RegExp(value);
+              this.plugin.settings.timestampPattern = value;
+              await this.plugin.saveSettings();
+            } catch {
+              new Notice(t('notice.invalidRegex'));
+            }
+          }),
+      );
 
-    new Setting(containerEl)
+    // ── Tag Settings ──────────────────────────────────────────────────────
+    const tagsContainer = this.createSettingsDetails(containerEl, 'tags', t('settings.heading.tags'));
+
+    new Setting(tagsContainer)
       .setName(t('settings.presetTags'))
       .setDesc(t('settings.presetTagsDesc'))
       .addButton(btn =>
@@ -1328,15 +1350,16 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           }),
       );
 
-    this.presetTagListEl = containerEl.createDiv({ cls: 'jp-settings-tag-list' });
+    this.presetTagListEl = tagsContainer.createDiv({ cls: 'jp-settings-tag-list' });
     this.renderPresetTagInputs();
 
-    new Setting(containerEl)
+    new Setting(tagsContainer)
       .setName(t('settings.defaultTags'))
       .setDesc(t('settings.defaultTagsDesc'));
+    this.defaultTagListEl = tagsContainer.createDiv({ cls: 'jp-settings-tag-select' });
     this.renderDefaultTagToggles();
 
-    new Setting(containerEl)
+    new Setting(tagsContainer)
       .setName(t('settings.maxDiaryTags'))
       .setDesc(t('settings.maxDiaryTagsDesc'))
       .addSlider(slider =>
@@ -1351,9 +1374,10 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     // ── Color Settings ───────────────────────────────────────────────────
-    new Setting(containerEl).setName(t('settings.heading.colors')).setHeading();
+    const colorsContainer = this.createSettingsDetails(containerEl, 'colors', t('settings.heading.colors'));
 
     this.addColorSetting(
+      colorsContainer,
       t('settings.textColor'),
       t('settings.textColorDesc'),
       'timestampColor',
@@ -1362,6 +1386,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       DEFAULT_SETTINGS.timestampColorDark,
     );
     this.addColorSetting(
+      colorsContainer,
       t('settings.bgColor'),
       t('settings.bgColorDesc'),
       'timestampBgColor',
@@ -1373,56 +1398,6 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     // ── Speech-to-text ────────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.stt')).setHeading();
 
-    // Usage guide — explains how STT works here and lists mainstream / free models.
-    const guide = containerEl.createDiv({ cls: 'jp-stt-guide' });
-    guide.createEl('p', {
-      text: t('settings.sttGuide'),
-    });
-    guide.createEl('p', {
-      text: t('settings.sttGuideRealtime'),
-    });
-    const table = guide.createEl('table', { cls: 'jp-stt-guide-table' });
-    const thead = table.createEl('thead');
-    const headRow = thead.createEl('tr');
-    for (const h of [t('settings.sttProvider'), t('settings.sttEndpointCol'), t('settings.sttModelCol'), t('settings.sttCost'), t('settings.sttNote')]) {
-      headRow.createEl('th', { text: h });
-    }
-    const tbody = table.createEl('tbody');
-    // [服务商, 官网, 转写地址, 模型, 费用, 说明]
-    const rows: [string, string, string, string, string, string][] = [
-      [t('settings.sttProviderSiliconFlow'), 'https://siliconflow.cn', 'https://api.siliconflow.cn/v1/audio/transcriptions', 'FunAudioLLM/SenseVoiceSmall', t('settings.sttFree'), t('settings.sttCNRecommended')],
-      [t('settings.sttProviderGroq'), 'https://console.groq.com', 'https://api.groq.com/openai/v1/audio/transcriptions', 'whisper-large-v3', t('settings.sttHasFreeQuota'), t('settings.sttFast')],
-      [t('settings.sttProviderOpenAI'), 'https://platform.openai.com', 'https://api.openai.com/v1/audio/transcriptions', 'whisper-1', t('settings.sttPaid'), t('settings.sttOfficial')],
-      [t('settings.sttProviderBailian'), 'https://bailian.console.aliyun.com', '需用 DashScope 兼容端点', 'paraformer-v2', t('settings.sttHasFreeQuota'), t('settings.sttGoodCN')],
-      [t('settings.sttProviderSelfHosted'), 'https://github.com/ahmetoner/whisper-asr-webservice', 'http://你的服务器:9000/v1/audio/transcriptions', 'whisper-1 / small / medium', t('settings.sttFree'), t('settings.sttSelfHosted')],
-    ];
-    for (const r of rows) {
-      const [name, nameUrl, endpoint, model, cost, note] = r;
-      const tr = tbody.createEl('tr');
-      const nameTd = tr.createEl('td');
-      const nameA = nameTd.createEl('a', { text: name });
-      nameA.href = nameUrl;
-      nameA.target = '_blank';
-      nameA.rel = 'noopener';
-      const epTd = tr.createEl('td');
-      const epA = epTd.createEl('a', { text: endpoint });
-      epA.href = endpoint.startsWith('http') ? endpoint : nameUrl;
-      epA.target = '_blank';
-      epA.rel = 'noopener';
-      tr.createEl('td', { text: model });
-      tr.createEl('td', { text: cost });
-      tr.createEl('td', { text: note });
-    }
-    const hintP = guide.createEl('p', { cls: 'jp-stt-guide-hint' });
-    hintP.appendText(t('settings.sttHint'));
-    const hintA = hintP.createEl('a', { text: t('settings.sttPricing') });
-    hintA.href = 'https://siliconflow.cn/pricing';
-    hintA.target = '_blank';
-    hintA.rel = 'noopener';
-    hintP.appendText('。');
-
-
-    let apiKeyInputEl: HTMLInputElement | null = null;
     this.addFolderSetting(
       containerEl,
       t('settings.recordingFolder'),
@@ -1431,84 +1406,149 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     );
 
     new Setting(containerEl)
-      .setName(t('settings.sttEndpoint'))
-      .setDesc(t('settings.sttEndpointDesc'))
-      .addText(text =>
-        text
-          .setPlaceholder('https://api.openai.com/v1/audio/transcriptions')
-          .setValue(this.plugin.settings.sttEndpoint)
-          .onChange(async value => {
-            this.plugin.settings.sttEndpoint = value.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName(t('settings.sttApiKey'))
-      .setDesc(t('settings.sttApiKeyDesc'))
-      .addText(text => {
-        text.inputEl.type = 'password';
-        apiKeyInputEl = text.inputEl;
-        text
-          .setPlaceholder('sk-…')
-          .setValue(this.plugin.settings.sttApiKey)
-          .onChange(async value => {
-            this.plugin.settings.sttApiKey = value.trim();
-            await this.plugin.saveSettings();
-          });
-        return text;
-      })
-      .addExtraButton((button: ExtraButtonComponent) => {
-        let isPassword = true;
-        button.setIcon('eye')
-          .setTooltip(t('settings.sttApiKeyShowHide'))
-          .onClick(() => {
-            isPassword = !isPassword;
-            if (apiKeyInputEl) {
-              apiKeyInputEl.type = isPassword ? 'password' : 'text';
-            }
-            button.setIcon(isPassword ? 'eye' : 'eye-off');
-          });
-        return button;
-      });
-
-    new Setting(containerEl)
-      .setName(t('settings.sttModel'))
-      .setDesc(t('settings.sttModelDesc'))
-      .addText(text =>
-        text
-          .setPlaceholder('whisper-1')
-          .setValue(this.plugin.settings.sttModel)
-          .onChange(async value => {
-            this.plugin.settings.sttModel = value.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName(t('settings.sttLanguage'))
-      .setDesc(t('settings.sttLanguageDesc'))
-      .addText(text =>
-        text
-          .setPlaceholder('zh')
-          .setValue(this.plugin.settings.sttLanguage)
-          .onChange(async value => {
-            this.plugin.settings.sttLanguage = value.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName(t('settings.sttRealtime'))
-      .setDesc(t('settings.sttRealtimeDesc'))
+      .setName(t('settings.sttEnabled'))
+      .setDesc(t('settings.sttEnabledDesc'))
       .addToggle(toggle =>
         toggle
-          .setValue(this.plugin.settings.sttRealtime)
+          .setValue(this.plugin.settings.sttEnabled)
           .onChange(async value => {
-            this.plugin.settings.sttRealtime = value;
+            this.plugin.settings.sttEnabled = value;
             await this.plugin.saveSettings();
+            this.display();
           }),
       );
+
+    if (this.plugin.settings.sttEnabled) {
+      // Usage guide — explains how STT works here and lists mainstream / free models.
+      const guideDetails = this.createSettingsDetails(containerEl, 'stt-guide', t('settings.sttGuideTitle'));
+      const guide = guideDetails.createDiv({ cls: 'jp-stt-guide' });
+      guide.createEl('p', {
+        text: t('settings.sttGuide'),
+      });
+      guide.createEl('p', {
+        text: t('settings.sttGuideRealtime'),
+      });
+      const table = guide.createEl('table', { cls: 'jp-stt-guide-table' });
+      const thead = table.createEl('thead');
+      const headRow = thead.createEl('tr');
+      for (const h of [t('settings.sttProvider'), t('settings.sttEndpointCol'), t('settings.sttModelCol'), t('settings.sttCost'), t('settings.sttNote')]) {
+        headRow.createEl('th', { text: h });
+      }
+      const tbody = table.createEl('tbody');
+      // [服务商, 官网, 转写地址, 模型, 费用, 说明]
+      const rows: [string, string, string, string, string, string][] = [
+        [t('settings.sttProviderSiliconFlow'), 'https://siliconflow.cn', 'https://api.siliconflow.cn/v1/audio/transcriptions', 'FunAudioLLM/SenseVoiceSmall', t('settings.sttFree'), t('settings.sttCNRecommended')],
+        [t('settings.sttProviderGroq'), 'https://console.groq.com', 'https://api.groq.com/openai/v1/audio/transcriptions', 'whisper-large-v3', t('settings.sttHasFreeQuota'), t('settings.sttFast')],
+        [t('settings.sttProviderOpenAI'), 'https://platform.openai.com', 'https://api.openai.com/v1/audio/transcriptions', 'whisper-1', t('settings.sttPaid'), t('settings.sttOfficial')],
+        [t('settings.sttProviderBailian'), 'https://bailian.console.aliyun.com', '需用 DashScope 兼容端点', 'paraformer-v2', t('settings.sttHasFreeQuota'), t('settings.sttGoodCN')],
+        [t('settings.sttProviderSelfHosted'), 'https://github.com/ahmetoner/whisper-asr-webservice', 'http://你的服务器:9000/v1/audio/transcriptions', 'whisper-1 / small / medium', t('settings.sttFree'), t('settings.sttSelfHosted')],
+      ];
+      for (const r of rows) {
+        const [name, nameUrl, endpoint, model, cost, note] = r;
+        const tr = tbody.createEl('tr');
+        const nameTd = tr.createEl('td');
+        const nameA = nameTd.createEl('a', { text: name });
+        nameA.href = nameUrl;
+        nameA.target = '_blank';
+        nameA.rel = 'noopener';
+        const epTd = tr.createEl('td');
+        const epA = epTd.createEl('a', { text: endpoint });
+        epA.href = endpoint.startsWith('http') ? endpoint : nameUrl;
+        epA.target = '_blank';
+        epA.rel = 'noopener';
+        tr.createEl('td', { text: model });
+        tr.createEl('td', { text: cost });
+        tr.createEl('td', { text: note });
+      }
+      const hintP = guide.createEl('p', { cls: 'jp-stt-guide-hint' });
+      hintP.appendText(t('settings.sttHint'));
+      const hintA = hintP.createEl('a', { text: t('settings.sttPricing') });
+      hintA.href = 'https://siliconflow.cn/pricing';
+      hintA.target = '_blank';
+      hintA.rel = 'noopener';
+      hintP.appendText('。');
+
+      let apiKeyInputEl: HTMLInputElement | null = null;
+      new Setting(containerEl)
+        .setName(t('settings.sttEndpoint'))
+        .setDesc(t('settings.sttEndpointDesc'))
+        .addText(text =>
+          text
+            .setPlaceholder('https://api.openai.com/v1/audio/transcriptions')
+            .setValue(this.plugin.settings.sttEndpoint)
+            .onChange(async value => {
+              this.plugin.settings.sttEndpoint = value.trim();
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName(t('settings.sttApiKey'))
+        .setDesc(t('settings.sttApiKeyDesc'))
+        .addText(text => {
+          text.inputEl.type = 'password';
+          apiKeyInputEl = text.inputEl;
+          text
+            .setPlaceholder('sk-…')
+            .setValue(this.plugin.settings.sttApiKey)
+            .onChange(async value => {
+              this.plugin.settings.sttApiKey = value.trim();
+              await this.plugin.saveSettings();
+            });
+          return text;
+        })
+        .addExtraButton((button: ExtraButtonComponent) => {
+          let isPassword = true;
+          button.setIcon('eye')
+            .setTooltip(t('settings.sttApiKeyShowHide'))
+            .onClick(() => {
+              isPassword = !isPassword;
+              if (apiKeyInputEl) {
+                apiKeyInputEl.type = isPassword ? 'password' : 'text';
+              }
+              button.setIcon(isPassword ? 'eye' : 'eye-off');
+            });
+          return button;
+        });
+
+      new Setting(containerEl)
+        .setName(t('settings.sttModel'))
+        .setDesc(t('settings.sttModelDesc'))
+        .addText(text =>
+          text
+            .setPlaceholder('whisper-1')
+            .setValue(this.plugin.settings.sttModel)
+            .onChange(async value => {
+              this.plugin.settings.sttModel = value.trim();
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName(t('settings.sttLanguage'))
+        .setDesc(t('settings.sttLanguageDesc'))
+        .addText(text =>
+          text
+            .setPlaceholder('zh')
+            .setValue(this.plugin.settings.sttLanguage)
+            .onChange(async value => {
+              this.plugin.settings.sttLanguage = value.trim();
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName(t('settings.sttRealtime'))
+        .setDesc(t('settings.sttRealtimeDesc'))
+        .addToggle(toggle =>
+          toggle
+            .setValue(this.plugin.settings.sttRealtime)
+            .onChange(async value => {
+              this.plugin.settings.sttRealtime = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+    }
 
     // ── Random highlight (WeRead) ─────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.quote')).setHeading();
@@ -1534,36 +1574,51 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     // ── Habit Check-in ────────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.habits')).setHeading();
 
-    containerEl.createEl('p', { cls: 'jp-stt-guide', text: t('settings.habitsDesc') });
-
     new Setting(containerEl)
-      .setName(t('settings.habitMirrorFrontmatter'))
-      .setDesc(t('settings.habitMirrorFrontmatterDesc'))
+      .setName(t('settings.habitsEnabled'))
+      .setDesc(t('settings.habitsEnabledDesc'))
       .addToggle(toggle =>
         toggle
-          .setValue(this.plugin.settings.habitMirrorFrontmatter)
+          .setValue(this.plugin.settings.habitsEnabled)
           .onChange(async value => {
-            this.plugin.settings.habitMirrorFrontmatter = value;
+            this.plugin.settings.habitsEnabled = value;
             await this.plugin.saveSettings();
-            // The per-habit property inputs appear/disappear with the switch.
-            this.renderHabitRows();
+            this.display();
           }),
       );
 
-    new Setting(containerEl)
-      .setName(t('settings.habitAdd'))
-      .addButton(btn =>
-        btn
-          .setButtonText(t('settings.habitAdd'))
-          .setCta()
-          .onClick(() => {
-            this.plugin.settings.habits.push(makeHabit());
-            void this.plugin.saveSettings().then(() => this.renderHabitRows());
-          }),
-      );
+    if (this.plugin.settings.habitsEnabled) {
+      containerEl.createEl('p', { cls: 'jp-stt-guide', text: t('settings.habitsDesc') });
 
-    this.habitListEl = containerEl.createDiv({ cls: 'jp-settings-habit-list' });
-    this.renderHabitRows();
+      new Setting(containerEl)
+        .setName(t('settings.habitMirrorFrontmatter'))
+        .setDesc(t('settings.habitMirrorFrontmatterDesc'))
+        .addToggle(toggle =>
+          toggle
+            .setValue(this.plugin.settings.habitMirrorFrontmatter)
+            .onChange(async value => {
+              this.plugin.settings.habitMirrorFrontmatter = value;
+              await this.plugin.saveSettings();
+              // The per-habit property inputs appear/disappear with the switch.
+              this.renderHabitRows();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName(t('settings.habitAdd'))
+        .addButton(btn =>
+          btn
+            .setButtonText(t('settings.habitAdd'))
+            .setCta()
+            .onClick(() => {
+              this.plugin.settings.habits.push(makeHabit());
+              void this.plugin.saveSettings().then(() => this.renderHabitRows());
+            }),
+        );
+
+      this.habitListEl = containerEl.createDiv({ cls: 'jp-settings-habit-list' });
+      this.renderHabitRows();
+    }
 
     // ── Shortcut ──────────────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.other')).setHeading();
@@ -1636,7 +1691,9 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
+    const integrations = this.createSettingsDetails(containerEl, 'integrations', t('settings.integrations'));
+
+    new Setting(integrations)
       .setName(t('settings.appleShortcut'))
       .setDesc(t('settings.appleShortcutDesc'))
       .addButton(btn =>
@@ -1652,7 +1709,7 @@ class JournalPartnerSettingTab extends PluginSettingTab {
       );
 
     // URL scheme reference
-    const urlSection = containerEl.createDiv({ cls: 'jp-settings-url-section' });
+    const urlSection = integrations.createDiv({ cls: 'jp-settings-url-section' });
     urlSection.createDiv({ text: 'URL Scheme', cls: 'jp-settings-url-title' });
 
     urlSection.createDiv({
