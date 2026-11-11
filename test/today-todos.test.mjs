@@ -53,6 +53,7 @@ await build({
           export const appHasDailyNotesPluginLoaded = () => host.dailyAvailable;
           export const getAllDailyNotes = () => ({});
           export const getDailyNote = () => host.file;
+          export const createDailyNote = async () => { host.file = new host.TFile('daily/2026-11-11.md'); return host.file; };
         `,
       }));
     },
@@ -67,7 +68,7 @@ class EventTargetStub {
     this.listeners.get(name).add(fn);
   }
   removeEventListener(name, fn) { this.listeners.get(name)?.delete(fn); }
-  dispatch(name) { for (const fn of this.listeners.get(name) ?? []) fn({ target: this }); }
+  dispatch(name) { for (const fn of this.listeners.get(name) ?? []) fn({ target: this, preventDefault() {} }); }
   on(name, fn) { this.addEventListener(name, fn); return { off: () => this.removeEventListener(name, fn) }; }
 }
 
@@ -94,6 +95,9 @@ class Element extends EventTargetStub {
   }
   createDiv(options) { return this.createEl('div', options); }
   createSpan(options) { return this.createEl('span', options); }
+  value = '';
+  setAttr(key, value) { this.attr[key] = value; }
+  focus() {}
   hide() { this.hidden = true; }
   show() { this.hidden = false; }
   empty() { this.children.forEach(child => { child.parent = null; }); this.children = []; }
@@ -161,7 +165,7 @@ function fixture(t, content, overrides = {}) {
       },
       replaceRange(text, from, to) {
         const offset = pos => state.buffer.split('\n').slice(0, pos.line).reduce((sum, line) => sum + line.length + 1, 0) + pos.ch;
-        const start = offset(from), end = offset(to);
+        const start = offset(from), end = offset(to ?? from);
         state.replacements.push({ text, start, end });
         state.buffer = state.buffer.slice(0, start) + text + state.buffer.slice(end);
       },
@@ -312,6 +316,67 @@ test('completion of an in-flight write after unload cannot revive the component'
   assert.equal(f.parent.children.length, 0);
   assert.equal(f.boxes().length, 0);
   assert.equal(f.timers.size, 0);
+});
+
+test('adding a task writes the current disk and preserves the input across refresh', async t => {
+  const f = fixture(t, note);
+  f.component.load(); await settle();
+  const input = f.parent.querySelectorAll('.jp-todo-add-input')[0];
+  const form = f.parent.querySelectorAll('.jp-todo-add-form')[0];
+  assert.equal(form.hidden, true);
+  const toggle = f.parent.querySelectorAll('.jp-todo-add-toggle')[0];
+  assert.equal(toggle.parent.cls, 'jp-todo-head-actions');
+  toggle.dispatch('click');
+  assert.equal(form.hidden, false);
+  assert.equal(toggle.attr['aria-expanded'], 'true');
+  input.value = 'new task';
+  f.component.refreshNow(); await settle();
+  assert.equal(f.parent.querySelectorAll('.jp-todo-add-input')[0], input);
+  assert.equal(input.value, 'new task');
+  f.parent.querySelectorAll('.jp-todo-add-form')[0].dispatch('submit');
+  await settle();
+  assert.equal(f.state.processes, 1);
+  assert.ok(f.state.disk.includes('## Planning\n- [ ] new task\n'));
+  assert.equal(input.value, '');
+  assert.equal(form.hidden, true);
+});
+
+for (const active of [true, false]) {
+  test(`adding a task uses the ${active ? 'active' : 'background'} editor buffer`, async t => {
+    const f = fixture(t, note);
+    f.openEditor(note + '\nunsaved'); f.state.active = active;
+    f.component.load(); await settle();
+    f.parent.querySelectorAll('.jp-todo-add-input')[0].value = 'live task';
+    f.parent.querySelectorAll('.jp-todo-add-form')[0].dispatch('submit');
+    await settle();
+    assert.equal(f.state.processes, 0);
+    assert.equal(f.state.disk, note);
+    assert.ok(f.state.buffer.includes('- [ ] live task'));
+    assert.ok(f.state.buffer.endsWith('unsaved'));
+    assert.equal(f.state.replacements.length, 1);
+  });
+}
+
+test('adding creates today note and planning heading when missing', async t => {
+  const f = fixture(t, ''); host.file = null;
+  f.component.load(); await settle();
+  f.parent.querySelectorAll('.jp-todo-add-input')[0].value = 'first task';
+  f.parent.querySelectorAll('.jp-todo-add-form')[0].dispatch('submit'); await settle();
+  assert.ok(host.file);
+  assert.ok(f.state.disk.includes('## Planning\n- [ ] first task'));
+});
+
+test('failed additions retain draft and blank submissions write nothing', async t => {
+  const f = fixture(t, note);
+  f.component.load(); await settle();
+  const input = f.parent.querySelectorAll('.jp-todo-add-input')[0];
+  input.value = '   ';
+  f.parent.querySelectorAll('.jp-todo-add-form')[0].dispatch('submit'); await settle();
+  assert.equal(f.state.processes, 0);
+  f.settings.todoStartHeading = 'invalid'; input.value = 'keep draft';
+  f.parent.querySelectorAll('.jp-todo-add-form')[0].dispatch('submit'); await settle();
+  assert.equal(input.value, 'keep draft');
+  assert.equal(f.state.processes, 0);
 });
 
 test('an older pending refresh cannot replace the latest settings render', async t => {

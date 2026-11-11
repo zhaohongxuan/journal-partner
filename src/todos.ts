@@ -105,6 +105,47 @@ export function parsePlanningTodos(content: string, startHeading: string, endHea
   return parseLines(sourceLines(content), startHeading, endHeading);
 }
 
+/** Insert a plain task without changing existing source bytes or line endings. */
+export function addPlanningTodo(content: string, text: string, startHeading: string, endHeading: string): string {
+  const multiline = /[\r\n\u2028\u2029]/;
+  const start = startHeading.trim();
+  const end = endHeading.trim();
+  if (!text.trim() || multiline.test(text)) {
+    throw new Error('Planning task text must be a nonblank single line.');
+  }
+  if (multiline.test(startHeading) || multiline.test(endHeading)
+    || !HEADING_RE.test(start) || !HEADING_RE.test(end) || start === end) {
+    throw new Error('Planning headings must be valid, distinct Markdown headings.');
+  }
+
+  const newline = /\r\n|\r|\n/.exec(content)?.[0] ?? '\n';
+  const task = `- [ ] ${text.trim()}${newline}`;
+  const lines = sourceLines(content);
+  const bounds = planningBounds(lines, start, end);
+  if (bounds) {
+    // Inserting immediately after the heading avoids nested sections and open fences.
+    const offset = lines[bounds[0]]?.offset ?? content.length;
+    const separator = offset > 0 && !/[\r\n]$/.test(content.slice(0, offset)) ? newline : '';
+    return content.slice(0, offset) + separator + task + content.slice(offset);
+  }
+
+  const endLine = lines.find(line => line.visible && line.text.trim() === end);
+  if (endLine) {
+    return content.slice(0, endLine.offset) + start + newline + task + content.slice(endLine.offset);
+  }
+
+  const separator = !content ? '' : content.endsWith(newline + newline) ? ''
+    : /[\r\n]$/.test(content) ? newline : newline + newline;
+  const prefix = content + separator;
+  // Probe through the same scanner: a heading appended inside unclosed YAML or a
+  // code fence would be hidden, so refuse to silently create an invisible task.
+  const probe = sourceLines(prefix + start);
+  if (!probe[probe.length - 1]?.visible) {
+    throw new Error('Cannot add a planning heading inside unclosed frontmatter or a code fence.');
+  }
+  return prefix + start + newline + task;
+}
+
 /** Revalidate a snapshot against the current section, then replace at most one character. */
 export function setPlanningTodoCompleted(
   content: string,
