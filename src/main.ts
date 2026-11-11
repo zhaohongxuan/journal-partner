@@ -616,8 +616,11 @@ export default class JournalPartnerPlugin extends Plugin {
     this.app.workspace.getLeavesOfType(CAPTURE_VIEW_TYPE).forEach(leaf => {
       const view = leaf.view;
       if (view instanceof JournalCaptureView) {
+        view.refreshTodayTodosNow();
         view.refreshHabitBarNow();
         view.refreshQuoteButton();
+        // The wide-layout toggle changes the root layout class immediately.
+        view.refreshLayoutNow();
       }
     });
   }
@@ -1595,6 +1598,51 @@ class JournalPartnerSettingTab extends PluginSettingTab {
 
     if (this.plugin.settings.quoteEnabled) this.displayQuoteSettings(containerEl);
 
+    // ── Today's planning tasks ────────────────────────────────────────────
+    new Setting(containerEl).setName(t('settings.heading.todos')).setHeading();
+
+    new Setting(containerEl)
+      .setName(t('settings.todoEnabled'))
+      .setDesc(t('settings.todoEnabledDesc'))
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.todoEnabled)
+        .onChange(async value => {
+          this.plugin.settings.todoEnabled = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName(t('settings.todoStartHeading'))
+      .setDesc(t('settings.todoStartHeadingDesc'))
+      .addText(text => text
+        .setPlaceholder('## Planning')
+        .setValue(this.plugin.settings.todoStartHeading)
+        .onChange(async value => {
+          this.plugin.settings.todoStartHeading = value.trim() || DEFAULT_SETTINGS.todoStartHeading;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName(t('settings.todoEndHeading'))
+      .setDesc(t('settings.todoEndHeadingDesc'))
+      .addText(text => text
+        .setPlaceholder('## Journal')
+        .setValue(this.plugin.settings.todoEndHeading)
+        .onChange(async value => {
+          this.plugin.settings.todoEndHeading = value.trim() || DEFAULT_SETTINGS.todoEndHeading;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName(t('settings.todoShowCompleted'))
+      .setDesc(t('settings.todoShowCompletedDesc'))
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.todoShowCompleted)
+        .onChange(async value => {
+          this.plugin.settings.todoShowCompleted = value;
+          await this.plugin.saveSettings();
+        }));
+
     // ── Habit Check-in ────────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.habits')).setHeading();
 
@@ -1669,6 +1717,19 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.autoFocusInput)
           .onChange(async (value: boolean) => {
             this.plugin.settings.autoFocusInput = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    // ── Wide-screen side panel ────────────────────────────────────────────
+    new Setting(containerEl)
+      .setName(t('settings.wideLayout'))
+      .setDesc(t('settings.wideLayoutDesc'))
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.wideLayoutEnabled)
+          .onChange(async (value: boolean) => {
+            this.plugin.settings.wideLayoutEnabled = value;
             await this.plugin.saveSettings();
           }),
       );

@@ -38,6 +38,7 @@ import {
 import type { EditorView } from '@codemirror/view';
 
 import { CaptureInput, createCaptureInput } from './capture-input';
+import { TodayTodos } from './today-todos';
 
 import {
   FavoriteEntry,
@@ -62,7 +63,13 @@ import {
   computeAllTimeStats,
   formatChineseWordCount,
   getHeatmapLevel,
+  buildDayStats,
 } from './stats';
+import {
+  WIDE_LAYOUT_MIN_WIDTH,
+  createSidePanel,
+  renderSidePanel,
+} from './side-panel';
 import type JournalPartnerPlugin from './main';
 import {
   formatQuoteInsertion,
@@ -91,6 +98,15 @@ export const CAPTURE_VIEW_TYPE = 'journal-partner-capture-view';
  *  cover content in a short window (e.g. the view dragged into a small
  *  popout). Desktop main window / sidebars are far taller. */
 const SHORT_WINDOW_DOCK_THRESHOLD = 420;
+
+/**
+ * Dead band around the wide-layout breakpoint, in px.
+ *
+ * Entering the two-column layout needs {@link WIDE_LAYOUT_MIN_WIDTH}; leaving
+ * it needs that minus this. Dragging the divider across the exact threshold
+ * would otherwise reflow (and repaint the side panel) on every pixel.
+ */
+const WIDE_LAYOUT_HYSTERESIS = 60;
 
 /**
  * Wrap an async listener so it satisfies `void`-returning handler signatures
@@ -244,6 +260,9 @@ export class JournalCaptureView extends ItemView {
    */
   private lastSameBookTrigger = 0;
 
+  /** Today's planning tasks, below the habit card. */
+  private todayTodos: TodayTodos | null = null;
+
   // Habit check-in module
   private habitBarEl!: HTMLElement;
   private habitRefreshTimer: number | null = null;
@@ -269,6 +288,21 @@ export class JournalCaptureView extends ItemView {
   private allYearStats: Map<number, YearStats> = new Map();
   /** All-time aggregated stats. */
   private allTimeStats: AllTimeStats | null = null;
+
+  // ── Wide-layout side panel (desktop, view width ≥ WIDE_LAYOUT_MIN_WIDTH) ──
+  /** Root currently in the two-column layout. */
+  private isWideLayout = false;
+  /** Watches the view's own width — window width is irrelevant (sidebars). */
+  private layoutObserver: ResizeObserver | null = null;
+  /** Coalesces resize signals into one layout pass per animation frame. */
+  private layoutRaf: number | null = null;
+  private sidePanelEl: HTMLElement | null = null;
+  /** Debounce for repainting the panel after vault mutations. */
+  private sidePanelTimer: number | null = null;
+  /** The random note currently pinned in the panel; only re-roll replaces it. */
+  private randomPick: { date: moment.Moment; filePath: string; entry: JournalEntry } | null = null;
+  private randomPickLoading = false;
+  private sidePanelRendering = false;
 
   // Cached state
   private days: DaySection[] = [];
@@ -376,11 +410,17 @@ export class JournalCaptureView extends ItemView {
     this.buildInlineSearchBar(stickyHeader);
     // Pinned habit check-in module — sits at the top of the timeline stream.
     this.buildHabitBar(this.capturePaneEl);
+    this.todayTodos = this.addChild(new TodayTodos(this.app, this.capturePaneEl, () => this.plugin.settings));
     this.buildTimeline(this.capturePaneEl);
 
     // Stats pane (hidden initially; built lazily on first switch)
     this.statsPaneEl = (root as HTMLElement).createDiv({ cls: 'jp-pane jp-pane-stats' });
     this.statsPaneEl.hide();
+
+    // Wide-layout side panel — created up front (so the grid can place it)
+    // but hidden until the view is actually wide enough.
+    this.sidePanelEl = createSidePanel(root as HTMLElement);
+    this.sidePanelEl.hide();
 
     // ── Vault listeners ──
     // modify: refresh the affected day's section in place (no full rebuild).
@@ -400,6 +440,8 @@ export class JournalCaptureView extends ItemView {
           this.invalidateDiaryTags();
           // Ticking a habit's box in the editor must repaint the pinned module.
           this.scheduleHabitRefresh();
+          // Wide layout: recompute only that day and repaint the side panel.
+          this.scheduleSidePanelRefresh(file);
         }
       }),
     );
@@ -408,6 +450,7 @@ export class JournalCaptureView extends ItemView {
       this.app.vault.on('create', file => {
         if (file instanceof TFile && file.extension === 'md') {
           this.scheduleFullRebuild();
+          this.invalidateStats();
           this.scheduleStatsRefresh();
           this.invalidateDiaryTags();
         }
@@ -420,6 +463,7 @@ export class JournalCaptureView extends ItemView {
           this.scheduleFullRebuild();
         }
         if (file instanceof TFile && file.extension === 'md') {
+          this.invalidateStats();
           this.scheduleStatsRefresh();
           this.invalidateDiaryTags();
         }
@@ -428,6 +472,7 @@ export class JournalCaptureView extends ItemView {
     this.registerEvent(
       this.app.vault.on('rename', (file) => {
         if (file instanceof TFile && file.extension === 'md') {
+          this.invalidateStats();
           this.scheduleStatsRefresh();
         }
       }),
@@ -438,6 +483,7 @@ export class JournalCaptureView extends ItemView {
     this.setupMobileToolbarAutoHide();
     this.setupShortWindowDockAutoHide();
     this.setupScrollTopButton();
+    this.setupResponsiveLayout();
 
     // Mobile: focus the capture input right away so the on-screen keyboard
     // comes up automatically instead of requiring a tap on the input.
@@ -501,6 +547,8 @@ export class JournalCaptureView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    if (this.todayTodos) this.removeChild(this.todayTodos);
+    this.todayTodos = null;
     if (this.rerenderTimer !== null) {
       window.clearTimeout(this.rerenderTimer);
       this.rerenderTimer = null;
@@ -517,6 +565,19 @@ export class JournalCaptureView extends ItemView {
       this.intersectionObs.disconnect();
       this.intersectionObs = null;
     }
+    if (this.layoutObserver) {
+      this.layoutObserver.disconnect();
+      this.layoutObserver = null;
+    }
+    if (this.layoutRaf !== null) {
+      window.cancelAnimationFrame(this.layoutRaf);
+      this.layoutRaf = null;
+    }
+    if (this.sidePanelTimer !== null) {
+      window.clearTimeout(this.sidePanelTimer);
+      this.sidePanelTimer = null;
+    }
+    this.sidePanelEl = null;
     if (this.shortWindowPollTimer !== null) {
       window.clearInterval(this.shortWindowPollTimer);
       this.shortWindowPollTimer = null;
@@ -550,7 +611,9 @@ export class JournalCaptureView extends ItemView {
     // capture pane first, then enters review mode.
     this.reviewTabBtn = this.makeTabBtn('dice', t('tab.review'), false);
     this.reviewTabBtn.addEventListener('click', () => {
-      if (this.currentTab !== 'capture') this.switchTab('capture');
+      // No capture rebuild: entering the mode replaces the timeline anyway,
+      // and a rebuild in flight would reset the mode back to `daily`.
+      if (this.currentTab !== 'capture') this.switchTab('capture', { skipCaptureRebuild: true });
       this.toggleTimelineMode('review');
     });
 
@@ -558,7 +621,7 @@ export class JournalCaptureView extends ItemView {
     // pane, re-click returns to the daily timeline.
     this.favoritesTabBtn = this.makeTabBtn('heart', t('tab.favorites'), false);
     this.favoritesTabBtn.addEventListener('click', () => {
-      if (this.currentTab !== 'capture') this.switchTab('capture');
+      if (this.currentTab !== 'capture') this.switchTab('capture', { skipCaptureRebuild: true });
       this.toggleTimelineMode('favorites');
     });
 
@@ -585,7 +648,13 @@ export class JournalCaptureView extends ItemView {
     return btn;
   }
 
-  private switchTab(tab: 'capture' | 'stats') {
+  /**
+   * @param opts.skipCaptureRebuild — leave the capture pane's timeline alone.
+   *   Used when the caller is about to replace it anyway (e.g. entering the
+   *   favorites list), which avoids a wasted rebuild AND the race described in
+   *   {@link openFavoritesFromPanel}.
+   */
+  private switchTab(tab: 'capture' | 'stats', opts: { skipCaptureRebuild?: boolean } = {}) {
     if (this.currentTab === tab) return;
     const prevTab = this.currentTab;
     this.currentTab = tab;
@@ -596,7 +665,7 @@ export class JournalCaptureView extends ItemView {
       this.inputCardEl.show();
 
       // Coming from stats — the timeline may be stale, rebuild it in daily mode
-      if (prevTab !== 'capture') {
+      if (prevTab !== 'capture' && !opts.skipCaptureRebuild) {
         void this.fullRebuild();
       }
     } else {
@@ -612,6 +681,9 @@ export class JournalCaptureView extends ItemView {
     }
 
     this.updateTabBtnStates();
+    // Wide layout: the full stats view takes the whole width, so the grid
+    // collapses while it's open and restores on the way back.
+    this.syncStatsExpanded();
   }
 
   /**
@@ -633,6 +705,334 @@ export class JournalCaptureView extends ItemView {
     this.searchTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'search');
     this.favoritesTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'favorites');
     this.statsTabBtn.toggleClass('is-active', isStats);
+    // Wide layout has the stats card pinned in the side panel, so the bottom
+    // dock drops that button entirely (it would open a duplicate view).
+    this.statsTabBtn.toggleClass('jp-tab-btn-hidden', this.isWideLayout);
+  }
+
+  // ── Responsive (wide) layout ────────────────────────────────────────────
+  //
+  // Everything here measures the VIEW's width, never the window's: the same
+  // browser window hosts a 320px sidebar leaf and a 1400px editor leaf, and
+  // only the latter should get the two-column layout.
+
+  /** Called on settings save so the toggle applies without reopening. */
+  refreshLayoutNow(): void {
+    this.applyResponsiveLayout();
+  }
+
+  private setupResponsiveLayout(): void {
+    if (Platform.isMobile) return;
+
+    // Primary signal: the leaf's own box. Note a ResizeObserver cannot cross
+    // window realms — in a popout window it may never fire, which is why the
+    // view's own `resize` event below is kept as a fallback.
+    if (typeof ResizeObserver !== 'undefined') {
+      this.layoutObserver = new ResizeObserver(() => this.scheduleLayoutUpdate());
+      this.layoutObserver.observe(this.containerEl);
+    }
+    const win = this.containerEl.ownerDocument.defaultView;
+    if (win) this.registerDomEvent(win, 'resize', () => this.scheduleLayoutUpdate());
+
+    this.applyResponsiveLayout();
+  }
+
+  /**
+   * Coalesce resize signals into one layout pass per frame.
+   *
+   * A dragged divider fires the observer dozens of times per second; running a
+   * class flip + child lookup on every callback is what made resizing feel
+   * sticky.
+   */
+  private scheduleLayoutUpdate(): void {
+    if (this.layoutRaf !== null) return;
+    this.layoutRaf = window.requestAnimationFrame(() => {
+      this.layoutRaf = null;
+      this.applyResponsiveLayout();
+    });
+  }
+
+  private applyResponsiveLayout(): void {
+    const root = this.containerEl.children[1] as HTMLElement | undefined;
+    if (!root) return;
+
+    const wide = this.shouldUseWideLayout();
+    if (wide !== this.isWideLayout) {
+      this.isWideLayout = wide;
+      root.toggleClass('jp-layout-wide', wide);
+      if (wide) {
+        this.sidePanelEl?.show();
+        // Cold start means reading every daily note. Give the input card its
+        // first paint (and the focus) before doing that work.
+        if (this.allTimeStats === null) this.scheduleSidePanelRefresh();
+        else void this.refreshSidePanel();
+      } else {
+        this.sidePanelEl?.hide();
+      }
+      this.updateTabBtnStates();
+    }
+    this.syncStatsExpanded();
+  }
+
+  private shouldUseWideLayout(): boolean {
+    if (Platform.isMobile) return false;
+    if (this.plugin.settings.wideLayoutEnabled === false) return false;
+
+    const width = this.containerEl.clientWidth;
+    // Hysteresis: enter at 900, leave only below 840. Without the band,
+    // parking the divider right on the boundary makes the panel (and the
+    // whole two-column layout) flicker on every pixel of movement.
+    if (width >= WIDE_LAYOUT_MIN_WIDTH) return true;
+    if (this.isWideLayout && width >= WIDE_LAYOUT_MIN_WIDTH - WIDE_LAYOUT_HYSTERESIS) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * The full stats view needs the whole width (its heatmaps are wider than one
+   * grid column), so opening it from the side panel temporarily collapses the
+   * grid back to a single column.
+   */
+  private syncStatsExpanded(): void {
+    const root = this.containerEl.children[1] as HTMLElement | undefined;
+    if (!root) return;
+    root.toggleClass('jp-stats-expanded', this.isWideLayout && this.currentTab === 'stats');
+  }
+
+  // ── Side panel (stats · favorites · random note) ────────────────────────
+
+  /** Debounced repaint after a vault mutation; `file` enables an incremental update. */
+  private scheduleSidePanelRefresh(file?: TFile): void {
+    if (!this.isWideLayout) return;
+    if (this.sidePanelTimer !== null) window.clearTimeout(this.sidePanelTimer);
+    this.sidePanelTimer = window.setTimeout(() => {
+      this.sidePanelTimer = null;
+      void this.refreshSidePanel(file);
+    }, 500);
+  }
+
+  private async refreshSidePanel(file?: TFile): Promise<void> {
+    if (!this.isWideLayout || !this.sidePanelEl) return;
+    if (this.sidePanelRendering) return;
+
+    this.sidePanelRendering = true;
+    try {
+      // A single edited note only needs that day recomputed — a full re-scan
+      // of the vault on every keystroke-triggered save would be far too costly.
+      if (file && this.allTimeStats !== null) await this.applyIncrementalStats(file);
+
+      if (this.allTimeStats === null) {
+        this.paintSidePanel(true);
+        await this.ensureStatsLoaded();
+      }
+      if (!this.randomPick) await this.refreshRandomPick(false);
+
+      this.paintSidePanel(false);
+    } finally {
+      this.sidePanelRendering = false;
+    }
+  }
+
+  /** Render the panel from whatever is cached right now — zero IO. */
+  private paintSidePanel(loading: boolean): void {
+    if (!this.sidePanelEl) return;
+
+    // Newest year that actually has content; a brand-new year with an empty
+    // heatmap would make the card look broken.
+    const years = [...this.allYearStats.keys()].sort((a, b) => b - a);
+    const withData = years.find(y => {
+      const ys = this.allYearStats.get(y);
+      return !!ys && (ys.totalEntries > 0 || ys.totalWords > 0);
+    });
+    const yearStats = withData !== undefined
+      ? this.allYearStats.get(withData) ?? null
+      : (years.length > 0 ? this.allYearStats.get(years[0]) ?? null : null);
+
+    renderSidePanel(
+      this.sidePanelEl,
+      {
+        allTime: this.allTimeStats,
+        yearStats,
+        favorites: [...this.plugin.settings.favorites].sort((a, b) => b.favoritedAt - a.favoritedAt),
+        random: this.randomPick,
+        loading,
+      },
+      {
+        openStats: () => this.switchTab('stats'),
+        openFavorites: () => this.openFavoritesFromPanel(),
+        openDate: date => void this.openDailyNoteByDate(date),
+        reroll: () => void this.rerollRandomPick(),
+      },
+    );
+  }
+
+  /** Panel "All favorites" → the existing inline favorites list. */
+  private openFavoritesFromPanel(): void {
+    // Skip the capture rebuild: `setTimelineMode` replaces the timeline next
+    // line, and a rebuild in flight would reset the mode back to `daily` and
+    // paint today's stream on top of the favorites list.
+    if (this.currentTab !== 'capture') this.switchTab('capture', { skipCaptureRebuild: true });
+    this.setTimelineMode('favorites');
+  }
+
+  private async rerollRandomPick(): Promise<void> {
+    await this.refreshRandomPick(true);
+    this.paintSidePanel(false);
+  }
+
+  // ── Stats loading (shared by the stats pane and the panel) ──────────────
+
+  /** Ensure the all-time stats are in memory, loading them once if needed. */
+  private async ensureStatsLoaded(): Promise<void> {
+    if (this.allTimeStats !== null || this.statsLoading) return;
+    // `loadAllStats` paints into the stats pane body — build the (hidden)
+    // scaffold first so it has somewhere to write when that tab was never opened.
+    if (!this.statsBodyEl) this.buildStatsPane();
+    await this.loadAllStats();
+  }
+
+  /** Drop cached stats after notes were created / deleted / renamed. */
+  private invalidateStats(): void {
+    this.allYearStats.clear();
+    this.allTimeStats = null;
+    this.scheduleSidePanelRefresh();
+  }
+
+  /**
+   * Recompute ONE day and fold the delta into the year + all-time aggregates.
+   *
+   * The panel is repainted on every memo save; re-reading thousands of daily
+   * notes each time (what `loadAllStats` does) would stall the view.
+   */
+  private async applyIncrementalStats(file: TFile): Promise<void> {
+    if (this.statsLoading) return;
+
+    let date: moment.Moment | null = null;
+    try {
+      date = getDateFromFile(file, 'day');
+    } catch {
+      return;
+    }
+    if (!date) return;
+
+    const year = date.year();
+    const key = date.format('YYYY-MM-DD');
+    const ys = this.allYearStats.get(year);
+    // A brand-new year isn't in the map yet — the next full load picks it up.
+    if (!ys) return;
+
+    let sectionText = '';
+    try {
+      const content = await this.app.vault.cachedRead(file);
+      const section = findSection(
+        content,
+        this.plugin.settings.targetHeading,
+        this.plugin.settings.headingLevel,
+      );
+      if (section) sectionText = content.slice(section.from, section.to);
+    } catch (err) {
+      console.error('[Journal Partner] incremental stats read failed', file.path, err);
+      return;
+    }
+
+    const prev = ys.dailyMap.get(key);
+    const next = buildDayStats(key, sectionText);
+    ys.dailyMap.set(key, next);
+    ys.totalEntries += next.entryCount - (prev?.entryCount ?? 0);
+    ys.totalWords += next.wordCount - (prev?.wordCount ?? 0);
+    ys.totalAudios += next.audioCount - (prev?.audioCount ?? 0);
+
+    let writingDays = 0;
+    for (const ds of ys.dailyMap.values()) {
+      if (ds.entryCount > 0 || ds.wordCount > 0) writingDays++;
+    }
+    ys.writingDays = writingDays;
+
+    this.allTimeStats = computeAllTimeStats([...this.allYearStats.values()]);
+  }
+
+  /**
+   * Pin one random past entry in the panel.
+   *
+   * The pick is cached until the user re-rolls, otherwise every unrelated
+   * repaint would shuffle the card under them. Candidate days come from the
+   * stats map when it's warm (no extra scan); otherwise we probe random notes
+   * like the "Random Review" tab does.
+   */
+  private async refreshRandomPick(force: boolean): Promise<void> {
+    if (this.randomPickLoading) return;
+    if (this.randomPick && !force) return;
+
+    this.randomPickLoading = true;
+    try {
+      const today = moment().startOf('day');
+      const notes = getAllDailyNotes();
+
+      const candidates: string[] = [];
+      for (const ys of this.allYearStats.values()) {
+        for (const [key, ds] of ys.dailyMap) {
+          if (ds.entryCount > 0 || ds.wordCount > 0) candidates.push(key);
+        }
+      }
+
+      const attempts = 6;
+      for (let i = 0; i < attempts; i++) {
+        let file: TFile | null = null;
+        let key = '';
+
+        if (candidates.length > 0) {
+          key = candidates[Math.floor(Math.random() * candidates.length)];
+          const candidateFile = notes[key];
+          if (candidateFile instanceof TFile) file = candidateFile;
+        } else {
+          const past = Object.values(notes).filter((f): f is TFile => {
+            if (!(f instanceof TFile)) return false;
+            const d = getDateFromFile(f, 'day');
+            return !!d && d.isBefore(today, 'day');
+          });
+          if (past.length === 0) break;
+          file = past[Math.floor(Math.random() * past.length)];
+          const d = getDateFromFile(file, 'day');
+          if (!d) continue;
+          key = d.format('YYYY-MM-DD');
+        }
+
+        if (!file) continue;
+        if (!moment(key, 'YYYY-MM-DD').isBefore(today, 'day')) continue;
+
+        const entries = await this.readEntriesForFile(file);
+        if (entries.length === 0) continue;
+
+        const entry = entries[Math.floor(Math.random() * entries.length)];
+        this.randomPick = { date: moment(key, 'YYYY-MM-DD'), filePath: file.path, entry };
+        return;
+      }
+
+      this.randomPick = null;
+    } finally {
+      this.randomPickLoading = false;
+    }
+  }
+
+  /** Parse a note's journal entries, falling back to the loose parser. */
+  private async readEntriesForFile(file: TFile): Promise<JournalEntry[]> {
+    try {
+      const content = await this.app.vault.cachedRead(file);
+      const section = findSection(
+        content,
+        this.plugin.settings.targetHeading,
+        this.plugin.settings.headingLevel,
+      );
+      if (!section) return [];
+      const text = content.slice(section.from, section.to);
+      const parsed = parseJournalEntries(text, this.plugin.settings.timestampPattern);
+      if (parsed.length > 0) return parsed;
+      return this.parseLooseEntries(text);
+    } catch (err) {
+      console.error('[Journal Partner] random note read failed', file.path, err);
+      return [];
+    }
   }
 
   // ── Favorites ────────────────────────────────────────────────────────────
@@ -726,6 +1126,9 @@ export class JournalCaptureView extends ItemView {
       heart.toggleClass('is-active', isFav);
       heart.setAttr('aria-label', isFav ? t('favorites.remove') : t('favorites.add'));
     });
+    // Wide layout: the favorites card is a pure snapshot of settings.favorites,
+    // so a repaint is enough (no file reads, no reconcile pass).
+    if (this.isWideLayout) this.paintSidePanel(false);
   }
 
   private async runSearch(query: string) {
@@ -965,6 +1368,23 @@ export class JournalCaptureView extends ItemView {
       submitShortcut: () => this.plugin.settings.submitShortcut,
       onSubmit: () => { void this.handleSubmit(); },
       onChange: userEdit => this.onInputChanged(userEdit),
+    });
+
+    // Empty card chrome should be as easy to activate as the editor itself.
+    // Keep this synchronous for the iOS keyboard, and only handle bare
+    // containers: editor selections, tag chips, previews and buttons own
+    // their clicks and must not have their focus/caret changed here.
+    this.registerDomEvent(this.inputCardEl, 'click', evt => {
+      if (evt.defaultPrevented || evt.button !== 0) return;
+      const target = evt.target;
+      if (
+        target !== this.inputCardEl &&
+        target !== inputWrapper &&
+        target !== this.input.el &&
+        target !== this.tagChipsRowEl &&
+        target !== this.pendingImagesRowEl
+      ) return;
+      this.input.focus();
     });
 
     // Pending-image strip — below the input, shows thumbnails of images
@@ -1885,6 +2305,11 @@ export class JournalCaptureView extends ItemView {
   public refreshQuoteButton(): void {
     // A class, not .toggle(): the button's display is set with !important.
     this.quoteBtn?.toggleClass('jp-hidden', !this.plugin.settings.quoteEnabled);
+  }
+
+  /** Apply TODO settings without rebuilding the input or losing its draft. */
+  public refreshTodayTodosNow(): void {
+    this.todayTodos?.refreshNow();
   }
 
   /** Repaint immediately — called by the settings tab when habit config changes. */
@@ -3141,6 +3566,7 @@ export class JournalCaptureView extends ItemView {
   // ── Full rebuild ────────────────────────────────────────────────────────
 
   async fullRebuild(): Promise<void> {
+    this.refreshTodayTodosNow();
     // A full rebuild always restores the daily timeline — search/review are
     // snapshots that are cleared by setTimelineMode instead.
     this.timelineMode = 'daily';
@@ -3957,9 +4383,11 @@ export class JournalCaptureView extends ItemView {
 
   /** Debounced reload, used in response to vault mutations. */
   private scheduleStatsRefresh() {
-    // Only refresh if the user has at least opened the tab once. Otherwise
-    // every memo save would do hidden work the user never sees.
-    if (this.statsPaneEl.childElementCount === 0) return;
+    // Only do the expensive full re-scan when the stats pane is the thing on
+    // screen. (Its scaffold may exist without ever having been opened, because
+    // the wide-layout side panel reuses `loadAllStats` for its own numbers —
+    // in that case the panel's incremental update is the cheaper path.)
+    if (this.currentTab !== 'stats') return;
     if (this.statsRefreshTimer !== null) {
       window.clearTimeout(this.statsRefreshTimer);
     }
@@ -3985,7 +4413,12 @@ export class JournalCaptureView extends ItemView {
       const all = getAllDailyNotes();
       const yearMap = new Map<number, Array<{ key: string; sectionText: string }>>();
 
-      // Group all daily notes by year
+      // Group all daily notes by year.
+      // The scan reads every daily note, so it is split into chunks: without a
+      // periodic yield the loop holds the main thread for its whole duration
+      // (the wide layout triggers this the first time it appears, which made
+      // resizing feel like a freeze on large vaults).
+      let processed = 0;
       for (const file of Object.values(all)) {
         if (!(file instanceof TFile)) continue;
         const d = getDateFromFile(file, 'day');
@@ -4010,6 +4443,10 @@ export class JournalCaptureView extends ItemView {
 
         if (!yearMap.has(year)) yearMap.set(year, []);
         yearMap.get(year).push({ key, sectionText });
+
+        if (++processed % 30 === 0) {
+          await new Promise<void>(resolve => window.setTimeout(resolve, 0));
+        }
       }
 
       // Compute stats for each year
