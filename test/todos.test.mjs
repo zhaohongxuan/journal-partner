@@ -21,6 +21,87 @@ const parse = (content, start = '## Planning', end = '## Journal') =>
 const set = (content, todo, completed, start = '## Planning', end = '## Journal') =>
   T.setPlanningTodoCompleted(content, todo, completed, start, end);
 const texts = content => parse(content).map(todo => todo.text);
+const add = (content, text = 'new task', start = '## Planning', end = '## Journal') =>
+  T.addPlanningTodo(content, text, start, end);
+
+test('adds directly after the existing heading and preserves all surrounding bytes', () => {
+  const content = '# Note\n  ## Planning  \n\n- [x] old  \n### Child\n- [ ] nested\n## Journal\nentry';
+  const offset = content.indexOf('\n\n- [x]') + 1;
+  const output = add(content, '  **new** [link](url)  ');
+  assert.equal(output, content.slice(0, offset) + '- [ ] **new** [link](url)\n' + content.slice(offset));
+  assert.deepEqual(texts(output), ['**new** [link](url)', 'old', 'nested']);
+});
+
+test('adds after an EOF heading, including when its terminator is missing', () => {
+  for (const newline of ['\n', '\r\n', '\r']) {
+    for (const ending of ['', newline]) {
+      const content = `# Note${newline}## Planning${ending}`;
+      assert.equal(add(content), `# Note${newline}## Planning${newline}- [ ] new task${newline}`);
+    }
+  }
+});
+
+test('creates a planning section before the first visible Journal after YAML', () => {
+  const content = '\uFEFF---\n## Journal\n## Planning\n---\n```md\n## Journal\n## Planning\n```\n## Journal\nentry\n';
+  const offset = content.lastIndexOf('## Journal');
+  const output = add(content);
+  assert.equal(output, content.slice(0, offset) + '## Planning\n- [ ] new task\n' + content.slice(offset));
+  assert.deepEqual(texts(output), ['new task']);
+});
+
+test('creates an empty document section and safely separates an appended section', () => {
+  assert.equal(add(''), '## Planning\n- [ ] new task\n');
+  for (const content of ['paragraph', 'paragraph\n', 'paragraph\n\n']) {
+    assert.equal(add(content), 'paragraph\n\n## Planning\n- [ ] new task\n');
+  }
+  assert.equal(add('---\ntitle: Note\n...'), '---\ntitle: Note\n...\n\n## Planning\n- [ ] new task\n');
+});
+
+test('preserves CRLF when adding to existing, new, or appended sections', () => {
+  for (const [content, expected] of [
+    ['## Planning\r\n- [ ] old\r\n## Journal\r\n', '## Planning\r\n- [ ] new task\r\n- [ ] old\r\n## Journal\r\n'],
+    ['---\r\ntitle: Note\r\n---\r\n## Journal\r\nentry', '---\r\ntitle: Note\r\n---\r\n## Planning\r\n- [ ] new task\r\n## Journal\r\nentry'],
+    ['# Note\r\nbody', '# Note\r\nbody\r\n\r\n## Planning\r\n- [ ] new task\r\n'],
+  ]) {
+    assert.equal(add(content), expected);
+  }
+});
+
+test('adds a visible task before nested headings and an unclosed section fence', () => {
+  const content = '## Planning\n### Child\n```\nhidden\n## Journal';
+  const output = add(content);
+  assert.equal(output, '## Planning\n- [ ] new task\n### Child\n```\nhidden\n## Journal');
+  assert.deepEqual(texts(output), ['new task']);
+});
+
+test('rejects unsafe appends but allows closed fences and safe insertion before Journal', () => {
+  for (const content of ['---', '\uFEFF---\ntitle: Note', '```md\n## Planning\n## Journal', '~~~\nhidden']) {
+    assert.throws(() => add(content), /unclosed/);
+  }
+  for (const content of ['```md\n## Planning\n```', '~~~~\nhidden\n~~~~']) {
+    const output = add(content);
+    assert.equal(output, content + '\n\n## Planning\n- [ ] new task\n');
+    assert.deepEqual(texts(output), ['new task']);
+  }
+  assert.equal(add('## Journal\n```\nhidden'), '## Planning\n- [ ] new task\n## Journal\n```\nhidden');
+});
+
+test('validates task text and headings before modifying content', () => {
+  for (const text of ['', ' \t ', 'one\ntwo', 'one\rtwo', 'one\r\ntwo', 'one\u2028two', 'one\u2029two']) {
+    assert.throws(() => add('## Planning\n', text), /single line/);
+  }
+  for (const [start, end] of [
+    ['', '## Journal'], ['Planning', '## Journal'], ['####### Plan', '## Journal'],
+    ['##Plan', '## Journal'], ['## Planning', 'Journal'], ['## Planning', '## Planning'],
+    [' ## Planning ', '## Planning  '], ['## Planning\n', '## Journal'],
+    ['## Planning', '## Journal\n# Extra'],
+  ]) {
+    assert.throws(() => add('', 'task', start, end), /headings/);
+  }
+  const output = add('', 'task', ' ### My plan ', ' #### Done ');
+  assert.equal(output, '### My plan\n- [ ] task\n');
+  assert.deepEqual(parse(output, '### My plan', '#### Done').map(todo => todo.text), ['task']);
+});
 
 test('parses only supported task markers with absolute line indices and original lines', () => {
   const lines = [

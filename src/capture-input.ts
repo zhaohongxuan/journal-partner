@@ -27,6 +27,8 @@ const SUBMIT_MODIFIERS: Record<string, Modifier[]> = {
 
 export interface CaptureInputOptions {
   placeholder: string;
+  /** Resolve relative embeds and suggestions against the note being edited. */
+  sourcePath?: string;
   /**
    * Fired after every content change. `userEdit` is false for changes made
    * through this interface (setValue / replaceRange), true for typing, paste,
@@ -215,10 +217,11 @@ class EmbeddedMarkdownInput implements CaptureInput {
     this.el = parent.createDiv({ cls: 'jp-capture-input jp-capture-editor' });
 
     const noop = (): void => {};
+    const sourceFile = options.sourcePath ? app.vault.getAbstractFileByPath(options.sourcePath) : null;
     this.ownerInfo = {
       app,
-      file: null,
-      path: '',
+      file: sourceFile instanceof TFile ? sourceFile : null,
+      path: options.sourcePath ?? '',
       editMode: null,
       editor: null,
       getMode: () => 'source',

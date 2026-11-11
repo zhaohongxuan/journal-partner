@@ -39,6 +39,7 @@ import type { EditorView } from '@codemirror/view';
 
 import { CaptureInput, createCaptureInput } from './capture-input';
 import { TodayTodos } from './today-todos';
+import { EditEntryModal } from './edit-entry-modal';
 
 import {
   FavoriteEntry,
@@ -181,6 +182,7 @@ export class JournalCaptureView extends ItemView {
   private captureTabBtn!: HTMLButtonElement;
   private statsTabBtn!: HTMLButtonElement;
   private searchTabBtn!: HTMLButtonElement;
+  private desktopSearchBtn!: HTMLButtonElement;
   private reviewTabBtn!: HTMLButtonElement;
   private favoritesTabBtn!: HTMLButtonElement;
 
@@ -297,6 +299,9 @@ export class JournalCaptureView extends ItemView {
   /** Coalesces resize signals into one layout pass per animation frame. */
   private layoutRaf: number | null = null;
   private sidePanelEl: HTMLElement | null = null;
+  private sidePanelCardsEl: HTMLElement | null = null;
+  private planningHomeEl!: HTMLElement;
+  private planningEl!: HTMLElement;
   /** Debounce for repainting the panel after vault mutations. */
   private sidePanelTimer: number | null = null;
   /** The random note currently pinned in the panel; only re-roll replaces it. */
@@ -395,9 +400,8 @@ export class JournalCaptureView extends ItemView {
     root.empty();
     root.addClass('jp-capture-root');
 
-    // Top-level tab bar — lives OUTSIDE both panes so it's visible on every
-    // tab. It's a normal block at the top of the scroll container, so it does
-    // not scroll away and needs no sticky.
+    // Shared navigation: a floating dock in compact views, a persistent
+    // workspace sidebar on desktop wide views. Lives outside both panes.
     this.buildTabBar(root as HTMLElement);
 
     // Capture pane (default visible)
@@ -408,9 +412,12 @@ export class JournalCaptureView extends ItemView {
     this.buildInputCard(stickyHeader);
     this.buildTimelineToolbar(stickyHeader);
     this.buildInlineSearchBar(stickyHeader);
-    // Pinned habit check-in module — sits at the top of the timeline stream.
-    this.buildHabitBar(this.capturePaneEl);
-    this.todayTodos = this.addChild(new TodayTodos(this.app, this.capturePaneEl, () => this.plugin.settings));
+    // Move the live planning widgets between compact timeline and desktop
+    // workspace. Their instances and event handlers survive every resize.
+    this.planningHomeEl = this.capturePaneEl.createDiv({ cls: 'jp-planning-home' });
+    this.planningEl = this.planningHomeEl.createDiv({ cls: 'jp-planning-widgets' });
+    this.buildHabitBar(this.planningEl);
+    this.todayTodos = this.addChild(new TodayTodos(this.app, this.planningEl, () => this.plugin.settings));
     this.buildTimeline(this.capturePaneEl);
 
     // Stats pane (hidden initially; built lazily on first switch)
@@ -420,6 +427,9 @@ export class JournalCaptureView extends ItemView {
     // Wide-layout side panel — created up front (so the grid can place it)
     // but hidden until the view is actually wide enough.
     this.sidePanelEl = createSidePanel(root as HTMLElement);
+    // Only this snapshot container is repainted; navigation and editable
+    // planning cards must never be emptied by a stats refresh.
+    this.sidePanelCardsEl = this.sidePanelEl.createDiv({ cls: 'jp-side-snapshots' });
     this.sidePanelEl.hide();
 
     // ── Vault listeners ──
@@ -578,6 +588,7 @@ export class JournalCaptureView extends ItemView {
       this.sidePanelTimer = null;
     }
     this.sidePanelEl = null;
+    this.sidePanelCardsEl = null;
     if (this.shortWindowPollTimer !== null) {
       window.clearInterval(this.shortWindowPollTimer);
       this.shortWindowPollTimer = null;
@@ -591,9 +602,11 @@ export class JournalCaptureView extends ItemView {
   // ── DOM construction ────────────────────────────────────────────────────
 
   private buildTabBar(root: HTMLElement) {
-    this.tabBarEl = root.createDiv({ cls: 'jp-tab-bar' });
-
-    this.captureTabBtn = this.makeTabBtn('feather', 'Journal Partner', true);
+    this.tabBarEl = root.createEl('nav', {
+      cls: 'jp-tab-bar',
+      attr: { 'aria-label': 'Journal Partner' },
+    });
+    this.captureTabBtn = this.makeTabBtn('feather', t('workspace.journal'), true);
     this.captureTabBtn.addEventListener('click', () => {
       this.switchTab('capture');
       // Leaving any non-daily timeline mode (review/search/tag) back to the
@@ -627,8 +640,19 @@ export class JournalCaptureView extends ItemView {
 
     this.statsTabBtn = this.makeTabBtn('bar-chart-2', t('tab.stats'), false);
     this.statsTabBtn.addEventListener('click', () => this.switchTab('stats'));
+    // Desktop opens these detail views from their own cards, not a tab list.
+    for (const button of [this.reviewTabBtn, this.favoritesTabBtn, this.statsTabBtn]) {
+      button.addClass('jp-workspace-card-link');
+    }
 
-    // Note: 搜索日记 lives in the timeline toolbar (buildTimelineToolbar).
+    // Search stays in the timeline toolbar on compact views; the desktop
+    // sidebar also exposes it while stats are open.
+    this.desktopSearchBtn = this.makeTabBtn('search', t('capture.searchNotes'), false);
+    this.desktopSearchBtn.addClass('jp-desktop-search');
+    this.desktopSearchBtn.addEventListener('click', () => {
+      if (this.currentTab !== 'capture') this.switchTab('capture', { skipCaptureRebuild: true });
+      this.toggleTimelineMode('search');
+    });
   }
 
   /**
@@ -645,6 +669,7 @@ export class JournalCaptureView extends ItemView {
     });
     const iconEl = btn.createSpan({ cls: 'jp-tab-btn-icon' });
     setIcon(iconEl, icon);
+    btn.createSpan({ cls: 'jp-tab-btn-label', text: label });
     return btn;
   }
 
@@ -681,8 +706,8 @@ export class JournalCaptureView extends ItemView {
     }
 
     this.updateTabBtnStates();
-    // Wide layout: the full stats view takes the whole width, so the grid
-    // collapses while it's open and restores on the way back.
+    // Detail views replace the writing column while the right-side widgets
+    // remain available, including the action for returning to daily notes.
     this.syncStatsExpanded();
   }
 
@@ -700,14 +725,16 @@ export class JournalCaptureView extends ItemView {
    */
   private updateTabBtnStates() {
     const isStats = this.currentTab === 'stats';
-    this.captureTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'daily');
-    this.reviewTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'review');
-    this.searchTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'search');
-    this.favoritesTabBtn.toggleClass('is-active', !isStats && this.timelineMode === 'favorites');
-    this.statsTabBtn.toggleClass('is-active', isStats);
-    // Wide layout has the stats card pinned in the side panel, so the bottom
-    // dock drops that button entirely (it would open a duplicate view).
-    this.statsTabBtn.toggleClass('jp-tab-btn-hidden', this.isWideLayout);
+    const setActive = (button: HTMLButtonElement, active: boolean) => {
+      button.toggleClass('is-active', active);
+      button.setAttr('aria-pressed', String(active));
+    };
+    setActive(this.captureTabBtn, !isStats && this.timelineMode === 'daily');
+    setActive(this.reviewTabBtn, !isStats && this.timelineMode === 'review');
+    setActive(this.searchTabBtn, !isStats && this.timelineMode === 'search');
+    setActive(this.desktopSearchBtn, !isStats && this.timelineMode === 'search');
+    setActive(this.favoritesTabBtn, !isStats && this.timelineMode === 'favorites');
+    setActive(this.statsTabBtn, isStats);
   }
 
   // ── Responsive (wide) layout ────────────────────────────────────────────
@@ -735,6 +762,15 @@ export class JournalCaptureView extends ItemView {
     if (win) this.registerDomEvent(win, 'resize', () => this.scheduleLayoutUpdate());
 
     this.applyResponsiveLayout();
+    // Refresh the calendar at day/month boundaries even when no note changes.
+    let calendarDay = moment().format('YYYY-MM-DD');
+    this.registerInterval(window.setInterval(() => {
+      const day = moment().format('YYYY-MM-DD');
+      if (day !== calendarDay) {
+        calendarDay = day;
+        if (this.isWideLayout) this.paintSidePanel(false);
+      }
+    }, 60_000));
   }
 
   /**
@@ -757,16 +793,26 @@ export class JournalCaptureView extends ItemView {
     if (!root) return;
 
     const wide = this.shouldUseWideLayout();
+    // Bound the navigation's own scroller to this leaf, including short split
+    // panes and popouts; the timeline's grid row may be much taller.
+    if (root.clientHeight > 0) root.style.setProperty('--jp-workspace-height', `${root.clientHeight}px`);
     if (wide !== this.isWideLayout) {
       this.isWideLayout = wide;
       root.toggleClass('jp-layout-wide', wide);
+      this.tabBarEl.toggleClass('jp-tab-bar-hidden', !wide && (this.isShortWindow || root.scrollTop > 8));
       if (wide) {
+        if (this.sidePanelEl && this.sidePanelCardsEl) {
+          this.sidePanelEl.insertBefore(this.tabBarEl, this.sidePanelCardsEl);
+          this.sidePanelEl.insertBefore(this.planningEl, this.sidePanelCardsEl);
+        }
         this.sidePanelEl?.show();
         // Cold start means reading every daily note. Give the input card its
         // first paint (and the focus) before doing that work.
         if (this.allTimeStats === null) this.scheduleSidePanelRefresh();
         else void this.refreshSidePanel();
       } else {
+        root.insertBefore(this.tabBarEl, this.capturePaneEl);
+        this.planningHomeEl.appendChild(this.planningEl);
         this.sidePanelEl?.hide();
       }
       this.updateTabBtnStates();
@@ -779,7 +825,7 @@ export class JournalCaptureView extends ItemView {
     if (this.plugin.settings.wideLayoutEnabled === false) return false;
 
     const width = this.containerEl.clientWidth;
-    // Hysteresis: enter at 900, leave only below 840. Without the band,
+    // Hysteresis around the breakpoint. Without the band,
     // parking the divider right on the boundary makes the panel (and the
     // whole two-column layout) flicker on every pixel of movement.
     if (width >= WIDE_LAYOUT_MIN_WIDTH) return true;
@@ -789,11 +835,7 @@ export class JournalCaptureView extends ItemView {
     return false;
   }
 
-  /**
-   * The full stats view needs the whole width (its heatmaps are wider than one
-   * grid column), so opening it from the side panel temporarily collapses the
-   * grid back to a single column.
-   */
+  /** Mark the detail state without hiding the right-side action cards. */
   private syncStatsExpanded(): void {
     const root = this.containerEl.children[1] as HTMLElement | undefined;
     if (!root) return;
@@ -836,24 +878,13 @@ export class JournalCaptureView extends ItemView {
 
   /** Render the panel from whatever is cached right now — zero IO. */
   private paintSidePanel(loading: boolean): void {
-    if (!this.sidePanelEl) return;
-
-    // Newest year that actually has content; a brand-new year with an empty
-    // heatmap would make the card look broken.
-    const years = [...this.allYearStats.keys()].sort((a, b) => b - a);
-    const withData = years.find(y => {
-      const ys = this.allYearStats.get(y);
-      return !!ys && (ys.totalEntries > 0 || ys.totalWords > 0);
-    });
-    const yearStats = withData !== undefined
-      ? this.allYearStats.get(withData) ?? null
-      : (years.length > 0 ? this.allYearStats.get(years[0]) ?? null : null);
+    if (!this.sidePanelCardsEl) return;
 
     renderSidePanel(
-      this.sidePanelEl,
+      this.sidePanelCardsEl,
       {
         allTime: this.allTimeStats,
-        yearStats,
+        yearStats: this.allYearStats,
         favorites: [...this.plugin.settings.favorites].sort((a, b) => b.favoritedAt - a.favoritedAt),
         random: this.randomPick,
         loading,
@@ -861,6 +892,10 @@ export class JournalCaptureView extends ItemView {
       {
         openStats: () => this.switchTab('stats'),
         openFavorites: () => this.openFavoritesFromPanel(),
+        openReview: () => {
+          if (this.currentTab !== 'capture') this.switchTab('capture', { skipCaptureRebuild: true });
+          this.setTimelineMode('review');
+        },
         openDate: date => void this.openDailyNoteByDate(date),
         reroll: () => void this.rerollRandomPick(),
       },
@@ -1044,11 +1079,13 @@ export class JournalCaptureView extends ItemView {
     return favs.some(f => f.filePath === filePath && f.lineIndex === lineIndex);
   }
 
-  /** Build the favorite heart button on a row head and wire its toggle. */
-  private addFavoriteHeart(head: HTMLElement, day: DaySection, entry: JournalEntry): void {
+  /** Shared actions for timeline, search, favorites and review entries. */
+  private addEntryActions(head: HTMLElement, day: DaySection, entry: JournalEntry): void {
+    const actions = head.createDiv({ cls: 'jp-entry-actions' });
     const isFav = this.isFavorite(day.filePath, entry.lineIndex);
-    const fav = head.createDiv({
-      cls: 'jp-fav-icon' + (isFav ? ' is-active' : ''),
+    const fav = actions.createEl('button', {
+      cls: 'jp-entry-action jp-fav-icon' + (isFav ? ' is-active' : ''),
+      attr: { type: 'button', 'aria-pressed': String(isFav) },
     });
     fav.setAttr('aria-label', isFav ? t('favorites.remove') : t('favorites.add'));
     fav.setAttr('title', isFav ? t('favorites.remove') : t('favorites.add'));
@@ -1058,6 +1095,23 @@ export class JournalCaptureView extends ItemView {
     fav.addEventListener('click', (evt: MouseEvent) => {
       evt.stopPropagation();
       void this.toggleFavorite(day, entry, fav);
+    });
+    const addAction = (icon: string, label: string, onClick: () => void) => {
+      const button = actions.createEl('button', {
+        cls: 'jp-entry-action',
+        attr: { type: 'button', 'aria-label': label, title: label },
+      });
+      setIcon(button, icon);
+      button.addEventListener('click', evt => {
+        evt.stopPropagation();
+        onClick();
+      });
+    };
+    addAction('copy', t('common.copy'), () => { void this.copyEntry(entry); });
+    addAction('pencil', t('common.edit'), () => { void this.openEditEntry(day, entry); });
+    addAction('trash-2', t('menu.deleteMemo'), () => {
+      const audioPaths = extractAudioEmbeds(entry.text);
+      this.confirmAndDelete(day, entry, audioPaths.length > 0 ? 'memo+audio' : 'memo', audioPaths);
     });
   }
 
@@ -1125,6 +1179,8 @@ export class JournalCaptureView extends ItemView {
       const isFav = this.isFavorite(path, Number(line));
       heart.toggleClass('is-active', isFav);
       heart.setAttr('aria-label', isFav ? t('favorites.remove') : t('favorites.add'));
+      heart.setAttr('title', isFav ? t('favorites.remove') : t('favorites.add'));
+      heart.setAttr('aria-pressed', String(isFav));
     });
     // Wide layout: the favorites card is a pure snapshot of settings.favorites,
     // so a repaint is enough (no file reads, no reconcile pass).
@@ -1291,7 +1347,7 @@ export class JournalCaptureView extends ItemView {
 
       const head = row.createDiv({ cls: 'jp-timeline-entry-head' });
       head.createSpan({ cls: 'jp-timestamp', text: entry.timestamp });
-      this.addFavoriteHeart(head, day, entry);
+      this.addEntryActions(head, day, entry);
 
       const bubble = row.createDiv({ cls: 'jp-timeline-bubble jp-search-bubble' });
       // Render markdown first, then highlight keywords in the resulting DOM
@@ -3908,7 +3964,7 @@ export class JournalCaptureView extends ItemView {
       }
 
       // Favorite heart — sits at the right end of the row head.
-      this.addFavoriteHeart(head, day, entry);
+      this.addEntryActions(head, day, entry);
 
       // Body bubble: chat-style rounded card holding the rendered markdown.
       const bubble = row.createDiv({ cls: 'jp-timeline-bubble' });
@@ -4374,6 +4430,15 @@ export class JournalCaptureView extends ItemView {
   private buildStatsPane() {
     // Toolbar with title
     this.statsToolbarEl = this.statsPaneEl.createDiv({ cls: 'jp-stats-toolbar' });
+    const back = this.statsToolbarEl.createEl('button', {
+      cls: 'clickable-icon',
+      attr: { type: 'button', title: t('capture.backToTimeline'), 'aria-label': t('capture.backToTimeline') },
+    });
+    setIcon(back, 'arrow-left');
+    back.addEventListener('click', () => {
+      this.switchTab('capture');
+      if (this.timelineMode !== 'daily') this.restoreDailyMode();
+    });
 
     this.statsToolbarEl.createDiv({ cls: 'jp-stats-toolbar-spacer' });
 
@@ -4779,6 +4844,10 @@ export class JournalCaptureView extends ItemView {
     const onScrollBound = () => {
       const top = scroller.scrollTop;
       const delta = top - lastScrollTop;
+      if (this.isWideLayout) {
+        lastScrollTop = top;
+        return;
+      }
 
       // Short window (e.g. view dragged into a small popout): the dock must
       // never cover the content, so it stays hidden regardless of scroll.
@@ -5047,7 +5116,7 @@ export class JournalCaptureView extends ItemView {
       // window back while scrolled down stays hidden instead of popping in.
       this.tabBarEl.toggleClass(
         'jp-tab-bar-hidden',
-        isShort || scroller.scrollTop > 8,
+        !this.isWideLayout && (isShort || scroller.scrollTop > 8),
       );
     };
 
@@ -5158,7 +5227,8 @@ export class JournalCaptureView extends ItemView {
       new Notice(t('notice.fileNotFound'));
       return;
     }
-    new EditEntryModal(this.app, entry, async newText => {
+    new EditEntryModal(this.app, entry, file.path, async newText => {
+      if (newText === entry.text) return;
       try {
         const content = await this.app.vault.read(file);
         const next = editEntryInSection(
@@ -5169,17 +5239,16 @@ export class JournalCaptureView extends ItemView {
         );
         if (next === content) {
           // lineIndex no longer points at a head line — file changed.
-          new Notice(t('notice.contentChanged'));
           await this.refreshDay(day);
-          return;
+          throw new Error(t('notice.contentChanged'));
         }
         await this.app.vault.modify(file, next);
         new Notice(t('notice.updated'));
       } catch (err) {
         console.error('[Journal Partner] edit entry failed', err);
-        new Notice(t('notice.saveFailed', { msg: err instanceof Error ? err.message : String(err) }));
+        throw err;
       }
-    }).open();
+    }, this.plugin.settings.presetTags).open();
   }
 
   /**
@@ -5799,86 +5868,6 @@ class DeleteConfirmModal extends Modal {
     });
     // Initial focus on cancel — safer default for a destructive dialog.
     window.setTimeout(() => cancelBtn.focus(), 0);
-  }
-
-  onClose(): void {
-    this.contentEl.empty();
-  }
-}
-
-/**
- * Modal for editing one journal entry's body text. Pre-fills a textarea with
- * the entry's raw text (which may include continuation lines and audio
- * embeds); on 保存, calls back with the new text. Empty input is rejected.
- */
-class EditEntryModal extends Modal {
-  private readonly entry: JournalEntry;
-  private readonly onSave: (newText: string) => Promise<void>;
-
-  constructor(
-    app: import('obsidian').App,
-    entry: JournalEntry,
-    onSave: (newText: string) => Promise<void>,
-  ) {
-    super(app);
-    this.entry = entry;
-    this.onSave = onSave;
-  }
-
-  onOpen(): void {
-    const { contentEl, titleEl } = this;
-    titleEl.setText(t('menu.editTitle', { timestamp: this.entry.timestamp }));
-
-    contentEl.addClass('jp-edit-entry');
-
-    const textarea = contentEl.createEl('textarea', {
-      cls: 'jp-edit-entry-textarea',
-    });
-    textarea.value = this.entry.text;
-    // Multi-line body deserves a roomy editor.
-    textarea.rows = Math.max(4, this.entry.text.split('\n').length + 1);
-
-    const actions = contentEl.createDiv({ cls: 'jp-edit-entry-actions' });
-    const cancelBtn = actions.createEl('button', {
-      cls: 'jp-edit-entry-cancel',
-      text: t('common.cancel'),
-    });
-    cancelBtn.addEventListener('click', () => this.close());
-
-    const saveBtn = actions.createEl('button', {
-      cls: 'mod-cta jp-edit-entry-save',
-      text: t('common.save'),
-    });
-    saveBtn.addEventListener('click', () => {
-      void (async () => {
-        const next = textarea.value;
-        if (next.trim().length === 0) {
-          new Notice(t('notice.contentEmpty'));
-          return;
-        }
-        saveBtn.disabled = true;
-        try {
-          await this.onSave(next);
-          this.close();
-        } finally {
-          saveBtn.disabled = false;
-        }
-      })();
-    });
-
-    // Enter to save, Shift+Enter for newline — matches the capture input.
-    textarea.addEventListener('keydown', evt => {
-      if (evt.key === 'Enter' && (evt.metaKey || evt.ctrlKey)) {
-        evt.preventDefault();
-        void saveBtn.click();
-      }
-    });
-
-    window.setTimeout(() => {
-      textarea.focus();
-      // Place cursor at the end so the user can append/edit immediately.
-      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    }, 0);
   }
 
   onClose(): void {

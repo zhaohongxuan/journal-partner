@@ -148,6 +148,10 @@
   border-radius: 12px;
   background: var(--background-primary);
 }
+.jp-todo-add-form { display: flex; gap: 6px; margin-top: 12px; }
+.jp-todo-add-form .jp-todo-add-input { flex: 1; width: 0; min-width: 0; font-size: 13px; }
+.jp-todo-add-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; padding: 0; }
+.jp-todo-add-button svg { width: 16px; height: 16px; }
 .jp-todo-head {
   display: flex;
   align-items: center;
@@ -171,6 +175,8 @@
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+.jp-todo-head-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.jp-todo-add-toggle,
 .jp-todo-open {
   display: inline-flex;
   align-items: center;
@@ -185,7 +191,10 @@
   color: var(--text-muted);
   cursor: pointer;
 }
+.jp-todo-add-toggle:hover,
 .jp-todo-open:hover { background: var(--background-modifier-hover); }
+.jp-todo-add-toggle[aria-expanded="true"] { color: var(--jp-tl-dot); background: var(--background-modifier-hover); }
+.jp-todo-add-toggle svg,
 .jp-todo-open svg { width: 15px; height: 15px; }
 .jp-todo-list {
   max-height: 240px;
@@ -1041,62 +1050,49 @@
   color: #6366f1;
 }
 
-/* ── Favorite heart ────────────────────────────────────────────────────────
-   Shown at the right end of each entry's head row. Hidden by default, fades in
-   on row hover, and stays filled+visible once favorited. */
-.jp-fav-icon {
+/* Always-visible actions above each timeline bubble. */
+.jp-entry-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding-left: 8px;
+}
+.jp-entry-actions .jp-entry-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  margin-left: auto;
-  padding: 0 2px;
   flex-shrink: 0;
-  color: var(--text-faint);
-  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  margin: 0;
+  border: none;
   border-radius: 6px;
-  transition: color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
-  opacity: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  opacity: 1;
+  cursor: pointer;
 }
-.jp-fav-icon svg {
+.jp-entry-action svg {
   width: 16px;
   height: 16px;
-  stroke-width: 2;
+  stroke-width: 1.8;
 }
-/* Reveal on row hover (not on touch, where there is no hover). */
-@media (hover: hover) {
-  .jp-timeline-entry:hover .jp-fav-icon,
-  .jp-fav-icon:focus-visible {
-    opacity: 0.65;
-  }
+.jp-entry-actions .jp-entry-action:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
-.jp-fav-icon:hover {
-  opacity: 1;
-  transform: scale(1.18);
+.jp-entry-actions .jp-entry-action:focus-visible {
+  outline: 2px solid var(--jp-tl-dot);
+  outline-offset: -2px;
+}
+.jp-entry-actions .jp-fav-icon:hover,
+.jp-entry-actions .jp-fav-icon.is-active {
   color: #e11d48;
 }
-/* Favorited: filled red heart, always visible. */
-.jp-fav-icon.is-active {
-  opacity: 1;
-  color: #e11d48;
-}
-.jp-fav-icon.is-active svg {
-  fill: #e11d48;
-}
-/* Touch devices have no hover — keep the heart visible so it stays usable. */
-@media (hover: none) {
-  .jp-fav-icon {
-    opacity: 0.6;
-  }
-  .jp-fav-icon.is-active {
-    opacity: 1;
-  }
-}
-/* Favorites list rows are always interactive; keep hearts visible there. */
-.jp-fav-day .jp-fav-icon {
-  opacity: 1;
-}
+.jp-fav-icon.is-active svg { fill: #e11d48; }
 
 /* Timeline entry: dot + connector + timestamp pill on the same baseline,
    then a content bubble that hangs off below the timestamp. */
@@ -1152,7 +1148,9 @@
   line-height: 1.6;
   color: var(--text-normal);
   word-break: break-word;
-  white-space: pre-wrap;
+  /* MarkdownRenderer owns line breaks; pre-wrap exposes HTML formatting
+     newlines between paragraphs/list items as extra visible blank lines. */
+  white-space: normal;
 }
 
 /* Dark theme adjustments */
@@ -1449,16 +1447,33 @@
 }
 
 /* ── Edit entry modal ──────────────────────────────────────────────────── */
-.jp-edit-entry-textarea {
-  width: 100%;
-  min-height: 96px;
-  resize: vertical;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-family: var(--font-monospace, ui-monospace, monospace);
-  font-size: 13px;
-  line-height: 1.5;
+.modal.jp-edit-modal { width: min(820px, 94vw); max-width: 820px; }
+.jp-edit-entry {
+  --jp-tl-dot: var(--jp-ts-color, #7c3aed);
+  display: flex; flex-direction: column; gap: 14px;
+}
+.jp-edit-tags-section { position: relative; }
+.jp-edit-tags-section .jp-tag-chips { margin-bottom: 0; }
+.jp-edit-tags-section .jp-tag-picker { max-height: 260px; overflow-y: auto; }
+.jp-edit-tags-section button.jp-tag-picker-item {
+  width: 100%; height: auto; border: 0; box-shadow: none;
+  background: transparent; text-align: start;
+}
+.jp-edit-tags-section button.jp-tag-picker-item:hover { background: var(--background-modifier-hover); }
+.jp-edit-tags-section button.jp-tag-picker-item.is-selected {
+  background: color-mix(in srgb, var(--jp-tl-dot) 14%, transparent);
+}
+.jp-edit-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 6px; border: 1px solid var(--background-modifier-border); border-radius: 8px; }
+.jp-edit-shortcut { margin-left: auto; color: var(--text-faint); font-size: 11px; padding: 0 6px; }
+.jp-edit-input-host { border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-primary); min-height: 300px; max-height: 55vh; overflow: auto; }
+.jp-edit-input-host .jp-capture-input { min-height: 300px; max-height: none; }
+.jp-edit-input-host textarea.jp-capture-input { width: 100%; padding: 14px; border: 0; resize: vertical; }
+.jp-edit-input-host .cm-editor { min-height: 300px; }
+.jp-edit-entry .jp-edit-entry-actions { margin-top: 0; }
+@media (max-width: 700px) {
+  .jp-edit-input-host { min-height: 200px; max-height: 50vh; }
+  .jp-edit-input-host .jp-capture-input, .jp-edit-input-host .cm-editor { min-height: 200px; }
+  .jp-edit-shortcut { display: none; }
 }
 .jp-edit-entry-actions {
   display: flex;
@@ -2520,77 +2535,69 @@
   min-width: 180px;
 }
 
-/* ── Wide layout: two-column shell ─────────────────────────────────────────
-   Turned on by capture-view.ts when the VIEW is at least 900px wide (measured
-   on the leaf, not the window — a sidebar leaf stays single-column even in a
-   maximised app window). Everything below is scoped to `.jp-layout-wide`, so
-   narrow panes and mobile keep the existing single-column behaviour. */
-
-.jp-capture-root.jp-layout-wide {
-  --jp-side-width: 360px;
-  --jp-side-gap: 28px;
-
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--jp-side-width);
-  align-items: start;
-  gap: 0 var(--jp-side-gap);
-  padding: 8px 16px calc(96px + env(safe-area-inset-bottom));
-  overflow-y: auto;
+/* ── Desktop workspace: writing + actionable cards ─────────────────────────
+   The desktop sidebar holds every tool; compact views keep the bottom dock. */
+.jp-tab-btn-label,
+.jp-tab-btn.jp-desktop-search {
+  display: none;
 }
 
-.jp-capture-root.jp-layout-wide > .jp-pane-capture {
+.jp-capture-root.jp-layout-wide {
+  --jp-side-width: clamp(240px, 30%, 380px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--jp-side-width);
+  grid-template-rows: minmax(min-content, 1fr);
+  align-items: start;
+  gap: 0 clamp(12px, 2%, 24px);
+  padding: 16px clamp(12px, 2%, 20px) 24px;
+  overflow-y: auto;
+}
+.jp-capture-root.jp-layout-wide > .jp-pane-capture,
+.jp-capture-root.jp-layout-wide > .jp-pane-stats {
+  min-width: 0;
   grid-column: 1;
   grid-row: 1;
   width: 100%;
   margin: 0 auto;
+  padding-top: 0;
 }
-
-.jp-capture-root.jp-layout-wide > .jp-pane-stats {
-  grid-column: 1;
-  grid-row: 1;
-}
-
 .jp-capture-root.jp-layout-wide > .jp-side-panel {
+  min-width: 0;
   grid-column: 2;
   grid-row: 1;
   align-self: start;
-  /* Compositor-only fade so crossing the breakpoint reads as "the panel
-     arrives" instead of a hard snap. The grid itself is not animated —
-     animating track sizes would relayout every frame while dragging. */
-  animation: jp-side-in 0.16s ease-out;
-  /* Sticks while the timeline scrolls past. The containing block is the grid
-     area (as tall as the capture pane), so it has room to travel. No
-     `overflow` here on purpose: an inner scroller would fight the root's. */
   position: sticky;
-  top: 8px;
+  top: 0;
+  max-height: calc(var(--jp-workspace-height, 100vh) - 40px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: jp-side-in 0.16s ease-out;
+}
+.jp-side-snapshots,
+.jp-layout-wide .jp-planning-widgets {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-
-/* Full-width stats view: collapse the grid so the year heatmaps get the room
-   they need instead of being squeezed into one column. */
-.jp-capture-root.jp-layout-wide.jp-stats-expanded {
-  grid-template-columns: minmax(0, 1fr);
-}
-.jp-capture-root.jp-layout-wide.jp-stats-expanded > .jp-side-panel {
+/* Disabled planning features must not leave an empty card-sized gap. */
+.jp-layout-wide .jp-planning-widgets:not(:has(> :not([style*="display: none"]))) {
   display: none;
 }
-/* With the panel gone, the dock belongs back in the middle of the view. */
-.jp-capture-root.jp-layout-wide.jp-stats-expanded .jp-tab-bar {
-  left: 50%;
+.jp-layout-wide .jp-side-panel .jp-habit-bar,
+.jp-layout-wide .jp-side-panel .jp-today-todos {
+  margin: 0;
+  padding: 15px 16px;
 }
 
-/* The dock floats centred on the viewport; in the two-column layout it must
-   centre on the timeline column instead, or it would sit under the panel. */
-.jp-capture-root.jp-layout-wide .jp-tab-bar {
-  left: calc(50% - (var(--jp-side-width) + var(--jp-side-gap)) / 2);
-}
-
-/* Stats lives in the side panel while wide — drop its dock button. */
-.jp-tab-btn.jp-tab-btn-hidden {
-  display: none;
-}
+/* Desktop tools live in cards; the compact dock is not part of this layout. */
+.jp-capture-root.jp-layout-wide .jp-tab-bar { display: none; }
+/* Flatten only the static card wrapper so the heatmap can lead the live
+   planning widgets while stats refreshes leave their controls untouched. */
+.jp-layout-wide .jp-side-snapshots { display: contents; }
+.jp-layout-wide .jp-side-snapshots > .jp-side-card:first-child { order: -1; }
 
 @keyframes jp-side-in {
   from {
@@ -2685,41 +2692,55 @@
   text-overflow: ellipsis;
 }
 
-/* Mini heatmap: 53 week columns share the card width, cells stay square.
-   Fixed-size cells either overflowed the panel or looked like a thin barcode;
-   letting the columns flex keeps a full year readable at any panel width. */
-.jp-side-heatmap {
-  display: flex;
-  gap: 1px;
-  margin-top: 2px;
+/* Contribution heatmap: fill each week's seven square cells top to bottom. */
+.jp-side-recent-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, auto);
+  grid-template-columns: repeat(20, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px 0;
 }
-.jp-side-heatmap-week {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.jp-side-heatmap-cell {
+.jp-side-recent-grid .jp-side-recent-day {
+  display: block;
   width: 100%;
-  aspect-ratio: 1 / 1;
-  border-radius: 1px;
+  min-width: 0;
+  height: auto;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
   background: var(--background-modifier-border);
+  box-shadow: none;
+  cursor: pointer;
 }
-.jp-side-heatmap-cell.is-blank {
-  background: transparent;
+.jp-side-recent-grid .jp-side-recent-day.level-1 {
+  background: color-mix(in srgb, var(--jp-tl-dot) 25%, var(--background-primary));
 }
-.jp-side-heatmap-cell.level-1 {
-  background: color-mix(in srgb, var(--jp-tl-dot) 25%, transparent);
+.jp-side-recent-grid .jp-side-recent-day.level-2 {
+  background: color-mix(in srgb, var(--jp-tl-dot) 45%, var(--background-primary));
 }
-.jp-side-heatmap-cell.level-2 {
-  background: color-mix(in srgb, var(--jp-tl-dot) 50%, transparent);
+.jp-side-recent-grid .jp-side-recent-day.level-3 {
+  background: color-mix(in srgb, var(--jp-tl-dot) 70%, var(--background-primary));
 }
-.jp-side-heatmap-cell.level-3 {
-  background: color-mix(in srgb, var(--jp-tl-dot) 75%, transparent);
-}
-.jp-side-heatmap-cell.level-4 {
+.jp-side-recent-grid .jp-side-recent-day.level-4 {
   background: var(--jp-tl-dot);
+}
+.jp-side-recent-grid .jp-side-recent-day.is-today {
+  outline: 1px solid var(--text-muted);
+  outline-offset: 1px;
+}
+.jp-side-recent-grid .jp-side-recent-day:hover,
+.jp-side-recent-grid .jp-side-recent-day:focus-visible {
+  outline: 2px solid var(--text-normal);
+  outline-offset: 1px;
+}
+.jp-side-recent-range {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
 }
 
 /* Favorites preview */
