@@ -2053,29 +2053,59 @@
 
 /* ── Pinned habit check-in module (top of the timeline) ─────────────────── */
 .jp-habit-bar {
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 4px 0 16px;
+  padding: 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-primary);
+}
+.jp-habit-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 6px 2px 10px;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-bottom: 12px;
+}
+.jp-habit-title {
+  color: var(--text-normal);
+  font-size: 13px;
+  font-weight: 600;
 }
 .jp-habit-count {
-  margin-right: 2px;
-  font-size: 0.72em;
-  color: var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+.jp-habit-count.is-complete {
+  color: var(--jp-tl-dot);
+}
+.jp-habit-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .jp-habit-item {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 999px;
+  gap: 6px;
+  min-height: 34px;
+  height: auto;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
   border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-size: 0.78em;
+  background: transparent;
+  color: var(--text-normal);
+  font-size: 13px;
   line-height: 1.4;
+  text-align: start;
+  white-space: normal;
   cursor: pointer;
   box-shadow: none;
   transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
@@ -2085,9 +2115,22 @@
   border-color: var(--jp-tl-dot);
   background: var(--background-secondary-alt, var(--background-secondary));
 }
+.jp-habit-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .jp-habit-icon {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
+  color: var(--text-muted);
+}
+.jp-habit-item:focus-visible {
+  outline: 2px solid var(--jp-tl-dot);
+  outline-offset: 2px;
+}
+.is-mobile .jp-habit-item {
+  min-height: 40px;
 }
 .jp-habit-icon svg {
   width: 14px;
@@ -2103,12 +2146,15 @@
   height: 12px;
 }
 .jp-habit-item.is-done {
-  color: var(--jp-tl-dot);
-  border-color: color-mix(in srgb, var(--jp-tl-dot) 45%, transparent);
-  background: color-mix(in srgb, var(--jp-tl-dot) 12%, transparent);
+  border-color: color-mix(in srgb, var(--jp-tl-dot) 18%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--jp-tl-dot) 7%, var(--background-primary));
+}
+.jp-habit-item.is-done:hover {
+  background: color-mix(in srgb, var(--jp-tl-dot) 12%, var(--background-primary));
+  border-color: color-mix(in srgb, var(--jp-tl-dot) 35%, var(--background-modifier-border));
 }
 .jp-habit-item.is-done .jp-habit-icon {
-  opacity: 0.9;
+  color: var(--jp-tl-dot);
 }
 
 /* Settings tab: habit rows — all controls on one line. */
@@ -2275,6 +2321,36 @@
   padding: 1px 4px;
   border-radius: 3px;
   background: var(--background-primary-alt);
+}
+
+/* ── Settings disclosures ─────────────────────────────────────────────── */
+.jp-settings-details {
+  margin: 10px 0;
+  padding: 0 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  min-width: 0;
+}
+.jp-settings-details > summary {
+  padding: 12px 0;
+  cursor: pointer;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+}
+.jp-settings-details > summary:hover {
+  color: var(--text-accent);
+}
+.jp-settings-details > summary:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.jp-settings-details[open] {
+  padding-bottom: 8px;
+}
+.jp-settings-details .jp-stt-guide {
+  overflow-x: auto;
 }
 
 /* ── Settings tab: preset-tag list ──────────────────────────────────────── */

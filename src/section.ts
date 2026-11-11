@@ -30,6 +30,8 @@ export interface JournalPartnerSettings {
   readonlyTimestamps: boolean;
   /** When true, pressing Enter inside the journal section auto-inserts a timestamp on the new line */
   autoTimestamp: boolean;
+  /** Enable transcription while keeping ordinary audio recording available. */
+  sttEnabled: boolean;
   /** OpenAI-compatible audio transcription endpoint (e.g. https://api.openai.com/v1/audio/transcriptions). Empty disables STT. */
   sttEndpoint: string;
   /** Bearer API key sent to the STT endpoint. */
@@ -54,8 +56,8 @@ export interface JournalPartnerSettings {
   defaultTags: string[];
   /** How many journal-derived tags (ranked by frequency + recency) the tag-filter menu shows. 0 = no limit. */
   maxDiaryTags: number;
-  /** UI language: 'en' (default) | 'zh'. */
-  language: 'en' | 'zh';
+  /** UI language; system follows the device locale, falling back to English. */
+  language: 'system' | 'en' | 'zh';
   /** On mobile, open the capture view in the right sidebar (slide-out drawer) instead of the full editor area. Desktop always uses the sidebar. */
   mobileOpenInSidebar: boolean;
   /** When a capture view opens/activates, focus the input automatically (and raise the on-screen keyboard on mobile). */
@@ -78,6 +80,8 @@ export interface JournalPartnerSettings {
   quoteTag: string;
   /** Template used when inserting a quote. Placeholders: {quote} {title} {author} {chapter} {date} {time} {link} {count}. */
   quoteTemplate: string;
+  /** Show the habit check-in card without changing configured habits or entries. */
+  habitsEnabled: boolean;
   /** Habits pinned to the top of the capture timeline. Empty = the module is hidden. */
   habits: HabitConfig[];
   /**
@@ -97,6 +101,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   timestampBgColorDark: '#2e1065',
   readonlyTimestamps: true,
   autoTimestamp: true,
+  sttEnabled: false,
   sttEndpoint: '',
   sttApiKey: '',
   sttModel: 'whisper-1',
@@ -109,7 +114,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   presetTags: ['#log/fitness', '#log/code'],
   defaultTags: [],
   maxDiaryTags: 15,
-  language: 'en',
+  language: 'system',
   mobileOpenInSidebar: false,
   autoFocusInput: true,
   favorites: [],
@@ -125,6 +130,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   quoteTemplate: '“{quote}” —— {author}《{link}》 {date}',
   // Habits are opt-in — with none configured the module stays hidden. Each
   // habit carries its own optional check-in tag.
+  habitsEnabled: true,
   habits: [],
   // Off by default: writing to a daily note's frontmatter is opt-in.
   habitMirrorFrontmatter: false,

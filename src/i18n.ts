@@ -3,12 +3,13 @@
  *
  * No third-party dependency: a single translation table keyed by semantic
  * strings, plus a `t()` helper and locale-aware date/number formatting.
- * Default language is English; Chinese is the second language.
+ * Supports English and Chinese; system mode falls back to English.
  */
 
 import type { Moment } from 'moment';
 
 export type Language = 'en' | 'zh';
+export type LanguageSetting = Language | 'system';
 
 type Dict = { [key: string]: string };
 
@@ -138,6 +139,11 @@ const EN: Dict = {
   'stats.title': '{year}',
 
   // ── Settings tab ───────────────────────────────────────────────────────
+  'settings.advanced': 'Advanced options',
+  'settings.sttGuideTitle': 'Setup guide and providers',
+  'settings.integrations': 'Shortcuts and external integration',
+  'settings.sttEnabled': 'Enable speech-to-text',
+  'settings.sttEnabledDesc': 'Transcribe audio while recording or after stopping. When off, audio recording still works and your configuration is kept.',
   'settings.heading.timestamp': 'Timestamp Settings',
   'settings.heading.tags': 'Tag Settings',
   'settings.heading.colors': 'Color Settings',
@@ -188,8 +194,8 @@ const EN: Dict = {
   'settings.textColorDesc': 'Foreground color of the timestamp badge (left: light ☀, right: dark 🌙)',
   'settings.bgColor': 'Background color',
   'settings.bgColorDesc': 'Background color of the timestamp badge (left: light ☀, right: dark 🌙)',
-  'settings.sttGuide': 'Transcription uses an OpenAI-compatible /audio/transcriptions endpoint. Set the endpoint and API key to enable it; leave blank to disable and record audio only. You can also use the system dictation (double-tap Fn on macOS / iOS keyboard mic) into the input instead.',
-  'settings.sttGuideRealtime': 'Realtime mode: transcribes as you speak, splitting sentences at pauses. After stopping, the realtime draft is kept by default (fast); enable “re-transcribe the full clip” below to replace it with a full-audio transcription (more accurate, but slower).',
+  'settings.sttGuide': 'Enable speech-to-text and configure an OpenAI-compatible /audio/transcriptions endpoint and API key. When disabled, the microphone records audio only. You can also use system dictation (double-tap Fn on macOS / iOS keyboard mic) directly in the input.',
+  'settings.sttGuideRealtime': 'Realtime mode transcribes as you speak and keeps the live draft when recording stops. With realtime mode off, the full clip is transcribed once after recording stops.',
   'settings.sttProvider': 'Provider',
   'settings.sttEndpointCol': 'Endpoint',
   'settings.sttModelCol': 'Model',
@@ -224,7 +230,8 @@ const EN: Dict = {
   'settings.sameFolder': 'Same folder as the note',
   'settings.pickFolder': 'Pick folder',
   'settings.language': 'Language',
-  'settings.languageDesc': 'Interface language (default English)',
+  'settings.languageDesc': 'Choose an interface language. System uses Chinese for Chinese locales and English for other languages.',
+  'settings.languageSystem': 'Follow system',
   'settings.mobileSidebar': 'Open in sidebar on mobile',
   'settings.mobileSidebarDesc': 'When on, the capture view opens in the right slide-out drawer on mobile instead of taking over the editor area.',
   'settings.autoFocus': 'Auto-focus the input on open',
@@ -307,11 +314,16 @@ const EN: Dict = {
   'settings.quoteCacheCleared': 'Highlight cache cleared',
 
   // ── Habit check-in ─────────────────────────────────────────────────────
+  'habit.today': 'Today’s habits',
+  'habit.progress': '{count} completed',
+  'habit.allDone': 'All done',
   'habit.markDone': 'Check in: {label}',
   'habit.markUndone': 'Undo check-in: {label}',
   'habit.failed': 'Check-in failed: {msg}',
   'habit.frontmatterFailed': 'Could not update the frontmatter property “{field}”',
   'settings.heading.habits': 'Habit Check-in',
+  'settings.habitsEnabled': 'Show habit check-ins',
+  'settings.habitsEnabledDesc': 'Show the habit card above the timeline. Turning this off keeps your habits and existing check-in records.',
   'settings.habitsDesc': 'Pin habits to the top of the timeline. Checking one adds a completed task to today’s journal.',
   'settings.habitTag': 'Check-in tag',
   'settings.habitTagPlaceholder': '#log/habit',
@@ -453,6 +465,11 @@ const ZH: Dict = {
   'stats.title': '{year} 年',
 
   // ── Settings tab ───────────────────────────────────────────────────────
+  'settings.advanced': '高级选项',
+  'settings.sttGuideTitle': '配置指南与服务商参考',
+  'settings.integrations': '快捷指令与外部调用',
+  'settings.sttEnabled': '启用语音转文字',
+  'settings.sttEnabledDesc': '录音时或停止后将语音转为文字。关闭后仍可普通录音，并保留已有配置。',
   'settings.heading.timestamp': '时间戳设置',
   'settings.heading.tags': '标签设置',
   'settings.heading.colors': '颜色设置',
@@ -463,8 +480,8 @@ const ZH: Dict = {
   'settings.textColorDesc': '时间戳徽标的前景色（左：白天 ☀　右：深色 🌙）',
   'settings.bgColor': '背景颜色',
   'settings.bgColorDesc': '时间戳徽标的背景色（左：白天 ☀　右：深色 🌙）',
-  'settings.sttGuide': '录音转文字使用 OpenAI 兼容的 /audio/transcriptions 接口。填好转写地址与 API Key 即可开启；留空则关闭转写，麦克风仅作纯录音。也可不配置，直接用系统听写（macOS 双击 Fn / iOS 键盘麦克风）往输入框输入。',
-  'settings.sttGuideRealtime': '实时转写模式：边说边出字，在停顿处切句并带上下文拼接。停止后默认保留实时草稿（快）；可在下方开启「停止后整段重转」用完整音频再转一次替换草稿（更准但需等待）。',
+  'settings.sttGuide': '开启语音转文字后，配置 OpenAI 兼容的 /audio/transcriptions 地址与 API Key。关闭开关后麦克风仅作普通录音。也可直接用系统听写（macOS 双击 Fn / iOS 键盘麦克风）往输入框输入。',
+  'settings.sttGuideRealtime': '实时转写开启时边说边出字，停止录音后保留实时草稿；关闭实时转写时，录完整段后再进行一次转写。',
   'settings.sttProvider': '服务商',
   'settings.sttEndpointCol': '转写地址',
   'settings.sttModelCol': '模型',
@@ -539,7 +556,8 @@ const ZH: Dict = {
   'settings.sameFolder': '与日记同目录',
   'settings.pickFolder': '选择目录',
   'settings.language': '语言',
-  'settings.languageDesc': '界面语言（默认英文）',
+  'settings.languageDesc': '选择界面语言。跟随系统时，中文系统使用中文，其他语言使用英文。',
+  'settings.languageSystem': '跟随系统',
   'settings.mobileSidebar': '移动端从侧边栏打开',
   'settings.mobileSidebarDesc': '开启后，移动端从右侧滑出抽屉打开记录视图，而非占据主编辑区。',
   'settings.autoFocus': '打开时自动聚焦输入框',
@@ -622,11 +640,16 @@ const ZH: Dict = {
   'settings.quoteCacheCleared': '划线缓存已清除',
 
   // ── Habit check-in ─────────────────────────────────────────────────────
+  'habit.today': '今日习惯',
+  'habit.progress': '{count} 已完成',
+  'habit.allDone': '全部完成',
   'habit.markDone': '打卡：{label}',
   'habit.markUndone': '取消打卡：{label}',
   'habit.failed': '打卡失败：{msg}',
   'habit.frontmatterFailed': '无法更新 frontmatter 属性「{field}」',
   'settings.heading.habits': '习惯打卡',
+  'settings.habitsEnabled': '显示习惯打卡',
+  'settings.habitsEnabledDesc': '在时间线上方显示习惯卡片。关闭后保留习惯配置和已有的打卡记录。',
   'settings.habitsDesc': '把习惯固定在时间线顶部。勾选会在今天的日记里加一条已完成的任务。',
   'settings.habitTag': '打卡标签',
   'settings.habitTagPlaceholder': '#log/habit',
@@ -647,10 +670,19 @@ const DICTS: Record<Language, Dict> = { en: EN, zh: ZH };
 
 let currentLanguage: Language = 'en';
 
-/** Set the active language. Returns the previous value. */
-export function setLanguage(lang: Language): Language {
+/** Resolve supported device locales; explicit choices override the system. */
+export function resolveLanguage(
+  lang: LanguageSetting,
+  systemLocale = typeof navigator === 'undefined' ? 'en' : navigator.language,
+): Language {
+  if (lang === 'en' || lang === 'zh') return lang;
+  return /^zh(?:[-_]|$)/i.test(systemLocale) ? 'zh' : 'en';
+}
+
+/** Set the active language. Returns the previous resolved value. */
+export function setLanguage(lang: LanguageSetting): Language {
   const prev = currentLanguage;
-  currentLanguage = lang;
+  currentLanguage = resolveLanguage(lang);
   return prev;
 }
 

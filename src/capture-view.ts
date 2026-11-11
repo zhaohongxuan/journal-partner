@@ -1244,7 +1244,7 @@ export class JournalCaptureView extends ItemView {
 
     const sttConfigured = () => {
       const s = this.plugin.settings;
-      return s.sttEndpoint.trim().length > 0 && s.sttApiKey.trim().length > 0;
+      return s.sttEnabled && s.sttEndpoint.trim().length > 0 && s.sttApiKey.trim().length > 0;
     };
 
     const wantRealtime = () => sttConfigured() && this.plugin.settings.sttRealtime;
@@ -1830,7 +1830,7 @@ export class JournalCaptureView extends ItemView {
     if (!this.habitBarEl) return;
     const habits = (this.plugin.settings.habits ?? []).filter(isHabitUsable);
     this.habitBarEl.empty();
-    if (habits.length === 0) {
+    if (!this.plugin.settings.habitsEnabled || habits.length === 0) {
       this.habitBarEl.hide();
       return;
     }
@@ -1838,17 +1838,26 @@ export class JournalCaptureView extends ItemView {
 
     const entries = await this.readTodayEntries();
 
-    this.habitBarEl.createDiv({
-      cls: 'jp-habit-count',
-      text: habitProgress(entries, habits),
+    const allDone = habits.every(habit => isHabitDone(entries, habit));
+    const header = this.habitBarEl.createDiv({ cls: 'jp-habit-header' });
+    header.createDiv({ cls: 'jp-habit-title', text: t('habit.today') });
+    const progress = header.createDiv({
+      cls: allDone ? 'jp-habit-count is-complete' : 'jp-habit-count',
+      attr: { role: 'status' },
     });
+    if (allDone) setIcon(progress.createSpan({ cls: 'jp-habit-tick' }), 'check');
+    progress.createSpan({
+      text: t(allDone ? 'habit.allDone' : 'habit.progress', { count: habitProgress(entries, habits) }),
+    });
+    const items = this.habitBarEl.createDiv({ cls: 'jp-habit-items' });
 
     for (const habit of habits) {
       const done = isHabitDone(entries, habit);
-      const btn = this.habitBarEl.createEl('button', {
+      const btn = items.createEl('button', {
         cls: done ? 'jp-habit-item is-done' : 'jp-habit-item',
         attr: {
           'aria-label': t(done ? 'habit.markUndone' : 'habit.markDone', { label: habit.label }),
+          'aria-pressed': String(done),
           title: habit.label,
         },
       });
@@ -2342,6 +2351,7 @@ export class JournalCaptureView extends ItemView {
    */
   private async transcribeAudio(blob: Blob, prompt = ''): Promise<string> {
     const s = this.plugin.settings;
+    if (!s.sttEnabled) return '';
     const endpoint = s.sttEndpoint.trim();
     const apiKey = s.sttApiKey.trim();
     if (endpoint.length === 0 || apiKey.length === 0) return '';
