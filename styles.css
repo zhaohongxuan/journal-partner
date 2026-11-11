@@ -141,6 +141,84 @@
   background: transparent;
 }
 
+/* Today's planning tasks, below the habit card. */
+.jp-today-todos {
+  padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-primary);
+}
+.jp-todo-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+}
+.jp-todo-icon {
+  display: inline-flex;
+  color: var(--jp-tl-dot);
+}
+.jp-todo-icon svg { width: 16px; height: 16px; }
+.jp-todo-title { font-size: 13px; font-weight: 600; }
+.jp-todo-count {
+  min-width: 22px;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.jp-todo-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.jp-todo-open:hover { background: var(--background-modifier-hover); }
+.jp-todo-open svg { width: 15px; height: 15px; }
+.jp-todo-list {
+  max-height: 240px;
+  margin-top: 6px;
+  overflow-y: auto;
+}
+.jp-todo-row { display: flex; align-items: flex-start; min-width: 0; }
+.jp-todo-check-target {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  min-height: 34px;
+  cursor: pointer;
+}
+.jp-todo-checkbox { width: 18px; height: 18px; margin: 0; cursor: pointer; }
+.jp-todo-checkbox:disabled { cursor: wait; }
+.jp-todo-text {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0;
+  color: var(--text-normal);
+  font-size: 13px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+.jp-todo-text > :first-child { margin-top: 0; }
+.jp-todo-text > :last-child { margin-bottom: 0; }
+.jp-todo-row.is-done .jp-todo-text { color: var(--text-muted); text-decoration: line-through; }
+.jp-todo-empty { padding: 8px 0 2px; color: var(--text-muted); font-size: 12px; }
+.is-mobile .jp-todo-check-target { flex-basis: 40px; min-height: 40px; }
+.is-mobile .jp-todo-text { padding-top: 9px; padding-bottom: 9px; }
+
 /* One surface owns the input's background, outline and rounded corners.
    Keep overflow visible so tag pickers and suggestions can leave the card. */
 .jp-capture-card {
@@ -206,7 +284,8 @@
   background: transparent;
   box-shadow: none;
 }
-.jp-capture-editor .cm-editor {
+.jp-capture-editor .markdown-source-view.mod-cm6 .cm-editor {
+  min-height: 60px;
   max-height: 240px;
 }
 .jp-capture-editor .cm-editor.cm-focused {
@@ -219,13 +298,18 @@
   line-height: 1.55;
   overflow-y: auto;
 }
-.jp-capture-editor .cm-sizer {
+/* Outrank Obsidian's .markdown-source-view.mod-cm6 editor rules, which
+   otherwise reset these heights to 0/unset and leave only one clickable line. */
+.jp-capture-editor .markdown-source-view.mod-cm6 .cm-sizer {
+  width: 100%;
   max-width: none !important;
   margin: 0 !important;
   padding: 0 !important;
   min-height: 60px;
 }
-.jp-capture-editor .cm-content {
+.jp-capture-editor .markdown-source-view.mod-cm6 .cm-content {
+  min-height: 60px;
+  box-sizing: border-box;
   padding: 0;
 }
 .jp-capture-editor .cm-gutters {
@@ -1566,9 +1650,14 @@
   padding-top: 12px;
 }
 /* Capture pane: 头部与 timeline 之间无 gap，呼吸间距由 .jp-timeline 的
-   margin-top 承担。 */
+   margin-top 承担。
+   限宽居中：主编辑区里视图可能有 1000px+，一条日记撑满整宽会非常难读
+   （单行 90+ 字）。760px 是舒适阅读宽度，窄侧栏里这个上限不会生效。 */
 .jp-pane-capture {
   gap: 0;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
 }
 
 /* Floating "back to top" button — sticky to the bottom-right of the scroll
@@ -2429,4 +2518,291 @@
 }
 .jp-settings-tag-row input {
   min-width: 180px;
+}
+
+/* ── Wide layout: two-column shell ─────────────────────────────────────────
+   Turned on by capture-view.ts when the VIEW is at least 900px wide (measured
+   on the leaf, not the window — a sidebar leaf stays single-column even in a
+   maximised app window). Everything below is scoped to `.jp-layout-wide`, so
+   narrow panes and mobile keep the existing single-column behaviour. */
+
+.jp-capture-root.jp-layout-wide {
+  --jp-side-width: 360px;
+  --jp-side-gap: 28px;
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--jp-side-width);
+  align-items: start;
+  gap: 0 var(--jp-side-gap);
+  padding: 8px 16px calc(96px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+
+.jp-capture-root.jp-layout-wide > .jp-pane-capture {
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.jp-capture-root.jp-layout-wide > .jp-pane-stats {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.jp-capture-root.jp-layout-wide > .jp-side-panel {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  /* Compositor-only fade so crossing the breakpoint reads as "the panel
+     arrives" instead of a hard snap. The grid itself is not animated —
+     animating track sizes would relayout every frame while dragging. */
+  animation: jp-side-in 0.16s ease-out;
+  /* Sticks while the timeline scrolls past. The containing block is the grid
+     area (as tall as the capture pane), so it has room to travel. No
+     `overflow` here on purpose: an inner scroller would fight the root's. */
+  position: sticky;
+  top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Full-width stats view: collapse the grid so the year heatmaps get the room
+   they need instead of being squeezed into one column. */
+.jp-capture-root.jp-layout-wide.jp-stats-expanded {
+  grid-template-columns: minmax(0, 1fr);
+}
+.jp-capture-root.jp-layout-wide.jp-stats-expanded > .jp-side-panel {
+  display: none;
+}
+/* With the panel gone, the dock belongs back in the middle of the view. */
+.jp-capture-root.jp-layout-wide.jp-stats-expanded .jp-tab-bar {
+  left: 50%;
+}
+
+/* The dock floats centred on the viewport; in the two-column layout it must
+   centre on the timeline column instead, or it would sit under the panel. */
+.jp-capture-root.jp-layout-wide .jp-tab-bar {
+  left: calc(50% - (var(--jp-side-width) + var(--jp-side-gap)) / 2);
+}
+
+/* Stats lives in the side panel while wide — drop its dock button. */
+.jp-tab-btn.jp-tab-btn-hidden {
+  display: none;
+}
+
+@keyframes jp-side-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The timeline gets a bit more room in the wide layout, so the body text can
+   follow instead of looking undersized next to the 22px KPI numbers. */
+.jp-capture-root.jp-layout-wide .jp-timeline-bubble {
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+/* ── Side panel cards ─────────────────────────────────────────────────── */
+
+.jp-side-card {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  padding: 15px 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.jp-side-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.jp-side-card-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+.jp-side-card-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.jp-side-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.jp-side-card-more {
+  margin-left: auto;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.jp-side-card-more:hover {
+  color: var(--jp-tl-dot);
+  background: var(--background-modifier-hover);
+}
+
+.jp-side-empty {
+  padding: 6px 2px 2px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* Stats numbers */
+.jp-side-nums {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.jp-side-num {
+  flex: 1;
+  min-width: 0;
+}
+.jp-side-num-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+}
+.jp-side-num-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Mini heatmap: 53 week columns share the card width, cells stay square.
+   Fixed-size cells either overflowed the panel or looked like a thin barcode;
+   letting the columns flex keeps a full year readable at any panel width. */
+.jp-side-heatmap {
+  display: flex;
+  gap: 1px;
+  margin-top: 2px;
+}
+.jp-side-heatmap-week {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.jp-side-heatmap-cell {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 1px;
+  background: var(--background-modifier-border);
+}
+.jp-side-heatmap-cell.is-blank {
+  background: transparent;
+}
+.jp-side-heatmap-cell.level-1 {
+  background: color-mix(in srgb, var(--jp-tl-dot) 25%, transparent);
+}
+.jp-side-heatmap-cell.level-2 {
+  background: color-mix(in srgb, var(--jp-tl-dot) 50%, transparent);
+}
+.jp-side-heatmap-cell.level-3 {
+  background: color-mix(in srgb, var(--jp-tl-dot) 75%, transparent);
+}
+.jp-side-heatmap-cell.level-4 {
+  background: var(--jp-tl-dot);
+}
+
+/* Favorites preview */
+.jp-side-fav {
+  display: flex;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.jp-side-fav:hover {
+  background: var(--background-modifier-hover);
+}
+.jp-side-fav-heart {
+  flex-shrink: 0;
+  display: inline-flex;
+  margin-top: 2px;
+  color: #e11d48;
+}
+.jp-side-fav-heart svg {
+  width: 12px;
+  height: 12px;
+}
+.jp-side-fav-body {
+  min-width: 0;
+}
+.jp-side-fav-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-normal);
+}
+.jp-side-fav-date {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Random note */
+.jp-side-random {
+  padding: 2px 0 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.jp-side-random-date {
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.jp-side-random-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-normal);
+}
+.jp-side-reroll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 0;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.jp-side-reroll:hover {
+  color: var(--jp-tl-dot);
+  border-color: var(--jp-tl-dot);
+}
+.jp-side-reroll-icon {
+  display: inline-flex;
+}
+.jp-side-reroll-icon svg {
+  width: 13px;
+  height: 13px;
 }

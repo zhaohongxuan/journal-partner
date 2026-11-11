@@ -62,6 +62,12 @@ export interface JournalPartnerSettings {
   mobileOpenInSidebar: boolean;
   /** When a capture view opens/activates, focus the input automatically (and raise the on-screen keyboard on mobile). */
   autoFocusInput: boolean;
+  /**
+   * When the view is at least 900px wide (desktop), pin a side panel with
+   * stats, favorites and a random note to the right of the timeline.
+   * Off keeps the single-column layout at any width.
+   */
+  wideLayoutEnabled: boolean;
   /** User-favorited journal entries, newest favorited first. */
   favorites: FavoriteEntry[];
   /** Show the random-quote (WeRead highlight) button in the capture input. */
@@ -82,6 +88,13 @@ export interface JournalPartnerSettings {
   quoteTemplate: string;
   /** Show the habit check-in card without changing configured habits or entries. */
   habitsEnabled: boolean;
+  /** Show today's planning tasks below the habit card. */
+  todoEnabled: boolean;
+  /** Full Markdown headings delimiting the planning task range. */
+  todoStartHeading: string;
+  todoEndHeading: string;
+  /** Include completed planning tasks in the module. */
+  todoShowCompleted: boolean;
   /** Habits pinned to the top of the capture timeline. Empty = the module is hidden. */
   habits: HabitConfig[];
   /**
@@ -117,6 +130,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   language: 'system',
   mobileOpenInSidebar: false,
   autoFocusInput: true,
+  wideLayoutEnabled: true,
   favorites: [],
   // Opt-in: the button is useless without a WeRead API key.
   quoteEnabled: false,
@@ -128,6 +142,10 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   // Empty by default: a plugin must not silently tag every user's entries.
   quoteTag: '',
   quoteTemplate: '“{quote}” —— {author}《{link}》 {date}',
+  todoEnabled: true,
+  todoStartHeading: '## Planning',
+  todoEndHeading: '## Journal',
+  todoShowCompleted: false,
   // Habits are opt-in — with none configured the module stays hidden. Each
   // habit carries its own optional check-in tag.
   habitsEnabled: true,
