@@ -43,6 +43,7 @@ import { TodayTodos } from './today-todos';
 import { parseDailyTodos, setDailyTodoCompleted } from './todos';
 import { EditEntryModal } from './edit-entry-modal';
 import { ShareCardModal } from './share-card-modal';
+import { hookUpTagFilters } from './tag-filter-links';
 
 import {
   FavoriteEntry,
@@ -3191,6 +3192,9 @@ export class JournalCaptureView extends ItemView {
   /** Sync the tag-filter button's active styling with `activeTagFilter`. */
   private updateTagFilterBtn() {
     this.tagFilterBtn.toggleClass('is-active', this.activeTagFilter !== null);
+    const label = t('capture.filterByTag') + (this.activeTagFilter ? ` · #${this.activeTagFilter}` : '');
+    this.tagFilterBtn.setAttr('title', label);
+    this.tagFilterBtn.setAttr('aria-label', label);
   }
 
   /** Sync the filter button's icon + active styling with `entryFilter`. */
@@ -4027,6 +4031,10 @@ export class JournalCaptureView extends ItemView {
    * to every internal link inside `el`.
    */
   private hookUpLinks(el: HTMLElement, sourcePath: string): void {
+    hookUpTagFilters(el, tag => {
+      if (this.timelineMode === 'tag' && this.activeTagFilter === tag) return;
+      this.setTagFilter(tag);
+    });
     const links = el.querySelectorAll<HTMLAnchorElement>('.internal-link');
     links.forEach(link => {
       // Skip links we've already hooked (safe even if called repeatedly).
