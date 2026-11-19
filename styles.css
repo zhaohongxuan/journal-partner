@@ -202,6 +202,7 @@
   font-variant-numeric: tabular-nums;
 }
 .jp-todo-head-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.jp-todo-visibility-toggle,
 .jp-todo-add-toggle,
 .jp-todo-open {
   display: inline-flex;
@@ -217,9 +218,12 @@
   color: var(--text-muted);
   cursor: pointer;
 }
+.jp-todo-visibility-toggle:hover,
 .jp-todo-add-toggle:hover,
 .jp-todo-open:hover { background: var(--background-modifier-hover); }
 .jp-todo-add-toggle[aria-expanded="true"] { color: var(--jp-tl-dot); background: var(--background-modifier-hover); }
+.jp-todo-visibility-toggle[aria-pressed="true"] { color: var(--jp-tl-dot); background: var(--background-modifier-hover); }
+.jp-todo-visibility-toggle svg,
 .jp-todo-add-toggle svg,
 .jp-todo-open svg { width: 15px; height: 15px; }
 .jp-todo-list {

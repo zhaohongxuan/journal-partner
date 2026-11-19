@@ -110,6 +110,9 @@ const EN: Dict = {
   'settings.todoIncludeTimelineTasks': 'Include timeline tasks in today’s TODO',
   'settings.todoIncludeTimelineTasksDesc': 'Combine tasks from today’s Journal section with planning tasks. Checking either view updates the same original task; earlier dates are excluded.',
   'todo.timelineSource': 'Timeline',
+  'todo.showCompleted': 'Show today’s completed tasks',
+  'todo.hideCompleted': 'Hide today’s completed tasks',
+  'todo.visibilityFailed': 'Could not save task visibility. The previous setting has been restored.',
 
   // ── Commands ───────────────────────────────────────────────────────────
   'cmd.openSidebar': 'Open Journal Partner sidebar',
@@ -525,6 +528,9 @@ const ZH: Dict = {
   'settings.todoIncludeTimelineTasks': 'TODO 包含今天 timeline 的任务',
   'settings.todoIncludeTimelineTasksDesc': '将今天 Journal 中的 Task 与规划待办合并展示，两处勾选同步更新同一条原始任务，不包含历史日期。',
   'todo.timelineSource': '时间线',
+  'todo.showCompleted': '显示今日已完成任务',
+  'todo.hideCompleted': '隐藏今日已完成任务',
+  'todo.visibilityFailed': '任务显示设置保存失败，已恢复之前的设置。',
 
   // ── Commands ───────────────────────────────────────────────────────────
   'cmd.openSidebar': '打开 Journal Partner 侧边栏',
