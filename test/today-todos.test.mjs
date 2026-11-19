@@ -501,6 +501,55 @@ test('disabling and reopening the TODO module restores its configured default', 
   assert.equal(f.settings.todoShowCompleted, false);
 });
 
+test('timeline shortcut is temporary, composes with the eye, and updates tasks even when the default is off', async t => {
+  const source = '## Planning\n- [ ] plan\n## Journal\n- [ ] 08:00 journal\n- [x] 09:00 done';
+  const f = fixture(t, source);
+  f.component.load(); await settle();
+  assert.equal(f.boxes().length, 1);
+  const before = JSON.stringify(f.settings);
+  let timeline = f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0];
+  assert.equal(timeline.attr['aria-pressed'], 'false');
+  timeline.dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 2);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-count')[0].text, '2');
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 3);
+  f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0].dispatch('click'); await settle();
+  assert.deepEqual(f.boxes().map(box => box.attr['aria-label']), ['plan']);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].attr['aria-pressed'], 'true');
+  f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0].dispatch('click'); await settle();
+  const journal = f.boxes().find(box => box.attr['aria-label'] === 'journal');
+  journal.checked = true; journal.dispatch('change'); await settle();
+  assert.equal(f.state.disk, source.replace('[ ] 08:00', '[x] 08:00'));
+  assert.equal(JSON.stringify(f.settings), before);
+  assert.equal(f.state.taskChanges, 1);
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 3);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0].attr['aria-pressed'], 'true');
+  assert.equal(host.notices.length, 0);
+});
+
+test('timeline shortcut restores its default on a new card or when configuration changes', async t => {
+  const source = '## Planning\n- [ ] plan\n## Journal\n- [ ] 08:00 journal';
+  const f = fixture(t, source, { todoIncludeTimelineTasks: true });
+  f.component.load(); await settle();
+  f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0].dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 1);
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 1);
+  assert.equal(f.settings.todoIncludeTimelineTasks, true);
+  f.settings.todoIncludeTimelineTasks = false;
+  f.component.refreshNow(); await settle();
+  f.settings.todoIncludeTimelineTasks = true;
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 2);
+  f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0].dispatch('click'); await settle();
+  f.component.unload();
+  const reopened = fixture(t, source, { todoIncludeTimelineTasks: true });
+  reopened.component.load(); await settle();
+  assert.equal(reopened.boxes().length, 2);
+});
+
 test('an older pending refresh cannot replace the latest settings render', async t => {
   const f = fixture(t, note);
   const read = deferred();

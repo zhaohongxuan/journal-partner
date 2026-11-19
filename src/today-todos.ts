@@ -22,6 +22,8 @@ export class TodayTodos extends Component {
   private busy = false;
   private completedVisibility: boolean | null = null;
   private defaultCompletedVisibility: boolean | undefined;
+  private timelineTasksVisibility: boolean | null = null;
+  private defaultTimelineTasksVisibility: boolean | undefined;
   private renderScope: Component | null = null;
 
   constructor(
@@ -64,6 +66,8 @@ export class TodayTodos extends Component {
     this.closed = false;
     this.completedVisibility = null;
     this.defaultCompletedVisibility = undefined;
+    this.timelineTasksVisibility = null;
+    this.defaultTimelineTasksVisibility = undefined;
     this.registerEvent(this.app.vault.on('modify', file => {
       if (file.path === this.todayPath || this.day !== this.today()) this.scheduleRefresh();
     }));
@@ -152,6 +156,19 @@ export class TodayTodos extends Component {
     visibility.disabled = this.busy;
     setIcon(visibility, showCompleted ? 'eye' : 'eye-off');
     visibility.addEventListener('click', () => this.toggleCompletedVisibility());
+    const includeTimelineTasks = this.includeTimelineTasks();
+    const timelineLabel = t(includeTimelineTasks ? 'todo.hideTimelineTasks' : 'todo.showTimelineTasks');
+    const timeline = actions.createEl('button', {
+      cls: 'jp-todo-timeline-toggle',
+      attr: { type: 'button', 'aria-label': timelineLabel, title: timelineLabel, 'aria-pressed': String(includeTimelineTasks) },
+    });
+    timeline.disabled = this.busy;
+    setIcon(timeline, 'history');
+    timeline.addEventListener('click', () => {
+      if (this.closed || this.busy) return;
+      this.timelineTasksVisibility = !this.includeTimelineTasks();
+      this.refreshNow();
+    });
     this.addToggle = actions.createEl('button', {
       cls: 'jp-todo-add-toggle',
       attr: { type: 'button', 'aria-label': t('todo.add'), title: t('todo.add'), 'aria-expanded': String(this.composerOpen) },
@@ -183,6 +200,15 @@ export class TodayTodos extends Component {
     return this.completedVisibility ?? defaultValue;
   }
 
+  private includeTimelineTasks(): boolean {
+    const defaultValue = this.settings().todoIncludeTimelineTasks;
+    if (this.defaultTimelineTasksVisibility !== defaultValue) {
+      this.defaultTimelineTasksVisibility = defaultValue;
+      this.timelineTasksVisibility = null;
+    }
+    return this.timelineTasksVisibility ?? defaultValue;
+  }
+
   private toggleCompletedVisibility(): void {
     if (this.closed || this.busy) return;
     this.completedVisibility = !this.showCompleted();
@@ -201,6 +227,7 @@ export class TodayTodos extends Component {
     const settings = this.settings();
     if (!settings.todoEnabled) {
       this.completedVisibility = null;
+      this.timelineTasksVisibility = null;
       this.snapshot = '';
       this.clearRenderedContent();
       this.el.hide();
@@ -214,18 +241,22 @@ export class TodayTodos extends Component {
     this.addInput.disabled = this.busy || !appHasDailyNotesPluginLoaded();
     this.addButton.disabled = this.addInput.disabled;
     const day = this.today();
-    if (this.day !== day) this.completedVisibility = null;
+    if (this.day !== day) {
+      this.completedVisibility = null;
+      this.timelineTasksVisibility = null;
+    }
     this.day = day;
     const { todoStartHeading: start, todoEndHeading: end } = settings;
     const showCompleted = this.showCompleted();
+    const includeTimelineTasks = this.includeTimelineTasks();
     try {
       const available = appHasDailyNotesPluginLoaded();
       const file = available ? getDailyNote(moment(), getAllDailyNotes()) : null;
       this.todayPath = file?.path ?? null;
       const content = file ? this.findEditor(file)?.getValue() ?? await this.app.vault.cachedRead(file) : '';
       if (this.closed || generation !== this.generation) return;
-      const todos = parseDailyTodos(content, settings);
-      const snapshot = JSON.stringify([this.day, file?.path, todos, start, end, showCompleted, settings.todoIncludeTimelineTasks,
+      const todos = parseDailyTodos(content, { ...settings, todoIncludeTimelineTasks: includeTimelineTasks });
+      const snapshot = JSON.stringify([this.day, file?.path, todos, start, end, showCompleted, includeTimelineTasks,
         settings.targetHeading, settings.headingLevel, settings.timestampPattern, settings.language, available, this.busy]);
       if (snapshot === this.snapshot) return;
       this.snapshot = snapshot;
@@ -323,7 +354,7 @@ export class TodayTodos extends Component {
     file: TFile, day: string, todo: DailyTodo, completed: boolean,
   ): Promise<void> {
     if (this.busy || this.closed || !this.settings().todoEnabled) return;
-    const settings = { ...this.settings() };
+    const settings = { ...this.settings(), todoIncludeTimelineTasks: this.includeTimelineTasks() };
     this.busy = true;
     this.el.querySelectorAll<HTMLInputElement>('.jp-todo-checkbox').forEach(el => { el.disabled = true; });
     try {
