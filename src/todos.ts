@@ -1,4 +1,16 @@
 /** Pure parsing and guarded checkbox updates for the planning task list. */
+import { parseJournalEntries } from './section';
+import type { JournalPartnerSettings } from './section';
+
+export interface DailyTodo extends PlanningTodo {
+  source: 'planning' | 'journal';
+  timestamp?: string;
+}
+
+type DailyTodoSettings = Pick<JournalPartnerSettings,
+  'todoStartHeading' | 'todoEndHeading' | 'todoIncludeTimelineTasks'
+  | 'targetHeading' | 'headingLevel' | 'timestampPattern'>;
+
 export interface PlanningTodo {
   /** Zero-based line index in the entire document. */
   lineIndex: number;
@@ -98,6 +110,88 @@ function parseLines(lines: SourceLine[], startHeading: string, endHeading: strin
     });
   }
   return todos;
+}
+
+/** Parse journal tasks through the shared entry parser, retaining absolute source locations. */
+function journalTodos(lines: SourceLine[], settings: DailyTodoSettings): DailyTodo[] {
+  const { headingLevel, targetHeading, timestampPattern } = settings;
+  if (!Number.isInteger(headingLevel) || headingLevel < 1 || headingLevel > 6) return [];
+  const heading = '#'.repeat(headingLevel) + ' ' + targetHeading;
+  const start = lines.findIndex(line => line.visible && line.text.trim() === heading);
+  if (start < 0) return [];
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    const next = lines[i].visible && HEADING_RE.exec(lines[i].text.trim());
+    if (next && next[1].length <= headingLevel) {
+      end = i;
+      break;
+    }
+  }
+
+  // Blank hidden rows instead of removing them: parser indices must still map
+  // exactly to source lines, and fenced examples must never become task entries.
+  const body = lines.slice(start + 1, end).map(line => line.visible ? line.text : '').join('\n');
+  return parseJournalEntries(body, timestampPattern)
+    .filter(entry => entry.type === 'task')
+    .map(entry => {
+      const lineIndex = start + 1 + entry.lineIndex;
+      return {
+        lineIndex,
+        text: entry.text,
+        completed: entry.completed === true,
+        sourceLine: lines[lineIndex].text,
+        source: 'journal',
+        timestamp: entry.timestamp,
+      };
+    });
+}
+
+/** Planning tasks first, followed by journal-only tasks in document order. */
+export function parseDailyTodos(content: string, settings: DailyTodoSettings): DailyTodo[] {
+  const lines = sourceLines(content);
+  const planning: DailyTodo[] = parseLines(lines, settings.todoStartHeading, settings.todoEndHeading)
+    .map(todo => ({ ...todo, source: 'planning' }));
+  if (!settings.todoIncludeTimelineTasks) return planning;
+
+  const journal = journalTodos(lines, settings);
+  const byLine = new Map(journal.map(todo => [todo.lineIndex, todo]));
+  const planningLines = new Set(planning.map(todo => todo.lineIndex));
+  return [
+    ...planning.map(todo => byLine.get(todo.lineIndex) ?? todo),
+    ...journal.filter(todo => !planningLines.has(todo.lineIndex)),
+  ];
+}
+
+/** Reparse the current scopes before changing a single checkbox character. */
+export function setDailyTodoCompleted(
+  content: string,
+  todo: DailyTodo,
+  completed: boolean,
+  settings: DailyTodoSettings,
+): string {
+  const current = parseDailyTodos(content, settings).find(candidate =>
+    candidate.lineIndex === todo.lineIndex
+    && candidate.sourceLine === todo.sourceLine
+    && candidate.source === todo.source);
+  if (!current) throw new Error('Daily task changed or is no longer in its configured section.');
+  if (current.completed === completed) return content;
+
+  let checkboxOffset: number;
+  if (current.source === 'planning') {
+    checkboxOffset = TASK_RE.exec(current.sourceLine)[1].length;
+  } else {
+    const modern = /^([-*+]\s+\[)[ xX]\]/.exec(current.sourceLine);
+    if (modern) {
+      checkboxOffset = modern[1].length;
+    } else {
+      const markerLength = /^[-*+]\s+/.exec(current.sourceLine)[0].length;
+      const timestampEnd = markerLength + current.timestamp.length;
+      const legacy = /^(\s+\[)[ xX]\]/.exec(current.sourceLine.slice(timestampEnd));
+      checkboxOffset = timestampEnd + legacy[1].length;
+    }
+  }
+  const offset = sourceLines(content)[current.lineIndex].offset + checkboxOffset;
+  return content.slice(0, offset) + (completed ? 'x' : ' ') + content.slice(offset + 1);
 }
 
 /** Parse tasks between full Markdown headings (normally ## Planning / ## Journal). */

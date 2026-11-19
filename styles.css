@@ -249,6 +249,10 @@
 }
 .jp-todo-text > :first-child { margin-top: 0; }
 .jp-todo-text > :last-child { margin-bottom: 0; }
+.jp-todo-body > :first-child { margin-top: 0; }
+.jp-todo-body > :last-child { margin-bottom: 0; }
+.jp-todo-source { display: block; color: var(--text-muted); font-size: 11px; line-height: 18px; }
+.jp-hide-completed-today .jp-timeline-today .jp-task-completed { display: none; }
 .jp-todo-row.is-done .jp-todo-text { color: var(--text-muted); text-decoration: line-through; }
 .jp-todo-empty { padding: 8px 0 2px; color: var(--text-muted); font-size: 12px; }
 .is-mobile .jp-todo-check-target { flex-basis: 40px; min-height: 40px; }

@@ -96,8 +96,10 @@ export interface JournalPartnerSettings {
   /** Full Markdown headings delimiting the planning task range. */
   todoStartHeading: string;
   todoEndHeading: string;
-  /** Include completed planning tasks in the module. */
+  /** Show today's completed tasks in both the timeline and today's TODO. */
   todoShowCompleted: boolean;
+  /** Merge today's Journal task entries into today's TODO without copying them. */
+  todoIncludeTimelineTasks: boolean;
   /** Habits pinned to the top of the capture timeline. Empty = the module is hidden. */
   habits: HabitConfig[];
   /**
@@ -151,6 +153,7 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   todoStartHeading: '## Planning',
   todoEndHeading: '## Journal',
   todoShowCompleted: false,
+  todoIncludeTimelineTasks: false,
   // Habits are opt-in — with none configured the module stays hidden. Each
   // habit carries its own optional check-in tag.
   habitsEnabled: true,

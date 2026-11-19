@@ -1643,6 +1643,16 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
+    new Setting(containerEl)
+      .setName(t('settings.todoIncludeTimelineTasks'))
+      .setDesc(t('settings.todoIncludeTimelineTasksDesc'))
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.todoIncludeTimelineTasks)
+        .onChange(async value => {
+          this.plugin.settings.todoIncludeTimelineTasks = value;
+          await this.plugin.saveSettings();
+        }));
+
     // ── Habit Check-in ────────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.habits')).setHeading();
 

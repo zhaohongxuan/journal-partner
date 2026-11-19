@@ -1,7 +1,7 @@
 import { App, Component, Editor, MarkdownRenderer, MarkdownView, Notice, TAbstractFile, TFile, moment, setIcon } from 'obsidian';
 import { appHasDailyNotesPluginLoaded, createDailyNote, getAllDailyNotes, getDailyNote } from 'obsidian-daily-notes-interface';
 import type { JournalPartnerSettings } from './section';
-import { addPlanningTodo, parsePlanningTodos, PlanningTodo, setPlanningTodoCompleted } from './todos';
+import { addPlanningTodo, parseDailyTodos, DailyTodo, setDailyTodoCompleted } from './todos';
 import { t } from './i18n';
 
 /** Today's planning tasks, backed by the daily note rather than plugin storage. */
@@ -26,6 +26,7 @@ export class TodayTodos extends Component {
     private readonly app: App,
     parent: HTMLElement,
     private readonly settings: () => JournalPartnerSettings,
+    private readonly onTasksChanged: () => void = () => {},
   ) {
     super();
     this.el = parent.createDiv({ cls: 'jp-today-todos' });
@@ -191,8 +192,9 @@ export class TodayTodos extends Component {
       this.todayPath = file?.path ?? null;
       const content = file ? this.findEditor(file)?.getValue() ?? await this.app.vault.cachedRead(file) : '';
       if (this.closed || generation !== this.generation) return;
-      const todos = parsePlanningTodos(content, start, end);
-      const snapshot = JSON.stringify([this.day, file?.path, todos, start, end, showCompleted, settings.language, available, this.busy]);
+      const todos = parseDailyTodos(content, settings);
+      const snapshot = JSON.stringify([this.day, file?.path, todos, start, end, showCompleted, settings.todoIncludeTimelineTasks,
+        settings.targetHeading, settings.headingLevel, settings.timestampPattern, settings.language, available, this.busy]);
       if (snapshot === this.snapshot) return;
       this.snapshot = snapshot;
       const remaining = todos.filter(todo => !todo.completed).length;
@@ -218,10 +220,14 @@ export class TodayTodos extends Component {
         checkbox.checked = todo.completed;
         checkbox.disabled = this.busy;
         checkbox.addEventListener('change', () => {
-          void this.setCompleted(file, day, todo, checkbox.checked, start, end);
+          void this.setCompleted(file, day, todo, checkbox.checked);
         });
         const body = row.createDiv({ cls: 'jp-todo-text' });
-        await MarkdownRenderer.render(this.app, todo.text || t('todo.untitled'), body, file.path, scope);
+        if (todo.source === 'journal') {
+          body.createSpan({ cls: 'jp-todo-source', text: `${t('todo.timelineSource')} · ${todo.timestamp ?? ''}` });
+        }
+        const text = body.createDiv({ cls: 'jp-todo-body' });
+        await MarkdownRenderer.render(this.app, todo.text || t('todo.untitled'), text, file.path, scope);
       }));
     } catch (err) {
       if (this.closed || generation !== this.generation) return;
@@ -279,9 +285,10 @@ export class TodayTodos extends Component {
   }
 
   private async setCompleted(
-    file: TFile, day: string, todo: PlanningTodo, completed: boolean, start: string, end: string,
+    file: TFile, day: string, todo: DailyTodo, completed: boolean,
   ): Promise<void> {
-    if (this.busy || this.closed) return;
+    if (this.busy || this.closed || !this.settings().todoEnabled) return;
+    const settings = { ...this.settings() };
     this.busy = true;
     this.el.querySelectorAll<HTMLInputElement>('.jp-todo-checkbox').forEach(el => { el.disabled = true; });
     try {
@@ -292,7 +299,7 @@ export class TodayTodos extends Component {
       const editor = this.findEditor(file);
       if (editor) {
         const content = editor.getValue();
-        const next = setPlanningTodoCompleted(content, todo, completed, start, end);
+        const next = setDailyTodoCompleted(content, todo, completed, settings);
         // The parser guarantees that only the checkbox character can change.
         // Let Obsidian persist the editor normally; preserve its undo history.
         if (next !== content) {
@@ -302,8 +309,9 @@ export class TodayTodos extends Component {
         }
       } else {
         // process() validates against the latest file contents atomically.
-        await this.app.vault.process(file, content => setPlanningTodoCompleted(content, todo, completed, start, end));
+        await this.app.vault.process(file, content => setDailyTodoCompleted(content, todo, completed, settings));
       }
+      if (!this.closed) this.onTasksChanged();
     } catch (err) {
       console.error('[Journal Partner] updating today TODO failed', err);
       new Notice(t('todo.writeFailed'));

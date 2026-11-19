@@ -137,7 +137,9 @@ function fixture(t, content, overrides = {}) {
   doc.defaultView = new EventTargetStub();
   doc.visibilityState = 'visible';
   const parent = new Element('div', {}, doc);
-  const settings = { todoEnabled: true, todoShowCompleted: false, todoStartHeading: '## Planning', todoEndHeading: '## Journal', language: 'en', ...overrides };
+  const settings = { todoEnabled: true, todoShowCompleted: false, todoIncludeTimelineTasks: false,
+    todoStartHeading: '## Planning', todoEndHeading: '## Journal', targetHeading: 'Journal', headingLevel: 2,
+    timestampPattern: '\\d{2}:\\d{2}', language: 'en', ...overrides };
   const state = { disk: content, reads: 0, processes: 0, editor: null, active: true, replacements: [] };
   const vault = new EventTargetStub();
   vault.cachedRead = async () => { state.reads++; return state.disk; };
@@ -151,7 +153,8 @@ function fixture(t, content, overrides = {}) {
   workspace.iterateAllLeaves = fn => {
     if (state.editor) fn({ view: new host.MarkdownView(host.file, state.editor) });
   };
-  const component = new TodayTodos({ vault, workspace }, parent, () => settings);
+  state.taskChanges = 0;
+  const component = new TodayTodos({ vault, workspace }, parent, () => settings, () => { state.taskChanges++; });
   t.after(() => component.unload());
   const boxes = () => parent.querySelectorAll('.jp-todo-checkbox');
   const root = () => parent.children[0];
@@ -377,6 +380,70 @@ test('failed additions retain draft and blank submissions write nothing', async 
   f.parent.querySelectorAll('.jp-todo-add-form')[0].dispatch('submit'); await settle();
   assert.equal(input.value, 'keep draft');
   assert.equal(f.state.processes, 0);
+});
+
+test('timeline inclusion refreshes immediately and completed visibility applies to both task sources', async t => {
+  const source = '## Planning\n- [ ] plan\n- [x] finished plan\n## Journal\n- [ ] 08:00 journal\n- 09:00 [x] finished journal\n- 10:00 memo';
+  const f = fixture(t, source);
+  f.component.load(); await settle();
+  assert.equal(f.boxes().length, 1);
+  f.settings.todoIncludeTimelineTasks = true;
+  f.component.refreshNow(); await settle();
+  assert.deepEqual(f.boxes().map(box => box.attr['aria-label']), ['plan', 'journal']);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-count')[0].text, '2');
+  assert.equal(f.parent.querySelectorAll('.jp-todo-source')[0].text, 'Timeline · 08:00');
+  f.settings.todoShowCompleted = true;
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 4);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-count')[0].text, '2');
+  f.settings.todoIncludeTimelineTasks = false;
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 2);
+  assert.equal(f.state.disk, source);
+});
+
+for (const mode of ['disk', 'active editor', 'background editor']) {
+  test(`journal checkbox updates the original ${mode}, hides completion and notifies timeline`, async t => {
+    const disk = '## Journal\n- [ ] 08:00 disk task';
+    const current = '## Planning\r\n- [ ] plan\r\n## Journal\r\n- 09:00 [ ] task\r\n  continuation\r\n- 10:00 memo [ ] untouched\r\n';
+    const f = fixture(t, mode === 'disk' ? current : disk, { todoIncludeTimelineTasks: true });
+    if (mode !== 'disk') { f.openEditor(current); f.state.active = mode === 'active editor'; }
+    f.component.load(); await settle();
+    const task = f.boxes().find(box => box.attr['aria-label'] === 'task\ncontinuation');
+    assert.ok(task);
+    task.checked = true; task.dispatch('change'); await settle();
+    assert.equal(mode === 'disk' ? f.state.disk : f.state.buffer, current.replace('09:00 [ ]', '09:00 [x]'));
+    assert.deepEqual(f.boxes().map(box => box.attr['aria-label']), ['plan']);
+    assert.equal(f.state.taskChanges, 1);
+    assert.equal(host.notices.length, 0);
+    if (mode !== 'disk') {
+      assert.equal(f.state.disk, disk);
+      assert.equal(f.state.processes, 0);
+      assert.equal(f.state.replacements.length, 1);
+      assert.equal(f.state.replacements[0].text, 'x');
+    }
+    f.settings.todoShowCompleted = true;
+    f.component.refreshNow(); await settle();
+    const completed = f.boxes().find(box => box.attr['aria-label'] === 'task\ncontinuation');
+    assert.equal(completed.checked, true);
+    completed.checked = false; completed.dispatch('change'); await settle();
+    assert.equal(mode === 'disk' ? f.state.disk : f.state.buffer, current);
+    assert.equal(f.state.taskChanges, 2);
+  });
+}
+
+test('a journal row rendered before disabling inclusion cannot update the source', async t => {
+  t.mock.method(console, 'error', () => {});
+  const source = '## Journal\n- [ ] 08:00 task';
+  const f = fixture(t, source, { todoIncludeTimelineTasks: true });
+  f.component.load(); await settle();
+  const old = f.boxes()[0];
+  f.settings.todoIncludeTimelineTasks = false;
+  old.checked = true; old.dispatch('change'); await settle();
+  assert.equal(f.state.disk, source);
+  assert.equal(f.state.taskChanges, 0);
+  assert.equal(host.notices.length, 1);
+  assert.equal(f.boxes().length, 0);
 });
 
 test('an older pending refresh cannot replace the latest settings render', async t => {

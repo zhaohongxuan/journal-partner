@@ -16,6 +16,7 @@
 
 import {
   Component,
+  Editor,
   ItemView,
   MarkdownRenderer,
   MarkdownView,
@@ -39,6 +40,7 @@ import type { EditorView } from '@codemirror/view';
 
 import { CaptureInput, createCaptureInput } from './capture-input';
 import { TodayTodos } from './today-todos';
+import { parseDailyTodos, setDailyTodoCompleted } from './todos';
 import { EditEntryModal } from './edit-entry-modal';
 import { ShareCardModal } from './share-card-modal';
 
@@ -418,7 +420,13 @@ export class JournalCaptureView extends ItemView {
     this.planningHomeEl = this.capturePaneEl.createDiv({ cls: 'jp-planning-home' });
     this.planningEl = this.planningHomeEl.createDiv({ cls: 'jp-planning-widgets' });
     this.buildHabitBar(this.planningEl);
-    this.todayTodos = this.addChild(new TodayTodos(this.app, this.planningEl, () => this.plugin.settings));
+    this.todayTodos = this.addChild(new TodayTodos(this.app, this.planningEl, () => this.plugin.settings, () => {
+      if (this.timelineMode === 'daily') {
+        const today = this.days.find(day => day.date.isSame(moment(), 'day'));
+        if (today) void this.refreshDay(today);
+      }
+      this.scheduleHabitRefresh();
+    }));
     this.buildTimeline(this.capturePaneEl);
 
     // Stats pane (hidden initially; built lazily on first switch)
@@ -769,6 +777,7 @@ export class JournalCaptureView extends ItemView {
       const day = moment().format('YYYY-MM-DD');
       if (day !== calendarDay) {
         calendarDay = day;
+        this.applyEntryFilter();
         if (this.isWideLayout) this.paintSidePanel(false);
       }
     }, 60_000));
@@ -1338,6 +1347,8 @@ export class JournalCaptureView extends ItemView {
 
   /** Render search result entries with keyword highlight. */
   private renderSearchDayContent(day: DaySection, entries: JournalEntry[], query: string) {
+    day.el.setAttr('data-date', day.date.format('YYYY-MM-DD'));
+    day.el.toggleClass('jp-timeline-today', day.date.isSame(moment(), 'day'));
     const headerLabel = this.formatDateHeader(day.date, entries.length);
     const headerRow = day.el.createDiv({ cls: 'jp-timeline-entry jp-timeline-entry--header' });
     headerRow.createDiv({ cls: 'jp-timeline-dot jp-timeline-dot--header' });
@@ -1352,6 +1363,8 @@ export class JournalCaptureView extends ItemView {
 
     for (const entry of sorted) {
       const row = day.el.createDiv({ cls: 'jp-timeline-entry' });
+      row.addClass(entry.type === 'task' ? 'jp-entry-task' : 'jp-entry-memo');
+      if (entry.type === 'task' && entry.completed) row.addClass('jp-task-completed');
       const entryTags = extractTags(entry.text);
       if (entryTags.length > 0) {
         row.setAttr('data-tags', entryTags.join(' '));
@@ -2379,6 +2392,7 @@ export class JournalCaptureView extends ItemView {
   /** Apply TODO settings without rebuilding the input or losing its draft. */
   public refreshTodayTodosNow(): void {
     this.todayTodos?.refreshNow();
+    if (this.timelineEl) this.applyEntryFilter();
   }
 
   /** Repaint immediately — called by the settings tab when habit config changes. */
@@ -3205,12 +3219,16 @@ export class JournalCaptureView extends ItemView {
   private applyEntryFilter() {
     this.timelineEl.toggleClass('jp-filter-task', this.entryFilter === 'task');
     this.timelineEl.toggleClass('jp-filter-memo', this.entryFilter === 'memo');
+    this.timelineEl.toggleClass('jp-hide-completed-today', !this.plugin.settings.todoShowCompleted);
+    const today = moment().format('YYYY-MM-DD');
 
     // Tag hiding only applies in tag-filter mode. In daily mode the active tag
     // is stale (the user left the tag view) and must NOT hide rows — the full
     // timeline is restored via restoreDailyMode which clears nothing here.
     const tag = this.timelineMode === 'tag' ? this.activeTagFilter : null;
     this.timelineEl.querySelectorAll<HTMLElement>('.jp-timeline-day').forEach(dayEl => {
+      const isToday = dayEl.getAttribute('data-date') === today;
+      dayEl.toggleClass('jp-timeline-today', isToday);
       const rows = Array.from(dayEl.querySelectorAll<HTMLElement>('.jp-timeline-entry'));
       let visibleCount = 0;
       for (const row of rows) {
@@ -3224,7 +3242,9 @@ export class JournalCaptureView extends ItemView {
           tag !== null &&
           (row.getAttribute('data-tags')?.split(/\s+/).includes(tag) ?? false) === false;
 
-        const hidden = hiddenByType || hiddenByTag;
+        const hiddenByCompleted = isToday && !this.plugin.settings.todoShowCompleted
+          && row.classList.contains('jp-entry-task') && row.classList.contains('jp-task-completed');
+        const hidden = hiddenByType || hiddenByTag || hiddenByCompleted;
         row.style.display = hidden ? 'none' : '';
         if (!hidden) visibleCount++;
       }
@@ -3751,7 +3771,7 @@ export class JournalCaptureView extends ItemView {
     let entries: JournalEntry[] = [];
     if (file) {
       try {
-        const content = await this.app.vault.cachedRead(file);
+        const content = this.findTimelineEditor(file)?.getValue() ?? await this.app.vault.cachedRead(file);
         const section = findSection(
           content,
           this.plugin.settings.targetHeading,
@@ -3782,6 +3802,19 @@ export class JournalCaptureView extends ItemView {
     return day;
   }
 
+  /** Use the same live buffer as TODO, including edits not yet saved by Obsidian. */
+  private findTimelineEditor(file: TFile): Editor | null {
+    const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (active?.file?.path === file.path) return active.editor;
+    let editor: Editor | null = null;
+    this.app.workspace.iterateAllLeaves(leaf => {
+      if (!editor && leaf.view instanceof MarkdownView && leaf.view.file?.path === file.path) {
+        editor = leaf.view.editor;
+      }
+    });
+    return editor;
+  }
+
   /** Refresh just one day's section in place (used on vault.modify). */
   private async refreshDay(day: DaySection): Promise<void> {
     // Skip re-render if this file is being modified by our task toggle
@@ -3794,7 +3827,7 @@ export class JournalCaptureView extends ItemView {
     try {
       file = getDailyNote(day.date, getAllDailyNotes());
       if (file) {
-        const content = await this.app.vault.cachedRead(file);
+        const content = this.findTimelineEditor(file)?.getValue() ?? await this.app.vault.cachedRead(file);
         const section = findSection(
           content,
           this.plugin.settings.targetHeading,
@@ -3824,6 +3857,8 @@ export class JournalCaptureView extends ItemView {
 
   /** Render the date header + entry rows for one day into `day.el`. */
   private renderDayContent(day: DaySection, entries: JournalEntry[]) {
+    day.el.setAttr('data-date', day.date.format('YYYY-MM-DD'));
+    day.el.toggleClass('jp-timeline-today', day.date.isSame(moment(), 'day'));
     // Date header — first row of the day
     const headerLabel = this.formatDateHeader(day.date, entries.length);
     const headerRow = day.el.createDiv({
@@ -3896,55 +3931,42 @@ export class JournalCaptureView extends ItemView {
 
         // Make checkbox clickable to toggle completion status
         checkbox.addEventListener('click', runAsync(async () => {
-          if (!day.filePath) return;
+          if (!day.filePath || this.taskModifyingFiles.has(day.filePath)) return;
+          const file = this.app.vault.getAbstractFileByPath(day.filePath);
+          if (!(file instanceof TFile)) return;
+          this.taskModifyingFiles.add(day.filePath);
           try {
-            const file = this.app.vault.getAbstractFileByPath(day.filePath);
-            if (!(file instanceof TFile)) return;
-
-            const content = await this.app.vault.read(file);
-            const newContent = toggleTaskInSection(
-              content,
-              this.plugin.settings,
-              entry.lineIndex,
-              !entry.completed,
-            );
-
-            // Mark this file as being modified by us, so refreshDay skips re-render
-            this.taskModifyingFiles.add(day.filePath);
-
-            // Find the editor FIRST
-            let editorModified = false;
-            this.app.workspace.iterateAllLeaves(leaf => {
-              if (!editorModified && leaf.view instanceof MarkdownView) {
-                if (leaf.view.file?.path === day.filePath) {
-                  const cm = (leaf.view.editor as unknown as { cm?: EditorView }).cm;
-                  if (cm) {
-                    // Directly modify the CodeMirror state
-                    cm.dispatch({
-                      changes: {
-                        from: 0,
-                        to: cm.state.doc.length,
-                        insert: newContent,
-                      },
-                    });
-
-                    // Trigger Obsidian to save this file
-                    this.app.vault.modify(file, newContent).catch(err => {
-                      console.error('[Journal Partner] Save failed:', err);
-                    });
-                    editorModified = true;
-                  }
-                }
+            const completed = !entry.completed;
+            const settings = { ...this.plugin.settings, todoIncludeTimelineTasks: true };
+            const update = (content: string): string => {
+              const section = findSection(content, settings.targetHeading, settings.headingLevel);
+              if (!section) throw new Error(t('notice.contentChanged'));
+              const current = parseJournalEntries(content.slice(section.from, section.to), settings.timestampPattern)
+                .find(candidate => candidate.lineIndex === entry.lineIndex && candidate.type === 'task'
+                  && candidate.timestamp === entry.timestamp && candidate.text === entry.text
+                  && candidate.completed === entry.completed);
+              if (!current) throw new Error(t('notice.contentChanged'));
+              const firstLine = content.slice(0, section.from).split('\n').length - 1;
+              const todo = parseDailyTodos(content, settings).find(candidate =>
+                candidate.source === 'journal' && candidate.lineIndex === firstLine + entry.lineIndex);
+              if (!todo) throw new Error(t('notice.contentChanged'));
+              return setDailyTodoCompleted(content, todo, completed, settings);
+            };
+            const editor = this.findTimelineEditor(file);
+            if (editor) {
+              const content = editor.getValue();
+              const next = update(content);
+              if (next !== content) {
+                let offset = 0;
+                while (content[offset] === next[offset]) offset++;
+                editor.replaceRange(next[offset], editor.offsetToPos(offset), editor.offsetToPos(offset + 1));
               }
-            });
-
-            // If editor was open and we modified it, don't also await vault.modify
-            if (!editorModified) {
-              await this.app.vault.modify(file, newContent);
+            } else {
+              await this.app.vault.process(file, update);
             }
 
-            // Update the local entry state
-            entry.completed = !entry.completed;
+            // Update the local entry state without replacing the live editor.
+            entry.completed = completed;
 
             // Refresh the icon immediately
             checkbox.empty();
@@ -3962,6 +3984,7 @@ export class JournalCaptureView extends ItemView {
             // A habit is "done" exactly when its timeline box is ticked, so keep
             // the pinned module in step with this inline toggle.
             this.scheduleHabitRefresh();
+            this.refreshTodayTodosNow();
 
             // Clear the marking after a brief delay
             window.setTimeout(() => {
