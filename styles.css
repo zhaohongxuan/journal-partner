@@ -251,7 +251,21 @@
 .jp-todo-text > :last-child { margin-bottom: 0; }
 .jp-todo-body > :first-child { margin-top: 0; }
 .jp-todo-body > :last-child { margin-bottom: 0; }
-.jp-todo-source { display: block; color: var(--text-muted); font-size: 11px; line-height: 18px; }
+.jp-todo-source {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 18px;
+  width: 18px; height: 18px; margin: 8px 0 0 6px; border-radius: 5px;
+  color: var(--text-muted); background: var(--background-modifier-hover);
+}
+.jp-todo-source svg { width: 12px; height: 12px; }
+.jp-todo-row--timeline .jp-todo-body {
+  height: 22px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.jp-todo-row--timeline .jp-todo-body :is(p, div, ul, ol, li, blockquote, pre) {
+  display: inline; margin: 0; padding: 0;
+}
+.jp-todo-row--timeline .jp-todo-body br { display: none; }
+.jp-todo-row--timeline .jp-todo-body :is(img, audio, video, .internal-embed) { display: none; }
+.is-mobile .jp-todo-source { margin-top: 11px; }
 .jp-hide-completed-today .jp-timeline-today .jp-task-completed { display: none; }
 .jp-todo-row.is-done .jp-todo-text { color: var(--text-muted); text-decoration: line-through; }
 .jp-todo-empty { padding: 8px 0 2px; color: var(--text-muted); font-size: 12px; }

@@ -211,7 +211,7 @@ export class TodayTodos extends Component {
       this.renderScope = scope;
       const list = this.contentEl.createDiv({ cls: 'jp-todo-list' });
       await Promise.all(visible.map(async todo => {
-        const row = list.createDiv({ cls: `jp-todo-row${todo.completed ? ' is-done' : ''}` });
+        const row = list.createDiv({ cls: `jp-todo-row${todo.completed ? ' is-done' : ''}${todo.source === 'journal' ? ' jp-todo-row--timeline' : ''}` });
         const checkTarget = row.createEl('label', { cls: 'jp-todo-check-target' });
         const checkbox = checkTarget.createEl('input', {
           cls: 'jp-todo-checkbox',
@@ -223,10 +223,13 @@ export class TodayTodos extends Component {
           void this.setCompleted(file, day, todo, checkbox.checked);
         });
         const body = row.createDiv({ cls: 'jp-todo-text' });
-        if (todo.source === 'journal') {
-          body.createSpan({ cls: 'jp-todo-source', text: `${t('todo.timelineSource')} · ${todo.timestamp ?? ''}` });
-        }
         const text = body.createDiv({ cls: 'jp-todo-body' });
+        if (todo.source === 'journal') {
+          text.setAttr('title', todo.text || t('todo.untitled'));
+          const source = `${t('todo.timelineSource')} · ${todo.timestamp ?? ''}`;
+          const badge = row.createSpan({ cls: 'jp-todo-source', attr: { title: source, 'aria-label': source, role: 'img' } });
+          setIcon(badge, 'history');
+        }
         await MarkdownRenderer.render(this.app, todo.text || t('todo.untitled'), text, file.path, scope);
       }));
     } catch (err) {

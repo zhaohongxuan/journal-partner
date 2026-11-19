@@ -391,7 +391,8 @@ test('timeline inclusion refreshes immediately and completed visibility applies 
   f.component.refreshNow(); await settle();
   assert.deepEqual(f.boxes().map(box => box.attr['aria-label']), ['plan', 'journal']);
   assert.equal(f.parent.querySelectorAll('.jp-todo-count')[0].text, '2');
-  assert.equal(f.parent.querySelectorAll('.jp-todo-source')[0].text, 'Timeline · 08:00');
+  assert.equal(f.parent.querySelectorAll('.jp-todo-source')[0].attr.title, 'Timeline · 08:00');
+  assert.equal(f.parent.querySelectorAll('.jp-todo-source')[0].text, '');
   f.settings.todoShowCompleted = true;
   f.component.refreshNow(); await settle();
   assert.equal(f.boxes().length, 4);
