@@ -1643,6 +1643,16 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
+    new Setting(containerEl)
+      .setName(t('settings.todoIncludeTimelineTasks'))
+      .setDesc(t('settings.todoIncludeTimelineTasksDesc'))
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.todoIncludeTimelineTasks)
+        .onChange(async value => {
+          this.plugin.settings.todoIncludeTimelineTasks = value;
+          await this.plugin.saveSettings();
+        }));
+
     // ── Habit Check-in ────────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.habits')).setHeading();
 
@@ -1694,6 +1704,17 @@ class JournalPartnerSettingTab extends PluginSettingTab {
 
     // ── Shortcut ──────────────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.other')).setHeading();
+
+    new Setting(containerEl)
+      .setName(t('settings.shareAuthor'))
+      .setDesc(t('settings.shareAuthorDesc'))
+      .addText(text => text
+        .setPlaceholder(t('share.authorPlaceholder'))
+        .setValue(this.plugin.settings.shareCardAuthor)
+        .onChange(async value => {
+          this.plugin.settings.shareCardAuthor = value.slice(0, 60);
+          await this.plugin.saveSettings();
+        }));
 
     // ── Mobile sidebar option ─────────────────────────────────────────────
     new Setting(containerEl)

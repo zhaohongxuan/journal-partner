@@ -1,4 +1,16 @@
 /** Pure parsing and guarded checkbox updates for the planning task list. */
+import { parseJournalEntries } from './section';
+import type { JournalPartnerSettings } from './section';
+
+export interface DailyTodo extends PlanningTodo {
+  source: 'planning' | 'journal';
+  timestamp?: string;
+}
+
+type DailyTodoSettings = Pick<JournalPartnerSettings,
+  'todoStartHeading' | 'todoEndHeading' | 'todoIncludeTimelineTasks'
+  | 'targetHeading' | 'headingLevel' | 'timestampPattern'>;
+
 export interface PlanningTodo {
   /** Zero-based line index in the entire document. */
   lineIndex: number;
@@ -100,9 +112,132 @@ function parseLines(lines: SourceLine[], startHeading: string, endHeading: strin
   return todos;
 }
 
+/** Parse journal tasks through the shared entry parser, retaining absolute source locations. */
+function journalTodos(lines: SourceLine[], settings: DailyTodoSettings): DailyTodo[] {
+  const { headingLevel, targetHeading, timestampPattern } = settings;
+  if (!Number.isInteger(headingLevel) || headingLevel < 1 || headingLevel > 6) return [];
+  const heading = '#'.repeat(headingLevel) + ' ' + targetHeading;
+  const start = lines.findIndex(line => line.visible && line.text.trim() === heading);
+  if (start < 0) return [];
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    const next = lines[i].visible && HEADING_RE.exec(lines[i].text.trim());
+    if (next && next[1].length <= headingLevel) {
+      end = i;
+      break;
+    }
+  }
+
+  // Blank hidden rows instead of removing them: parser indices must still map
+  // exactly to source lines, and fenced examples must never become task entries.
+  const body = lines.slice(start + 1, end).map(line => line.visible ? line.text : '').join('\n');
+  return parseJournalEntries(body, timestampPattern)
+    .filter(entry => entry.type === 'task')
+    .map(entry => {
+      const lineIndex = start + 1 + entry.lineIndex;
+      return {
+        lineIndex,
+        text: entry.text,
+        completed: entry.completed === true,
+        sourceLine: lines[lineIndex].text,
+        source: 'journal',
+        timestamp: entry.timestamp,
+      };
+    });
+}
+
+/** Planning tasks first, followed by journal-only tasks in document order. */
+export function parseDailyTodos(content: string, settings: DailyTodoSettings): DailyTodo[] {
+  const lines = sourceLines(content);
+  const planning: DailyTodo[] = parseLines(lines, settings.todoStartHeading, settings.todoEndHeading)
+    .map(todo => ({ ...todo, source: 'planning' }));
+  if (!settings.todoIncludeTimelineTasks) return planning;
+
+  const journal = journalTodos(lines, settings);
+  const byLine = new Map(journal.map(todo => [todo.lineIndex, todo]));
+  const planningLines = new Set(planning.map(todo => todo.lineIndex));
+  return [
+    ...planning.map(todo => byLine.get(todo.lineIndex) ?? todo),
+    ...journal.filter(todo => !planningLines.has(todo.lineIndex)),
+  ];
+}
+
+/** Reparse the current scopes before changing a single checkbox character. */
+export function setDailyTodoCompleted(
+  content: string,
+  todo: DailyTodo,
+  completed: boolean,
+  settings: DailyTodoSettings,
+): string {
+  const current = parseDailyTodos(content, settings).find(candidate =>
+    candidate.lineIndex === todo.lineIndex
+    && candidate.sourceLine === todo.sourceLine
+    && candidate.source === todo.source);
+  if (!current) throw new Error('Daily task changed or is no longer in its configured section.');
+  if (current.completed === completed) return content;
+
+  let checkboxOffset: number;
+  if (current.source === 'planning') {
+    checkboxOffset = TASK_RE.exec(current.sourceLine)[1].length;
+  } else {
+    const modern = /^([-*+]\s+\[)[ xX]\]/.exec(current.sourceLine);
+    if (modern) {
+      checkboxOffset = modern[1].length;
+    } else {
+      const markerLength = /^[-*+]\s+/.exec(current.sourceLine)[0].length;
+      const timestampEnd = markerLength + current.timestamp.length;
+      const legacy = /^(\s+\[)[ xX]\]/.exec(current.sourceLine.slice(timestampEnd));
+      checkboxOffset = timestampEnd + legacy[1].length;
+    }
+  }
+  const offset = sourceLines(content)[current.lineIndex].offset + checkboxOffset;
+  return content.slice(0, offset) + (completed ? 'x' : ' ') + content.slice(offset + 1);
+}
+
 /** Parse tasks between full Markdown headings (normally ## Planning / ## Journal). */
 export function parsePlanningTodos(content: string, startHeading: string, endHeading: string): PlanningTodo[] {
   return parseLines(sourceLines(content), startHeading, endHeading);
+}
+
+/** Insert a plain task without changing existing source bytes or line endings. */
+export function addPlanningTodo(content: string, text: string, startHeading: string, endHeading: string): string {
+  const multiline = /[\r\n\u2028\u2029]/;
+  const start = startHeading.trim();
+  const end = endHeading.trim();
+  if (!text.trim() || multiline.test(text)) {
+    throw new Error('Planning task text must be a nonblank single line.');
+  }
+  if (multiline.test(startHeading) || multiline.test(endHeading)
+    || !HEADING_RE.test(start) || !HEADING_RE.test(end) || start === end) {
+    throw new Error('Planning headings must be valid, distinct Markdown headings.');
+  }
+
+  const newline = /\r\n|\r|\n/.exec(content)?.[0] ?? '\n';
+  const task = `- [ ] ${text.trim()}${newline}`;
+  const lines = sourceLines(content);
+  const bounds = planningBounds(lines, start, end);
+  if (bounds) {
+    // Inserting immediately after the heading avoids nested sections and open fences.
+    const offset = lines[bounds[0]]?.offset ?? content.length;
+    const separator = offset > 0 && !/[\r\n]$/.test(content.slice(0, offset)) ? newline : '';
+    return content.slice(0, offset) + separator + task + content.slice(offset);
+  }
+
+  const endLine = lines.find(line => line.visible && line.text.trim() === end);
+  if (endLine) {
+    return content.slice(0, endLine.offset) + start + newline + task + content.slice(endLine.offset);
+  }
+
+  const separator = !content ? '' : content.endsWith(newline + newline) ? ''
+    : /[\r\n]$/.test(content) ? newline : newline + newline;
+  const prefix = content + separator;
+  // Probe through the same scanner: a heading appended inside unclosed YAML or a
+  // code fence would be hidden, so refuse to silently create an invisible task.
+  const probe = sourceLines(prefix + start);
+  if (!probe[probe.length - 1]?.visible) {
+    throw new Error('Cannot add a planning heading inside unclosed frontmatter or a code fence.');
+  }
+  return prefix + start + newline + task;
 }
 
 /** Revalidate a snapshot against the current section, then replace at most one character. */

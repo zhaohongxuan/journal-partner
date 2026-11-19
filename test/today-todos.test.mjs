@@ -53,6 +53,7 @@ await build({
           export const appHasDailyNotesPluginLoaded = () => host.dailyAvailable;
           export const getAllDailyNotes = () => ({});
           export const getDailyNote = () => host.file;
+          export const createDailyNote = async () => { host.file = new host.TFile('daily/2026-11-11.md'); return host.file; };
         `,
       }));
     },
@@ -67,7 +68,7 @@ class EventTargetStub {
     this.listeners.get(name).add(fn);
   }
   removeEventListener(name, fn) { this.listeners.get(name)?.delete(fn); }
-  dispatch(name) { for (const fn of this.listeners.get(name) ?? []) fn({ target: this }); }
+  dispatch(name) { for (const fn of this.listeners.get(name) ?? []) fn({ target: this, preventDefault() {} }); }
   on(name, fn) { this.addEventListener(name, fn); return { off: () => this.removeEventListener(name, fn) }; }
 }
 
@@ -94,6 +95,9 @@ class Element extends EventTargetStub {
   }
   createDiv(options) { return this.createEl('div', options); }
   createSpan(options) { return this.createEl('span', options); }
+  value = '';
+  setAttr(key, value) { this.attr[key] = value; }
+  focus() {}
   hide() { this.hidden = true; }
   show() { this.hidden = false; }
   empty() { this.children.forEach(child => { child.parent = null; }); this.children = []; }
@@ -133,7 +137,9 @@ function fixture(t, content, overrides = {}) {
   doc.defaultView = new EventTargetStub();
   doc.visibilityState = 'visible';
   const parent = new Element('div', {}, doc);
-  const settings = { todoEnabled: true, todoShowCompleted: false, todoStartHeading: '## Planning', todoEndHeading: '## Journal', language: 'en', ...overrides };
+  const settings = { todoEnabled: true, todoShowCompleted: false, todoIncludeTimelineTasks: false,
+    todoStartHeading: '## Planning', todoEndHeading: '## Journal', targetHeading: 'Journal', headingLevel: 2,
+    timestampPattern: '\\d{2}:\\d{2}', language: 'en', ...overrides };
   const state = { disk: content, reads: 0, processes: 0, editor: null, active: true, replacements: [] };
   const vault = new EventTargetStub();
   vault.cachedRead = async () => { state.reads++; return state.disk; };
@@ -147,7 +153,8 @@ function fixture(t, content, overrides = {}) {
   workspace.iterateAllLeaves = fn => {
     if (state.editor) fn({ view: new host.MarkdownView(host.file, state.editor) });
   };
-  const component = new TodayTodos({ vault, workspace }, parent, () => settings);
+  state.taskChanges = 0;
+  const component = new TodayTodos({ vault, workspace }, parent, () => settings, () => { state.taskChanges++; });
   t.after(() => component.unload());
   const boxes = () => parent.querySelectorAll('.jp-todo-checkbox');
   const root = () => parent.children[0];
@@ -161,7 +168,7 @@ function fixture(t, content, overrides = {}) {
       },
       replaceRange(text, from, to) {
         const offset = pos => state.buffer.split('\n').slice(0, pos.line).reduce((sum, line) => sum + line.length + 1, 0) + pos.ch;
-        const start = offset(from), end = offset(to);
+        const start = offset(from), end = offset(to ?? from);
         state.replacements.push({ text, start, end });
         state.buffer = state.buffer.slice(0, start) + text + state.buffer.slice(end);
       },
@@ -312,6 +319,235 @@ test('completion of an in-flight write after unload cannot revive the component'
   assert.equal(f.parent.children.length, 0);
   assert.equal(f.boxes().length, 0);
   assert.equal(f.timers.size, 0);
+});
+
+test('adding a task writes the current disk and preserves the input across refresh', async t => {
+  const f = fixture(t, note);
+  f.component.load(); await settle();
+  const input = f.parent.querySelectorAll('.jp-todo-add-input')[0];
+  const form = f.parent.querySelectorAll('.jp-todo-add-form')[0];
+  assert.equal(form.hidden, true);
+  const toggle = f.parent.querySelectorAll('.jp-todo-add-toggle')[0];
+  assert.equal(toggle.parent.cls, 'jp-todo-head-actions');
+  toggle.dispatch('click');
+  assert.equal(form.hidden, false);
+  assert.equal(toggle.attr['aria-expanded'], 'true');
+  input.value = 'new task';
+  f.component.refreshNow(); await settle();
+  assert.equal(f.parent.querySelectorAll('.jp-todo-add-input')[0], input);
+  assert.equal(input.value, 'new task');
+  f.parent.querySelectorAll('.jp-todo-add-form')[0].dispatch('submit');
+  await settle();
+  assert.equal(f.state.processes, 1);
+  assert.ok(f.state.disk.includes('## Planning\n- [ ] new task\n'));
+  assert.equal(input.value, '');
+  assert.equal(form.hidden, true);
+});
+
+for (const active of [true, false]) {
+  test(`adding a task uses the ${active ? 'active' : 'background'} editor buffer`, async t => {
+    const f = fixture(t, note);
+    f.openEditor(note + '\nunsaved'); f.state.active = active;
+    f.component.load(); await settle();
+    f.parent.querySelectorAll('.jp-todo-add-input')[0].value = 'live task';
+    f.parent.querySelectorAll('.jp-todo-add-form')[0].dispatch('submit');
+    await settle();
+    assert.equal(f.state.processes, 0);
+    assert.equal(f.state.disk, note);
+    assert.ok(f.state.buffer.includes('- [ ] live task'));
+    assert.ok(f.state.buffer.endsWith('unsaved'));
+    assert.equal(f.state.replacements.length, 1);
+  });
+}
+
+test('adding creates today note and planning heading when missing', async t => {
+  const f = fixture(t, ''); host.file = null;
+  f.component.load(); await settle();
+  f.parent.querySelectorAll('.jp-todo-add-input')[0].value = 'first task';
+  f.parent.querySelectorAll('.jp-todo-add-form')[0].dispatch('submit'); await settle();
+  assert.ok(host.file);
+  assert.ok(f.state.disk.includes('## Planning\n- [ ] first task'));
+});
+
+test('failed additions retain draft and blank submissions write nothing', async t => {
+  const f = fixture(t, note);
+  f.component.load(); await settle();
+  const input = f.parent.querySelectorAll('.jp-todo-add-input')[0];
+  input.value = '   ';
+  f.parent.querySelectorAll('.jp-todo-add-form')[0].dispatch('submit'); await settle();
+  assert.equal(f.state.processes, 0);
+  f.settings.todoStartHeading = 'invalid'; input.value = 'keep draft';
+  f.parent.querySelectorAll('.jp-todo-add-form')[0].dispatch('submit'); await settle();
+  assert.equal(input.value, 'keep draft');
+  assert.equal(f.state.processes, 0);
+});
+
+test('timeline inclusion refreshes immediately and completed visibility applies to both task sources', async t => {
+  const source = '## Planning\n- [ ] plan\n- [x] finished plan\n## Journal\n- [ ] 08:00 journal\n- 09:00 [x] finished journal\n- 10:00 memo';
+  const f = fixture(t, source);
+  f.component.load(); await settle();
+  assert.equal(f.boxes().length, 1);
+  f.settings.todoIncludeTimelineTasks = true;
+  f.component.refreshNow(); await settle();
+  assert.deepEqual(f.boxes().map(box => box.attr['aria-label']), ['plan', 'journal']);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-count')[0].text, '2');
+  assert.equal(f.parent.querySelectorAll('.jp-todo-source')[0].attr.title, 'Timeline · 08:00');
+  assert.equal(f.parent.querySelectorAll('.jp-todo-source')[0].text, '');
+  f.settings.todoShowCompleted = true;
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 4);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-count')[0].text, '2');
+  f.settings.todoIncludeTimelineTasks = false;
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 2);
+  assert.equal(f.state.disk, source);
+});
+
+for (const mode of ['disk', 'active editor', 'background editor']) {
+  test(`journal checkbox updates the original ${mode}, hides completion and notifies timeline`, async t => {
+    const disk = '## Journal\n- [ ] 08:00 disk task';
+    const current = '## Planning\r\n- [ ] plan\r\n## Journal\r\n- 09:00 [ ] task\r\n  continuation\r\n- 10:00 memo [ ] untouched\r\n';
+    const f = fixture(t, mode === 'disk' ? current : disk, { todoIncludeTimelineTasks: true });
+    if (mode !== 'disk') { f.openEditor(current); f.state.active = mode === 'active editor'; }
+    f.component.load(); await settle();
+    const task = f.boxes().find(box => box.attr['aria-label'] === 'task\ncontinuation');
+    assert.ok(task);
+    task.checked = true; task.dispatch('change'); await settle();
+    assert.equal(mode === 'disk' ? f.state.disk : f.state.buffer, current.replace('09:00 [ ]', '09:00 [x]'));
+    assert.deepEqual(f.boxes().map(box => box.attr['aria-label']), ['plan']);
+    assert.equal(f.state.taskChanges, 1);
+    assert.equal(host.notices.length, 0);
+    if (mode !== 'disk') {
+      assert.equal(f.state.disk, disk);
+      assert.equal(f.state.processes, 0);
+      assert.equal(f.state.replacements.length, 1);
+      assert.equal(f.state.replacements[0].text, 'x');
+    }
+    f.settings.todoShowCompleted = true;
+    f.component.refreshNow(); await settle();
+    const completed = f.boxes().find(box => box.attr['aria-label'] === 'task\ncontinuation');
+    assert.equal(completed.checked, true);
+    completed.checked = false; completed.dispatch('change'); await settle();
+    assert.equal(mode === 'disk' ? f.state.disk : f.state.buffer, current);
+    assert.equal(f.state.taskChanges, 2);
+  });
+}
+
+test('a journal row rendered before disabling inclusion cannot update the source', async t => {
+  t.mock.method(console, 'error', () => {});
+  const source = '## Journal\n- [ ] 08:00 task';
+  const f = fixture(t, source, { todoIncludeTimelineTasks: true });
+  f.component.load(); await settle();
+  const old = f.boxes()[0];
+  f.settings.todoIncludeTimelineTasks = false;
+  old.checked = true; old.dispatch('change'); await settle();
+  assert.equal(f.state.disk, source);
+  assert.equal(f.state.taskChanges, 0);
+  assert.equal(host.notices.length, 1);
+  assert.equal(f.boxes().length, 0);
+});
+
+test('eye shortcut temporarily reveals completed tasks without changing settings or notifying timeline', async t => {
+  const source = '## Planning\n- [x] finished\n## Journal\n- [x] 08:00 finished journal';
+  const f = fixture(t, source, { todoIncludeTimelineTasks: true });
+  f.component.load(); await settle();
+  f.parent.querySelectorAll('.jp-todo-add-toggle')[0].dispatch('click');
+  f.parent.querySelectorAll('.jp-todo-add-input')[0].value = 'unsaved draft';
+  const before = JSON.stringify(f.settings);
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 2);
+  assert.equal(JSON.stringify(f.settings), before);
+  assert.equal(f.state.taskChanges, 0);
+  assert.equal(f.state.processes, 0);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-add-input')[0].value, 'unsaved draft');
+  assert.equal(f.parent.querySelectorAll('.jp-todo-add-form')[0].hidden, false);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].attr['aria-pressed'], 'true');
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 2, 'ordinary refresh preserves the temporary choice');
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 0);
+  assert.equal(JSON.stringify(f.settings), before);
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
+  f.component.unload();
+  const reopened = fixture(t, source, { todoIncludeTimelineTasks: true });
+  reopened.component.load(); await settle();
+  assert.equal(reopened.boxes().length, 0, 'a new card restores the persisted default');
+});
+
+test('a temporary hide leaves the default enabled and a changed default clears the override', async t => {
+  const f = fixture(t, '## Planning\n- [x] finished\n## Journal', { todoShowCompleted: true });
+  f.component.load(); await settle();
+  assert.equal(f.boxes().length, 1);
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 0);
+  assert.equal(f.settings.todoShowCompleted, true);
+  f.settings.todoShowCompleted = false;
+  f.component.refreshNow(); await settle();
+  f.settings.todoShowCompleted = true;
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 1, 'changing the default takes effect without an old override');
+});
+
+test('disabling and reopening the TODO module restores its configured default', async t => {
+  const f = fixture(t, '## Planning\n- [x] finished\n## Journal');
+  f.component.load(); await settle();
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 1);
+  f.settings.todoEnabled = false;
+  f.component.refreshNow(); await settle();
+  f.settings.todoEnabled = true;
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 0);
+  assert.equal(f.settings.todoShowCompleted, false);
+});
+
+test('timeline shortcut is temporary, composes with the eye, and updates tasks even when the default is off', async t => {
+  const source = '## Planning\n- [ ] plan\n## Journal\n- [ ] 08:00 journal\n- [x] 09:00 done';
+  const f = fixture(t, source);
+  f.component.load(); await settle();
+  assert.equal(f.boxes().length, 1);
+  const before = JSON.stringify(f.settings);
+  let timeline = f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0];
+  assert.equal(timeline.attr['aria-pressed'], 'false');
+  timeline.dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 2);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-count')[0].text, '2');
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 3);
+  f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0].dispatch('click'); await settle();
+  assert.deepEqual(f.boxes().map(box => box.attr['aria-label']), ['plan']);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].attr['aria-pressed'], 'true');
+  f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0].dispatch('click'); await settle();
+  const journal = f.boxes().find(box => box.attr['aria-label'] === 'journal');
+  journal.checked = true; journal.dispatch('change'); await settle();
+  assert.equal(f.state.disk, source.replace('[ ] 08:00', '[x] 08:00'));
+  assert.equal(JSON.stringify(f.settings), before);
+  assert.equal(f.state.taskChanges, 1);
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 3);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0].attr['aria-pressed'], 'true');
+  assert.equal(host.notices.length, 0);
+});
+
+test('timeline shortcut restores its default on a new card or when configuration changes', async t => {
+  const source = '## Planning\n- [ ] plan\n## Journal\n- [ ] 08:00 journal';
+  const f = fixture(t, source, { todoIncludeTimelineTasks: true });
+  f.component.load(); await settle();
+  f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0].dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 1);
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 1);
+  assert.equal(f.settings.todoIncludeTimelineTasks, true);
+  f.settings.todoIncludeTimelineTasks = false;
+  f.component.refreshNow(); await settle();
+  f.settings.todoIncludeTimelineTasks = true;
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 2);
+  f.parent.querySelectorAll('.jp-todo-timeline-toggle')[0].dispatch('click'); await settle();
+  f.component.unload();
+  const reopened = fixture(t, source, { todoIncludeTimelineTasks: true });
+  reopened.component.load(); await settle();
+  assert.equal(reopened.boxes().length, 2);
 });
 
 test('an older pending refresh cannot replace the latest settings render', async t => {

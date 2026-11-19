@@ -2,7 +2,7 @@
  * Wide-layout side panel (desktop only).
  *
  * When the capture view is wide enough, three常驻 cards sit to the right of
- * the timeline: a compact stats summary with the current-year heatmap, the
+ * the timeline: a compact stats summary with the recent 30-day heatmap, the
  * most recently favorited entries, and one random note.
  *
  * Pure DOM builders — no view state, no IO. The view owns the data (see
@@ -19,19 +19,13 @@ import type { FavoriteEntry, JournalEntry } from './section';
 import { getHeatmapLevel, type AllTimeStats, type YearStats } from './stats';
 import { formatDate, t } from './i18n';
 
-/**
- * Minimum view width (px) that turns the side panel on.
- *
- * Not 900: with a 340px panel plus gaps and padding, a 900px view leaves the
- * timeline about 500px — narrower than the single-column layout it replaces,
- * so widening would actually shrink the text column. 1024 keeps it at ~620px.
- */
-export const WIDE_LAYOUT_MIN_WIDTH = 1024;
+/** Minimum leaf width for the desktop workspace; cards shrink to 240px. */
+export const WIDE_LAYOUT_MIN_WIDTH = 800;
 
 export interface SidePanelData {
   allTime: AllTimeStats | null;
-  /** Year shown in the mini heatmap — the newest year that has data. */
-  yearStats: YearStats | null;
+  /** Stats by year, including the previous year when the recent range crosses January. */
+  yearStats: ReadonlyMap<number, YearStats>;
   /** Newest favorited first; the panel shows the head of the list. */
   favorites: FavoriteEntry[];
   random: { date: Moment; entry: JournalEntry } | null;
@@ -42,6 +36,7 @@ export interface SidePanelData {
 export interface SidePanelHandlers {
   openStats(): void;
   openFavorites(): void;
+  openReview(): void;
   openDate(date: Moment): void;
   reroll(): void;
 }
@@ -111,15 +106,20 @@ function renderStatsCard(
   data: SidePanelData,
   handlers: SidePanelHandlers,
 ): void {
-  const card = makeCard(parent, 'bar-chart-2', t('side.stats'), {
+  const card = makeCard(parent, 'calendar-days', t('side.recentStats'), {
     label: t('side.viewAll'),
     onClick: () => handlers.openStats(),
   });
 
-  const allTime = data.allTime;
-  if (!allTime) {
-    makeEmpty(card, data.loading ? t('stats.loading') : t('side.heatmapEmpty'));
-    return;
+  const today = moment().startOf('day');
+  const start = today.clone().isoWeekday(1).subtract(19, 'weeks');
+
+  let totalEntries = 0;
+  let writingDays = 0;
+  for (let day = start.clone(); day.isSameOrBefore(today, 'day'); day.add(1, 'day')) {
+    const count = data.yearStats.get(day.year())?.dailyMap.get(day.format('YYYY-MM-DD'))?.entryCount ?? 0;
+    totalEntries += count;
+    if (count > 0) writingDays++;
   }
 
   const nums = card.createDiv({ cls: 'jp-side-nums' });
@@ -128,51 +128,44 @@ function renderStatsCard(
     cell.createDiv({ cls: 'jp-side-num-value', text: value });
     cell.createDiv({ cls: 'jp-side-num-label', text: label });
   };
-  addNum(String(allTime.totalEntries), t('stats.totalEntries'));
-  addNum(String(allTime.writingDays), t('stats.writingDays'));
-  addNum(String(allTime.longestStreak), t('stats.longestStreak'));
+  addNum(String(totalEntries), t('stats.totalEntries'));
+  addNum(String(writingDays), t('stats.writingDays'));
 
-  renderMiniHeatmap(card, data.yearStats);
+  renderRecentHeatmap(card, data.yearStats, start, today, handlers);
 }
 
-/**
- * A year-at-a-glance density strip: one column per week, 7 rows per week.
- * Deliberately tiny (4px cells) so a full year fits the 320px panel without
- * horizontal scrolling — the full month-labelled heatmap lives in the stats
- * pane, this only answers "how has this year been going".
- */
-function renderMiniHeatmap(parent: HTMLElement, stats: YearStats | null): void {
-  if (!stats) return;
-
-  const today = moment().startOf('day');
-  const start = moment({ year: stats.year, month: 0, day: 1 }).startOf('day');
-  const end = moment({ year: stats.year, month: 11, day: 31 }).startOf('day');
-
-  // -1 = padding before Jan 1, -2 = future / outside the year (rendered blank).
-  const cells: number[] = [];
-  const firstDow = start.day();
-  for (let i = 0; i < (firstDow === 0 ? 6 : firstDow - 1); i++) cells.push(-1);
-
-  for (let d = start.clone(); d.isSameOrBefore(end); d.add(1, 'day')) {
-    if (d.isAfter(today, 'day')) {
-      cells.push(-2);
+/** GitHub-style contribution grid: twenty week columns, seven day rows. */
+function renderRecentHeatmap(
+  parent: HTMLElement,
+  stats: ReadonlyMap<number, YearStats>,
+  start: Moment,
+  today: Moment,
+  handlers: SidePanelHandlers,
+): void {
+  const grid = parent.createDiv({ cls: 'jp-side-recent-grid' });
+  for (let offset = 0; offset < 140; offset++) {
+    const date = start.clone().add(offset, 'days');
+    if (date.isAfter(today, 'day')) {
+      grid.createDiv({ cls: 'jp-side-recent-padding', attr: { 'aria-hidden': 'true' } });
       continue;
     }
-    const ds = stats.dailyMap.get(d.format('YYYY-MM-DD'));
-    cells.push(getHeatmapLevel(ds?.entryCount ?? 0));
-  }
-  while (cells.length % 7 !== 0) cells.push(-2);
-
-  const grid = parent.createDiv({ cls: 'jp-side-heatmap' });
-  for (let i = 0; i < cells.length; i += 7) {
-    const week = grid.createDiv({ cls: 'jp-side-heatmap-week' });
-    for (let dow = 0; dow < 7; dow++) {
-      const level = cells[i + dow];
-      const cell = week.createDiv({ cls: 'jp-side-heatmap-cell' });
-      if (level >= 0) cell.addClass(`level-${level}`);
-      else cell.addClass('is-blank');
+    const key = date.format('YYYY-MM-DD');
+    const count = stats.get(date.year())?.dailyMap.get(key)?.entryCount ?? 0;
+    const label = `${key}: ${t('timeline.entries', { count })}`;
+    const button = grid.createEl('button', {
+      cls: `jp-side-recent-day level-${getHeatmapLevel(count)}`,
+      attr: { type: 'button', 'aria-label': label, title: label },
+    });
+    if (date.isSame(today, 'day')) {
+      button.addClass('is-today');
+      button.setAttr('aria-current', 'date');
     }
+    button.addEventListener('click', () => handlers.openDate(date.clone()));
   }
+
+  const range = parent.createDiv({ cls: 'jp-side-recent-range' });
+  range.createSpan({ text: start.format('YYYY-MM-DD') });
+  range.createSpan({ text: today.format('YYYY-MM-DD') });
 }
 
 // ── Favorites ──────────────────────────────────────────────────────────────
@@ -218,7 +211,10 @@ function renderRandomCard(
   data: SidePanelData,
   handlers: SidePanelHandlers,
 ): void {
-  const card = makeCard(parent, 'dice', t('side.random'));
+  const card = makeCard(parent, 'dice', t('side.random'), {
+    label: t('tab.review'),
+    onClick: () => handlers.openReview(),
+  });
 
   if (!data.random) {
     makeEmpty(card, data.loading ? t('stats.loading') : t('side.randomEmpty'));
