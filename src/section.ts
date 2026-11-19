@@ -8,6 +8,7 @@
 
 import { RangeSetBuilder } from '@codemirror/state';
 import { Decoration, DecorationSet } from '@codemirror/view';
+import { formatTimestamp, getTimestampPattern, timestampToSeconds } from './time-format';
 
 // ── Types & defaults ────────────────────────────────────────────────────────
 
@@ -18,6 +19,12 @@ export interface JournalPartnerSettings {
   headingLevel: number;
   /** Regex pattern whose first match (or capture group 1) is the timestamp */
   timestampPattern: string;
+  /** Format used when inserting a timestamp. */
+  timestampFormat: string;
+  /** Previously used formats retained for detecting existing entries. */
+  timestampFormatHistory: string[];
+  /** Open the capture view after the workspace finishes loading. */
+  openOnStartup: boolean;
   /** Foreground color of the timestamp badge (light theme) */
   timestampColor: string;
   /** Background color of the timestamp badge (light theme) */
@@ -113,6 +120,9 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   targetHeading: 'Journal',
   headingLevel: 2,
   timestampPattern: '\\d{2}:\\d{2}',
+  timestampFormat: 'HH:mm',
+  timestampFormatHistory: [],
+  openOnStartup: false,
   timestampColor: '#7c3aed',
   timestampBgColor: '#ede9fe',
   timestampColorDark: '#a78bfa',
@@ -312,7 +322,7 @@ export function getTimestampRanges(
   // - Memo: `- HH:MM text`
   // - Task: `- [ ] HH:MM text` or `- [x] HH:MM text`
   const linePattern = new RegExp(
-    `^(?:[-*+]\\s+(?:\\[[\\sx]\\]\\s+)?)?(${settings.timestampPattern})(?=\\s|$)`,
+    `^(?:[-*+]\\s+(?:\\[[\\sxX]\\]\\s+)?)?(${getTimestampPattern(settings)})(?=\\s|$)`,
   );
 
   const sectionText = doc.slice(section.from, section.to);
@@ -333,14 +343,9 @@ export function getTimestampRanges(
   return result;
 }
 
-/** Generate a timestamp string for the current local time in HH:MM format. */
-export function generateTimestamp(): string {
-  const now = new Date();
-  return (
-    String(now.getHours()).padStart(2, '0') +
-    ':' +
-    String(now.getMinutes()).padStart(2, '0')
-  );
+/** Generate a timestamp string for the current local time. */
+export function generateTimestamp(format = 'HH:mm', date?: Date): string {
+  return formatTimestamp(format, date);
 }
 
 /** Build a CM6 DecorationSet that marks every timestamp in the target section. */
@@ -426,7 +431,8 @@ export function parseJournalEntries(
       if (tsMatch) {
         entries.push({
           timestamp: tsMatch[1],
-          text: tsMatch[2],
+          // The body is the final capture even when the advanced pattern has groups.
+          text: tsMatch[tsMatch.length - 1],
           lineIndex: i,
           type: 'task',
           completed: checkbox.toLowerCase() === 'x',
@@ -439,7 +445,7 @@ export function parseJournalEntries(
     const m = tsRe.exec(raw);
     if (!m) continue;
 
-    const content = m[2];
+    const content = m[m.length - 1];
     // Check for legacy task format: `HH:MM [ ] text` or `HH:MM [x] text`
     const legacyMatch = legacyTaskRe.exec(content);
 
@@ -479,11 +485,19 @@ export function parseJournalEntries(
 export function sortJournalEntries<T extends { timestamp: string; lineIndex: number }>(
   entries: readonly T[],
   order: 'asc' | 'desc',
+  formats: readonly string[] = [],
 ): T[] {
   const dir = order === 'asc' ? 1 : -1;
   return [...entries].sort((a, b) => {
-    const cmp =
-      a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0;
+    const aSeconds = timestampToSeconds(a.timestamp, formats);
+    const bSeconds = timestampToSeconds(b.timestamp, formats);
+    // Keep unknown manual-regex timestamps after known times in ascending
+    // order; compare two unknowns lexically, preserving the legacy fallback.
+    const cmp = aSeconds !== null && bSeconds !== null
+      ? aSeconds - bSeconds
+      : aSeconds !== null ? -1
+        : bSeconds !== null ? 1
+          : a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0;
     if (cmp !== 0) return cmp * dir;
     return (a.lineIndex - b.lineIndex) * dir;
   });
@@ -591,7 +605,7 @@ function parseEntryHeadLine(line: string, pattern: string): ParsedEntryHead | nu
       marker: newTask[1],
       completed: newTask[2].toLowerCase() === 'x',
       timestamp: newTask[3],
-      text: newTask[4] ?? '',
+      text: newTask[newTask.length - 1] ?? '',
       legacyTask: false,
     };
   }
@@ -603,7 +617,7 @@ function parseEntryHeadLine(line: string, pattern: string): ParsedEntryHead | nu
   const memo = memoRe.exec(probe);
   if (!memo) return null;
 
-  const body = memo[3] ?? '';
+  const body = memo[memo.length - 1] ?? '';
   const legacyTask = /^\[([ xX])\]\s*(.*)$/.exec(body);
   if (legacyTask) {
     return {
@@ -761,7 +775,7 @@ export function deleteEntryFromSection(
   // unrelated line — avoids "deleting from the middle of a multi-line memo".
   // Uses the shared parser so task layouts (`- [ ] HH:MM`, `- HH:MM [ ]`) are
   // recognised exactly like `parseJournalEntries` does.
-  if (!parseEntryHeadLine(lines[lineIndex], settings.timestampPattern)) return content;
+  if (!parseEntryHeadLine(lines[lineIndex], getTimestampPattern(settings))) return content;
 
   // Find end (exclusive) of the entry: head + continuation lines.
   let end = lineIndex + 1;
@@ -827,7 +841,7 @@ export function editEntryInSection(
   // Extract the original list marker + timestamp + entry kind from the head
   // line so the rebuilt entry keeps the surrounding list style, the task type
   // and its completion state.
-  const head = parseEntryHeadLine(lines[lineIndex], settings.timestampPattern);
+  const head = parseEntryHeadLine(lines[lineIndex], getTimestampPattern(settings));
   if (!head) return content;
   const marker = head.marker;
   const ts = head.timestamp;
@@ -884,11 +898,13 @@ export function toggleTaskInSection(
 
   const box = completed ? '[x]' : '[ ]';
   const line = lines[lineIndex];
+  const pattern = getTimestampPattern(settings);
+  if (parseEntryHeadLine(line, pattern)?.kind !== 'task') return content;
 
   // New format: `- [ ] HH:MM text` → replace the checkbox right after marker.
   const newRe = /^([-*+]\s+)\[[ xX]\](\s+.*)$/;
   const legacyRe = new RegExp(
-    `^([-*+]\\s+${settings.timestampPattern}\\s+)\\[[ xX]\\](\\s+.*)$`,
+    `^([-*+]\\s+(?:${pattern})\\s+)\\[[ xX]\\](\\s*.*)$`,
   );
 
   let updated: string;
@@ -898,7 +914,7 @@ export function toggleTaskInSection(
   } else {
     const legacyMatch = legacyRe.exec(line);
     if (!legacyMatch) return content;
-    updated = `${legacyMatch[1]}${box}${legacyMatch[2]}`;
+    updated = `${legacyMatch[1]}${box}${legacyMatch[legacyMatch.length - 1]}`;
   }
 
   const newLines = [
@@ -941,7 +957,7 @@ export function removeAudioEmbedsFromEntry(
   if (lineIndex < 0 || lineIndex >= lines.length) return content;
 
   // Validate via the shared parser so task layouts are recognised too.
-  if (!parseEntryHeadLine(lines[lineIndex], settings.timestampPattern)) return content;
+  if (!parseEntryHeadLine(lines[lineIndex], getTimestampPattern(settings))) return content;
 
   // Find inclusive range of this entry: head + continuation lines.
   let end = lineIndex + 1;
@@ -951,6 +967,9 @@ export function removeAudioEmbedsFromEntry(
 
   // Audio-embed regex: must match the same shape as extractAudioEmbeds.
   const audioEmbedRe = /!\[\[([^\]|#^]+)(?:[#^][^\]|]*)?(?:\|[^\]]*)?\]\]/g;
+  const timestampHeadRe = new RegExp(
+    `^[-*+]\\s+(?:\\[[ xX]\\]\\s+)?(${getTimestampPattern(settings)})(?=\\s|$)`,
+  );
 
   let changed = false;
   for (let i = lineIndex; i < end; i++) {
@@ -962,11 +981,16 @@ export function removeAudioEmbedsFromEntry(
       }
       return full;
     });
-    if (!changed && after === before) continue;
+    if (after === before) continue;
     // Tidy up: collapse internal double spaces and trim trailing spaces
     // left where the embed used to sit. Keep markdown soft-break "  "
     // intact at line end (parseJournalEntries relies on it).
-    let tidy = after.replace(/[^\S\n]{2,}/g, ' ');
+    // A custom timestamp can contain literal spaces. Preserve its head,
+    // and preserve continuation indentation, while tidying only the body.
+    const prefix = i === lineIndex
+      ? timestampHeadRe.exec(before)?.[0] ?? ''
+      : /^\s*/.exec(before)?.[0] ?? '';
+    let tidy = prefix + after.slice(prefix.length).replace(/[^\S\n]{2,}/g, ' ');
     // Restore intentional soft-break (two trailing spaces) if the line
     // was originally a non-final continuation row in a multi-line entry.
     const wasSoftBreak = /[^\S\n] {2}$/.test(before) || / {2}$/.test(before);

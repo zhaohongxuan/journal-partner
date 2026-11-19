@@ -12,6 +12,8 @@
  * timestamps exist.
  */
 
+import { timestampToSeconds } from './time-format';
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 /** Stats for a single day. */
@@ -168,18 +170,17 @@ export function accumulateHourHistogram(
   sectionText: string,
   pattern: string,
   histogram: number[],
+  formats: readonly string[] = [],
 ): void {
   if (!sectionText) return;
-  // Anchor to "start of token" — match HH:MM anywhere, but only count
-  // each line once (avoids double-counting if a memo's body mentions
-  // another time).
-  const lineRe = new RegExp(`(?:^|\\s)(${pattern})(?=\\s|$)`, 'gm');
-  let m: RegExpExecArray | null;
-  while ((m = lineRe.exec(sectionText)) !== null) {
-    const hm = /^(\d{1,2}):/.exec(m[1]);
-    if (!hm) continue;
-    const h = parseInt(hm[1], 10);
-    if (h >= 0 && h < 24) histogram[h]++;
+  // Match once per physical line so a time mentioned in the body cannot
+  // double-count the entry. The outer capture precedes any advanced groups.
+  const lineRe = new RegExp(`(?:^|\\s)(${pattern})(?=\\s|$)`);
+  for (const line of sectionText.split(/\r\n?|\n/)) {
+    const m = lineRe.exec(line);
+    if (!m) continue;
+    const seconds = timestampToSeconds(m[1], [...formats, 'H:mm', 'H:mm:ss']);
+    if (seconds !== null) histogram[Math.floor(seconds / 3600)]++;
   }
 }
 
@@ -267,6 +268,7 @@ export function computeYearStats(
   year: number,
   dayInputs: DayInput[],
   timestampPattern: string,
+  formats: readonly string[] = [],
 ): YearStats {
   const dailyMap = new Map<string, DayStats>();
   const histogram = new Array<number>(24).fill(0);
@@ -284,7 +286,7 @@ export function computeYearStats(
     totalAudios += ds.audioCount;
     if (ds.entryCount > 0 || ds.wordCount > 0) writingDays++;
 
-    accumulateHourHistogram(sectionText, timestampPattern, histogram);
+    accumulateHourHistogram(sectionText, timestampPattern, histogram, formats);
   }
 
   return {

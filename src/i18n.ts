@@ -14,6 +14,13 @@ export type LanguageSetting = Language | 'system';
 type Dict = { [key: string]: string };
 
 const EN: Dict = {
+  'settings.timeFormat': 'Inserted time format',
+  'settings.timeFormatDesc': 'Choose a preset or edit the format, preview it, then save. Supports HH/H, hh/h, mm/m, ss/s, A/a and [literal text]. 12-hour formats require A or a. Existing formats remain readable.',
+  'settings.timeFormatCustom': 'Custom',
+  'settings.timeFormatInvalid': 'Invalid time format: {msg}',
+  'settings.openOnStartup': 'Open Journal Partner on startup',
+  'settings.openOnStartupDesc': 'Open the capture view after Obsidian restores its workspace, reusing an existing pane. Input focus follows the auto-focus setting.',
+  'notice.startupOpenFailed': 'Could not open Journal Partner at startup. Use the ribbon icon or command to open it.',
   'share.title': 'Share journal card',
   'share.open': 'Share as image',
   'share.preview': 'Share card preview',
@@ -433,6 +440,13 @@ const EN: Dict = {
 };
 
 const ZH: Dict = {
+  'settings.timeFormat': '插入时间格式',
+  'settings.timeFormatDesc': '选择预设或自定义格式，预览后点击保存。支持 HH/H、hh/h、mm/m、ss/s、A/a 和 [固定文字]；12 小时制必须包含 A 或 a。旧格式记录继续兼容。',
+  'settings.timeFormatCustom': '自定义',
+  'settings.timeFormatInvalid': '时间格式无效：{msg}',
+  'settings.openOnStartup': '启动时打开 Journal Partner',
+  'settings.openOnStartupDesc': 'Obsidian 恢复工作区后自动打开记录界面，并复用已有面板。是否聚焦输入框沿用自动聚焦设置。',
+  'notice.startupOpenFailed': '启动时未能打开 Journal Partner，请使用侧边栏图标或命令打开。',
   'share.title': '分享日记卡片',
   'share.open': '生成分享卡片',
   'share.preview': '分享卡片预览',
