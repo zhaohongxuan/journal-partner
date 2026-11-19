@@ -68,6 +68,9 @@ export interface JournalPartnerSettings {
    * Off keeps the single-column layout at any width.
    */
   wideLayoutEnabled: boolean;
+  /** Last selected share-card template and optional global signature. */
+  shareCardTemplate: 'paper' | 'calendar' | 'night';
+  shareCardAuthor: string;
   /** User-favorited journal entries, newest favorited first. */
   favorites: FavoriteEntry[];
   /** Show the random-quote (WeRead highlight) button in the capture input. */
@@ -131,6 +134,8 @@ export const DEFAULT_SETTINGS: JournalPartnerSettings = {
   mobileOpenInSidebar: false,
   autoFocusInput: true,
   wideLayoutEnabled: true,
+  shareCardTemplate: 'paper',
+  shareCardAuthor: '',
   favorites: [],
   // Opt-in: the button is useless without a WeRead API key.
   quoteEnabled: false,

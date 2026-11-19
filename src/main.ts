@@ -1695,6 +1695,17 @@ class JournalPartnerSettingTab extends PluginSettingTab {
     // ── Shortcut ──────────────────────────────────────────────────────────
     new Setting(containerEl).setName(t('settings.heading.other')).setHeading();
 
+    new Setting(containerEl)
+      .setName(t('settings.shareAuthor'))
+      .setDesc(t('settings.shareAuthorDesc'))
+      .addText(text => text
+        .setPlaceholder(t('share.authorPlaceholder'))
+        .setValue(this.plugin.settings.shareCardAuthor)
+        .onChange(async value => {
+          this.plugin.settings.shareCardAuthor = value.slice(0, 60);
+          await this.plugin.saveSettings();
+        }));
+
     // ── Mobile sidebar option ─────────────────────────────────────────────
     new Setting(containerEl)
       .setName(t('settings.mobileSidebar'))

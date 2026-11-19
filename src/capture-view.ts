@@ -40,6 +40,7 @@ import type { EditorView } from '@codemirror/view';
 import { CaptureInput, createCaptureInput } from './capture-input';
 import { TodayTodos } from './today-todos';
 import { EditEntryModal } from './edit-entry-modal';
+import { ShareCardModal } from './share-card-modal';
 
 import {
   FavoriteEntry,
@@ -1108,6 +1109,18 @@ export class JournalCaptureView extends ItemView {
       });
     };
     addAction('copy', t('common.copy'), () => { void this.copyEntry(entry); });
+    addAction('share-2', t('share.open'), () => {
+      new ShareCardModal(this.app, entry, day.date.format('YYYY-MM-DD'), day.filePath ?? '', {
+        template: this.plugin.settings.shareCardTemplate,
+        author: this.plugin.settings.shareCardAuthor,
+      }, async preferences => {
+        if (this.plugin.settings.shareCardTemplate === preferences.template
+          && this.plugin.settings.shareCardAuthor === preferences.author) return;
+        this.plugin.settings.shareCardTemplate = preferences.template;
+        this.plugin.settings.shareCardAuthor = preferences.author;
+        await this.plugin.saveSettings();
+      }).open();
+    });
     addAction('pencil', t('common.edit'), () => { void this.openEditEntry(day, entry); });
     addAction('trash-2', t('menu.deleteMemo'), () => {
       const audioPaths = extractAudioEmbeds(entry.text);

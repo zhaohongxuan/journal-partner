@@ -1,5 +1,31 @@
 /* ── Journal Partner ─────────────────────────────────────────────────────── */
 
+/* Share preview uses the export canvas, independent of the Obsidian theme. */
+.jp-share-modal { width: min(580px, 94vw); }
+.jp-share-content { display: flex; flex-direction: column; gap: 16px; }
+.jp-share-preview {
+  padding: 24px; border-radius: 12px; background: var(--background-secondary);
+  max-height: 55vh; overflow: auto; text-align: center;
+}
+.jp-share-canvas { display: block; width: 100%; max-width: 390px; height: auto; margin: 0 auto; box-shadow: 0 6px 24px #00000016; }
+.jp-share-canvas[hidden], .jp-share-markdown-source { display: none; }
+.jp-share-templates, .jp-share-actions { display: flex; gap: 10px; }
+.jp-share-templates button, .jp-share-actions button { flex: 1; min-width: 0; }
+.jp-share-templates button { height: auto; padding: 10px; }
+.jp-share-templates button.is-selected { color: var(--text-on-accent); background: var(--interactive-accent); }
+.jp-share-options { display: flex; flex-wrap: wrap; gap: 12px 20px; }
+.jp-share-options label { display: flex; align-items: center; gap: 6px; font-size: var(--font-ui-small); }
+.jp-share-author { display: flex; align-items: center; gap: 14px; font-size: var(--font-ui-small); }
+.jp-share-author input { flex: 1; min-width: 0; }
+.jp-share-status, .jp-share-hint { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.jp-share-status:empty { display: none; }
+.jp-share-actions button { height: auto; padding: 10px; }
+@media (max-width: 480px) {
+  .jp-share-preview { padding: 12px; max-height: 45vh; }
+  .jp-share-content { gap: 12px; }
+}
+
+
 /*
   Timestamp badge – rendered both in the editor (CM6 mark decoration)
   and in reading view (post-processed <span>).
