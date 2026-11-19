@@ -1,6 +1,7 @@
 /** Pure parsing and guarded checkbox updates for the planning task list. */
 import { parseJournalEntries } from './section';
 import type { JournalPartnerSettings } from './section';
+import { getTimestampPattern } from './time-format';
 
 export interface DailyTodo extends PlanningTodo {
   source: 'planning' | 'journal';
@@ -9,7 +10,8 @@ export interface DailyTodo extends PlanningTodo {
 
 type DailyTodoSettings = Pick<JournalPartnerSettings,
   'todoStartHeading' | 'todoEndHeading' | 'todoIncludeTimelineTasks'
-  | 'targetHeading' | 'headingLevel' | 'timestampPattern'>;
+  | 'targetHeading' | 'headingLevel' | 'timestampPattern'>
+  & Partial<Pick<JournalPartnerSettings, 'timestampFormat' | 'timestampFormatHistory'>>;
 
 export interface PlanningTodo {
   /** Zero-based line index in the entire document. */
@@ -114,7 +116,8 @@ function parseLines(lines: SourceLine[], startHeading: string, endHeading: strin
 
 /** Parse journal tasks through the shared entry parser, retaining absolute source locations. */
 function journalTodos(lines: SourceLine[], settings: DailyTodoSettings): DailyTodo[] {
-  const { headingLevel, targetHeading, timestampPattern } = settings;
+  const { headingLevel, targetHeading } = settings;
+  const timestampPattern = getTimestampPattern(settings);
   if (!Number.isInteger(headingLevel) || headingLevel < 1 || headingLevel > 6) return [];
   const heading = '#'.repeat(headingLevel) + ' ' + targetHeading;
   const start = lines.findIndex(line => line.visible && line.text.trim() === heading);

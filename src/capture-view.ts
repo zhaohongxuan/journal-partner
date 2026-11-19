@@ -44,6 +44,7 @@ import { parseDailyTodos, setDailyTodoCompleted } from './todos';
 import { EditEntryModal } from './edit-entry-modal';
 import { ShareCardModal } from './share-card-modal';
 import { hookUpTagFilters } from './tag-filter-links';
+import { getTimestampFormats, getTimestampPattern } from './time-format';
 
 import {
   FavoriteEntry,
@@ -1072,7 +1073,7 @@ export class JournalCaptureView extends ItemView {
       );
       if (!section) return [];
       const text = content.slice(section.from, section.to);
-      const parsed = parseJournalEntries(text, this.plugin.settings.timestampPattern);
+      const parsed = parseJournalEntries(text, getTimestampPattern(this.plugin.settings));
       if (parsed.length > 0) return parsed;
       return this.parseLooseEntries(text);
     } catch (err) {
@@ -1279,7 +1280,7 @@ export class JournalCaptureView extends ItemView {
           );
           if (!section) continue;
           const text = content.slice(section.from, section.to);
-          const entries = parseJournalEntries(text, this.plugin.settings.timestampPattern);
+          const entries = parseJournalEntries(text, getTimestampPattern(this.plugin.settings));
           const matched = mode === 'search'
             ? entries.filter(e => this.entryMatchesQuery(e.text, lower))
             : entries.filter(e => this.entryTagsInclude(e.text, this.activeTagFilter));
@@ -1360,7 +1361,7 @@ export class JournalCaptureView extends ItemView {
     this.addOpenNoteBtn(headerCard, day);
 
     const sourcePath = day.filePath ?? '';
-    const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder);
+    const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder, getTimestampFormats(this.plugin.settings));
 
     for (const entry of sorted) {
       const row = day.el.createDiv({ cls: 'jp-timeline-entry' });
@@ -2316,7 +2317,7 @@ export class JournalCaptureView extends ItemView {
       if (!section) return [];
       return parseJournalEntries(
         content.slice(section.from, section.to),
-        this.plugin.settings.timestampPattern,
+        getTimestampPattern(this.plugin.settings),
       );
     } catch (err) {
       console.error('[Journal Partner] habit read failed', err);
@@ -2394,6 +2395,13 @@ export class JournalCaptureView extends ItemView {
   public refreshTodayTodosNow(): void {
     this.todayTodos?.refreshNow();
     if (this.timelineEl) this.applyEntryFilter();
+  }
+
+  /** Invalidate time-derived statistics when a format or recognition rule changes. */
+  public refreshTimestampSettingsNow(): void {
+    this.invalidateStats();
+    this.scheduleStatsRefresh();
+    void this.fullRebuild();
   }
 
   /** Repaint immediately — called by the settings tab when habit config changes. */
@@ -3783,7 +3791,7 @@ export class JournalCaptureView extends ItemView {
         );
         if (section) {
           const text = content.slice(section.from, section.to);
-          entries = parseJournalEntries(text, this.plugin.settings.timestampPattern);
+          entries = parseJournalEntries(text, getTimestampPattern(this.plugin.settings));
         }
       } catch (err) {
         console.error('[Journal Partner] read failed', err);
@@ -3839,7 +3847,7 @@ export class JournalCaptureView extends ItemView {
         );
         if (section) {
           const text = content.slice(section.from, section.to);
-          entries = parseJournalEntries(text, this.plugin.settings.timestampPattern);
+          entries = parseJournalEntries(text, getTimestampPattern(this.plugin.settings));
         }
       }
     } catch (err) {
@@ -3886,7 +3894,7 @@ export class JournalCaptureView extends ItemView {
     }
 
     // Sort entries within the day
-    const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder);
+    const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder, getTimestampFormats(this.plugin.settings));
 
     const sourcePath = day.filePath ?? '';
     for (const entry of sorted) {
@@ -3945,7 +3953,7 @@ export class JournalCaptureView extends ItemView {
             const update = (content: string): string => {
               const section = findSection(content, settings.targetHeading, settings.headingLevel);
               if (!section) throw new Error(t('notice.contentChanged'));
-              const current = parseJournalEntries(content.slice(section.from, section.to), settings.timestampPattern)
+              const current = parseJournalEntries(content.slice(section.from, section.to), getTimestampPattern(settings))
                 .find(candidate => candidate.lineIndex === entry.lineIndex && candidate.type === 'task'
                   && candidate.timestamp === entry.timestamp && candidate.text === entry.text
                   && candidate.completed === entry.completed);
@@ -4178,7 +4186,7 @@ export class JournalCaptureView extends ItemView {
         if (section) {
           const text = content.slice(section.from, section.to);
           // First try normal timestamped entries
-          const parsed = parseJournalEntries(text, this.plugin.settings.timestampPattern);
+          const parsed = parseJournalEntries(text, getTimestampPattern(this.plugin.settings));
           if (parsed.length > 0) {
             candidateEntries = parsed;
           } else {
@@ -4204,7 +4212,7 @@ export class JournalCaptureView extends ItemView {
     }
 
     // Respect the configured sort order (newest or oldest first)
-    const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder);
+    const sorted = sortJournalEntries(entries, this.plugin.settings.sortOrder, getTimestampFormats(this.plugin.settings));
 
     // Render as a single day section in the shared timeline.
     const day: DaySection = {
@@ -4233,7 +4241,7 @@ export class JournalCaptureView extends ItemView {
   private parseLooseEntries(sectionText: string): Array<{ timestamp: string; text: string; lineIndex: number }> {
     const result: Array<{ timestamp: string; text: string; lineIndex: number }> = [];
     const lines = sectionText.replace(/\r\n?/g, '\n').split('\n');
-    const tsRe = new RegExp(`^(${this.plugin.settings.timestampPattern})\\s+(.+)$`);
+    const tsRe = new RegExp(`^(${getTimestampPattern(this.plugin.settings)})\\s+(.+)$`);
     // Structural markdown we must not report as journal text.
     const isSpecial = (line: string): boolean =>
       /^\s*#{1,6}\s/.test(line) || // heading
@@ -4264,7 +4272,7 @@ export class JournalCaptureView extends ItemView {
       // 2) Paragraph that starts with a timestamp: `08:37 ...`.
       const tsMatch = tsRe.exec(raw.trim());
       if (tsMatch) {
-        let text = tsMatch[2].trim();
+        let text = tsMatch[tsMatch.length - 1].trim();
         let j = i + 1;
         while (
           j < lines.length &&
@@ -4350,7 +4358,7 @@ export class JournalCaptureView extends ItemView {
           // Standard `- HH:MM …` parsing first. Fall back to the loose parser
           // (used by random review) so favorites taken from historical notes
           // without timestamps can still be relocated instead of being pruned.
-          entries = parseJournalEntries(sectionText, this.plugin.settings.timestampPattern);
+          entries = parseJournalEntries(sectionText, getTimestampPattern(this.plugin.settings));
           if (entries.length === 0) {
             entries = this.parseLooseEntries(sectionText);
           }
@@ -4561,7 +4569,7 @@ export class JournalCaptureView extends ItemView {
       // Compute stats for each year
       this.allYearStats.clear();
       for (const [year, dayInputs] of yearMap) {
-        const ys = computeYearStats(year, dayInputs, this.plugin.settings.timestampPattern);
+        const ys = computeYearStats(year, dayInputs, getTimestampPattern(this.plugin.settings), getTimestampFormats(this.plugin.settings));
         this.allYearStats.set(year, ys);
       }
 

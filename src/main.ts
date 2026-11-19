@@ -1,5 +1,7 @@
 import {
   App,
+  ButtonComponent,
+  DropdownComponent,
   ExtraButtonComponent,
   FuzzySuggestModal,
   MarkdownPostProcessorContext,
@@ -56,6 +58,8 @@ import { MentionSuggest } from './mention-suggest';
 import { HABIT_ICON_CHOICES, makeHabit } from './habits';
 import { clearQuoteMemo } from './quotes';
 import { setLanguage, t } from './i18n';
+import { getTimestampFormats, getTimestampPattern, timestampToSeconds, validateTimestampFormat } from './time-format';
+import { registerStartupOpen } from './startup';
 
 // ── CM6 utilities ───────────────────────────────────────────────────────────
 
@@ -109,9 +113,14 @@ export default class JournalPartnerPlugin extends Plugin {
     this.registerObsidianProtocolHandler('journal-partner', params => {
       void this.handleProtocol(params);
     });
+    registerStartupOpen(this.app.workspace, this, () => this.settings.openOnStartup,
+      () => this.activateCaptureView({ startup: true }), error => {
+        console.error('[Journal Partner] startup open failed', error);
+        new Notice(t('notice.startupOpenFailed'));
+      });
   }
 
-  async activateCaptureView() {
+  async activateCaptureView(options: { startup?: boolean } = {}) {
     const wantSidebar = !Platform.isMobile ||
       (Platform.isMobile && this.settings.mobileOpenInSidebar);
     const existing = this.app.workspace.getLeavesOfType(CAPTURE_VIEW_TYPE);
@@ -123,6 +132,13 @@ export default class JournalPartnerPlugin extends Plugin {
     // combination means the existing leaf is in the wrong pane and must be
     // detached before rebuilding at the intended location.
     if (existing.length > 0) {
+      if (options.startup) {
+        // Keep the restored pane and draft, even if it is docked differently
+        // from the current open-location preference.
+        await this.app.workspace.revealLeaf(existing[0]);
+        (existing[0].view as JournalCaptureView).focusInputOnOpen?.(true);
+        return;
+      }
       if (wantSidebar && this.isInRightSidebar(existing[0])) {
         // Focus synchronously (before any await) so that when this runs inside
         // a tap gesture on mobile, iOS still treats focus() as user-initiated
@@ -195,7 +211,7 @@ export default class JournalPartnerPlugin extends Plugin {
       return parts.join(' ');
     };
 
-    const stamp = ts ?? generateTimestamp();
+    const stamp = ts ?? generateTimestamp(this.settings.timestampFormat);
 
     // Check if this is a task entry (starts with [ ] or [x])
     const taskMatch = /^\[([ xX])\]\s+(.*)$/.exec(trimmed);
@@ -270,7 +286,8 @@ export default class JournalPartnerPlugin extends Plugin {
     }
 
     const time = params.time;
-    const tsValid = typeof time === 'string' && /^\d{2}:\d{2}$/.test(time);
+    const tsValid = typeof time === 'string'
+      && timestampToSeconds(time, getTimestampFormats(this.settings)) !== null;
     const ts = tsValid ? time : undefined;
 
     const ok = await this.writeToTodayJournal(text, ts, audio);
@@ -393,7 +410,7 @@ export default class JournalPartnerPlugin extends Plugin {
             if (isNested) {
               insertion = '\n' + currentIndent + listMarker;
             } else {
-              const ts = generateTimestamp();
+              const ts = generateTimestamp(this.settings.timestampFormat);
               insertion = '\n' + listMarker + ts + ' ';
             }
 
@@ -445,7 +462,7 @@ export default class JournalPartnerPlugin extends Plugin {
             if (!isTopLevel) return false;
 
             const timestampMatch = line.text.match(
-              new RegExp(`^([-*+]\\s+)(${this.settings.timestampPattern})\\s+`),
+              new RegExp(`^([-*+]\\s+)(${getTimestampPattern(this.settings)})\\s+`),
             );
 
             if (!timestampMatch) return false;
@@ -453,10 +470,7 @@ export default class JournalPartnerPlugin extends Plugin {
             const markerAndSpace = timestampMatch[1];
             const timestampText = timestampMatch[2];
 
-            const afterTimestampMatch = line.text.match(
-              new RegExp(`^([-*+]\\s+)(${this.settings.timestampPattern})\\s+(.*)`),
-            );
-            const contentAfterTimestamp = afterTimestampMatch?.[3] ?? '';
+            const contentAfterTimestamp = line.text.slice(timestampMatch[0].length);
 
             const newLinePrefix = '\t' + markerAndSpace + contentAfterTimestamp;
 
@@ -522,7 +536,7 @@ export default class JournalPartnerPlugin extends Plugin {
 
     for (const textNode of textNodes) {
       const raw = textNode.textContent ?? '';
-      const m = new RegExp(this.settings.timestampPattern).exec(raw);
+      const m = new RegExp(`(?:${getTimestampPattern(this.settings)})(?=\\s|$)`).exec(raw);
       if (!m) continue;
 
       const before = raw.slice(0, m.index);
@@ -562,6 +576,10 @@ export default class JournalPartnerPlugin extends Plugin {
   async loadSettings() {
     const loaded = (await this.loadData()) as Partial<JournalPartnerSettings> | null;
     this.settings = { ...DEFAULT_SETTINGS, ...loaded };
+    try { validateTimestampFormat(this.settings.timestampFormat); }
+    catch { this.settings.timestampFormat = DEFAULT_SETTINGS.timestampFormat; }
+    this.settings.timestampFormatHistory = getTimestampFormats(this.settings);
+    if (typeof this.settings.openOnStartup !== 'boolean') this.settings.openOnStartup = false;
     // Preserve STT for existing configured users; new installs start disabled.
     if (loaded?.sttEnabled === undefined) {
       this.settings.sttEnabled = Boolean(
@@ -639,10 +657,11 @@ export default class JournalPartnerPlugin extends Plugin {
    * the timeline's display (e.g. sort order) change, so the new value applies
    * immediately instead of waiting for the next natural refresh.
    */
-  refreshCaptureViews(): void {
+  refreshCaptureViews(timestampChanged = false): void {
     for (const leaf of this.app.workspace.getLeavesOfType(CAPTURE_VIEW_TYPE)) {
       if (leaf.view instanceof JournalCaptureView) {
-        void leaf.view.fullRebuild();
+        if (timestampChanged) leaf.view.refreshTimestampSettingsNow();
+        else void leaf.view.fullRebuild();
       }
     }
   }
@@ -1335,11 +1354,75 @@ class JournalPartnerSettingTab extends PluginSettingTab {
           }),
       );
 
-    // Preview badge
+    // Save complete formats explicitly; partial edits must never change how
+    // existing journal entries are recognised.
+    let formatDraft = this.plugin.settings.timestampFormat;
+    const presets = ['HH:mm', 'HH:mm:ss', 'HH时mm分ss秒', 'hh:mm A'];
+    let formatInput: TextComponent;
+    let formatDropdown: DropdownComponent;
+    let formatSave: ButtonComponent;
+    let previewStamp: HTMLElement;
+    let formatError: HTMLElement;
+    const updateFormatPreview = () => {
+      try {
+        validateTimestampFormat(formatDraft);
+        previewStamp?.setText(generateTimestamp(formatDraft));
+        formatError?.setText('');
+        formatSave?.setDisabled(false);
+      } catch (error) {
+        previewStamp?.setText('—');
+        formatError?.setText(t('settings.timeFormatInvalid', { msg: error instanceof Error ? error.message : '' }));
+        formatSave?.setDisabled(true);
+      }
+    };
+    const saveFormat = async () => {
+      const previous = this.plugin.settings.timestampFormat;
+      const history = this.plugin.settings.timestampFormatHistory;
+      try {
+        validateTimestampFormat(formatDraft);
+        formatSave.setDisabled(true);
+        this.plugin.settings.timestampFormatHistory = [...new Set([...getTimestampFormats(this.plugin.settings), previous])];
+        this.plugin.settings.timestampFormat = formatDraft;
+        await this.plugin.saveSettings();
+        this.plugin.refreshCaptureViews(true);
+      } catch (error) {
+        this.plugin.settings.timestampFormat = previous;
+        this.plugin.settings.timestampFormatHistory = history;
+        new Notice(t('notice.saveFailed', { msg: error instanceof Error ? error.message : '' }));
+      } finally { updateFormatPreview(); }
+    };
+    new Setting(containerEl)
+      .setName(t('settings.timeFormat'))
+      .setDesc(t('settings.timeFormatDesc'))
+      .addDropdown(dropdown => {
+        formatDropdown = dropdown;
+        for (const format of presets) dropdown.addOption(format, format);
+        dropdown.addOption('__custom__', t('settings.timeFormatCustom'));
+        dropdown.setValue(presets.includes(formatDraft) ? formatDraft : '__custom__');
+        dropdown.onChange(value => {
+          if (value !== '__custom__') { formatDraft = value; formatInput.setValue(value); }
+          else formatInput.inputEl.focus();
+          updateFormatPreview();
+        });
+      })
+      .addText(text => {
+        formatInput = text;
+        text.setPlaceholder(presets[1]).setValue(formatDraft).onChange(value => {
+          formatDraft = value;
+          formatDropdown.setValue(presets.includes(value) ? value : '__custom__');
+          updateFormatPreview();
+        });
+      })
+      .addButton(button => {
+        formatSave = button;
+        button.setButtonText(t('common.save')).onClick(() => { void saveFormat(); });
+      });
     const previewEl = containerEl.createDiv({ cls: 'jp-settings-preview' });
     previewEl.createSpan({ cls: 'jp-settings-preview-label', text: t('settings.preview') });
-    previewEl.createSpan({ cls: 'jp-timestamp', text: '07:31' });
+    previewStamp = previewEl.createSpan({ cls: 'jp-timestamp' });
     previewEl.createSpan({ text: t('settings.previewSample') });
+    formatError = containerEl.createDiv({ cls: 'setting-item-description', attr: { role: 'status', 'aria-live': 'polite' } });
+    updateFormatPreview();
 
     const timestampAdvanced = this.createSettingsDetails(containerEl, 'timestamp-advanced', t('settings.advanced'));
     new Setting(timestampAdvanced)
@@ -1728,6 +1811,16 @@ class JournalPartnerSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           }),
       );
+
+    new Setting(containerEl)
+      .setName(t('settings.openOnStartup'))
+      .setDesc(t('settings.openOnStartupDesc'))
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.openOnStartup)
+        .onChange(async value => {
+          this.plugin.settings.openOnStartup = value;
+          await this.plugin.saveSettings();
+        }));
 
     // ── Auto-focus the input when the view opens ──────────────────────────
     new Setting(containerEl)

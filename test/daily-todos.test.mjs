@@ -52,19 +52,33 @@ test('merges both journal formats, excludes memos, and preserves multiline entry
   ]);
 });
 
-test('uses the configured journal heading, heading level, and timestamp pattern', () => {
+test('uses the configured journal scope and advanced pattern while retaining legacy timestamps', () => {
   const settings = { targetHeading: 'Daily log', headingLevel: 3, timestampPattern: '\\d{2}h\\d{2}' };
   const content = [
     '## Journal', '- [ ] 08:00 wrong section', '### Daily log',
-    '- [ ] 09h15 custom', '- 10h20 [ ] legacy custom', '- [ ] 11:30 wrong pattern',
+    '- [ ] 09h15 custom', '- 10h20 [ ] legacy custom', '- [ ] 11:30 old format',
     '#### Child', '- [X] 12h30 child', '### Next', '- [ ] 13h00 outside',
   ].join('\n');
   const todos = parse(content, settings);
   assert.deepEqual(todos.map(todo => [todo.lineIndex, todo.timestamp, todo.text]), [
-    [3, '09h15', 'custom'], [4, '10h20', 'legacy custom'], [7, '12h30', 'child'],
+    [3, '09h15', 'custom'], [4, '10h20', 'legacy custom'], [5, '11:30', 'old format'], [7, '12h30', 'child'],
   ]);
   assert.equal(set(content, todos[1], true, settings), content.replace('10h20 [ ]', '10h20 [x]'));
   assert.deepEqual(parse('## Journal\n- [ ] 08:00 task', settings), []);
+});
+
+test('format changes keep old snapshots writable and custom-format tasks update only their checkbox', () => {
+  const settings = { timestampFormat: 'HH时mm分ss秒', timestampFormatHistory: ['hh:mm A'] };
+  const content = '## Journal\r\n- [ ] 09:00 old\r\n- 09:01:25 [ ] seconds\r\n- [ ] 09时02分30秒 中文\r\n- 10:20 PM [ ] night\r\n';
+  const todos = parse(content, settings);
+  assert.deepEqual(todos.map(todo => todo.timestamp), ['09:00', '09:01:25', '09时02分30秒', '10:20 PM']);
+  for (const todo of todos) {
+    const position = content.indexOf(todo.sourceLine) + todo.sourceLine.indexOf('[ ]') + 1;
+    assert.equal(set(content, todo, true, settings), content.slice(0, position) + 'x' + content.slice(position + 1));
+  }
+  const old = parse('## Journal\n- 09:00 [ ] old')[0];
+  assert.equal(set('## Journal\n- 09:00 [ ] old', old, true, {timestampPattern:'\\d{2}h\\d{2}', ...settings}),
+    '## Journal\n- 09:00 [x] old');
 });
 
 test('ignores YAML and fenced headings, tasks, and fake journal section boundaries', () => {
@@ -166,7 +180,7 @@ test('rejects unchanged task lines moved outside scope, hidden in fences, or dis
   }
   for (const settings of [
     { todoIncludeTimelineTasks: false }, { targetHeading: 'Other' },
-    { headingLevel: 3 }, { timestampPattern: '\\d{2}h\\d{2}' },
+    { headingLevel: 3 },
   ]) {
     assert.throws(() => set(content, todo, true, settings), /changed|section/);
   }
