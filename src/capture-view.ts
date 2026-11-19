@@ -426,7 +426,7 @@ export class JournalCaptureView extends ItemView {
         if (today) void this.refreshDay(today);
       }
       this.scheduleHabitRefresh();
-    }, () => this.plugin.saveSettings()));
+    }));
     this.buildTimeline(this.capturePaneEl);
 
     // Stats pane (hidden initially; built lazily on first switch)

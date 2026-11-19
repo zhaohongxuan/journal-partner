@@ -20,7 +20,8 @@ export class TodayTodos extends Component {
   private todayPath: string | null = null;
   private snapshot = '';
   private busy = false;
-  private visibilitySaving = false;
+  private completedVisibility: boolean | null = null;
+  private defaultCompletedVisibility: boolean | undefined;
   private renderScope: Component | null = null;
 
   constructor(
@@ -28,7 +29,6 @@ export class TodayTodos extends Component {
     parent: HTMLElement,
     private readonly settings: () => JournalPartnerSettings,
     private readonly onTasksChanged: () => void = () => {},
-    private readonly persistSettings: () => Promise<void> = async () => {},
   ) {
     super();
     this.el = parent.createDiv({ cls: 'jp-today-todos' });
@@ -62,6 +62,8 @@ export class TodayTodos extends Component {
 
   onload(): void {
     this.closed = false;
+    this.completedVisibility = null;
+    this.defaultCompletedVisibility = undefined;
     this.registerEvent(this.app.vault.on('modify', file => {
       if (file.path === this.todayPath || this.day !== this.today()) this.scheduleRefresh();
     }));
@@ -141,15 +143,15 @@ export class TodayTodos extends Component {
     head.createSpan({ cls: 'jp-todo-title', text: t('todo.title') });
     head.createSpan({ cls: 'jp-todo-count', text: String(remaining) });
     const actions = head.createDiv({ cls: 'jp-todo-head-actions' });
-    const showCompleted = this.settings().todoShowCompleted;
+    const showCompleted = this.showCompleted();
     const visibilityLabel = t(showCompleted ? 'todo.hideCompleted' : 'todo.showCompleted');
     const visibility = actions.createEl('button', {
       cls: 'jp-todo-visibility-toggle',
       attr: { type: 'button', 'aria-label': visibilityLabel, title: visibilityLabel, 'aria-pressed': String(showCompleted) },
     });
-    visibility.disabled = this.busy || this.visibilitySaving;
+    visibility.disabled = this.busy;
     setIcon(visibility, showCompleted ? 'eye' : 'eye-off');
-    visibility.addEventListener('click', () => { void this.toggleCompletedVisibility(); });
+    visibility.addEventListener('click', () => this.toggleCompletedVisibility());
     this.addToggle = actions.createEl('button', {
       cls: 'jp-todo-add-toggle',
       attr: { type: 'button', 'aria-label': t('todo.add'), title: t('todo.add'), 'aria-expanded': String(this.composerOpen) },
@@ -171,23 +173,20 @@ export class TodayTodos extends Component {
     }
   }
 
-  private async toggleCompletedVisibility(): Promise<void> {
-    if (this.closed || this.busy || this.visibilitySaving) return;
-    const settings = this.settings();
-    const previous = settings.todoShowCompleted;
-    this.visibilitySaving = true;
-    settings.todoShowCompleted = !previous;
-    this.refreshNow();
-    try {
-      await this.persistSettings();
-    } catch (error) {
-      settings.todoShowCompleted = previous;
-      console.error('[Journal Partner] saving task visibility failed', error);
-      if (!this.closed) new Notice(t('todo.visibilityFailed'));
-    } finally {
-      this.visibilitySaving = false;
-      if (!this.closed) this.refreshNow();
+  /** A card-local override; changing the global default starts a new override. */
+  private showCompleted(): boolean {
+    const defaultValue = this.settings().todoShowCompleted;
+    if (this.defaultCompletedVisibility !== defaultValue) {
+      this.defaultCompletedVisibility = defaultValue;
+      this.completedVisibility = null;
     }
+    return this.completedVisibility ?? defaultValue;
+  }
+
+  private toggleCompletedVisibility(): void {
+    if (this.closed || this.busy) return;
+    this.completedVisibility = !this.showCompleted();
+    this.refreshNow();
   }
 
   private setComposerOpen(open: boolean): void {
@@ -201,6 +200,7 @@ export class TodayTodos extends Component {
   private async render(generation: number): Promise<void> {
     const settings = this.settings();
     if (!settings.todoEnabled) {
+      this.completedVisibility = null;
       this.snapshot = '';
       this.clearRenderedContent();
       this.el.hide();
@@ -213,9 +213,11 @@ export class TodayTodos extends Component {
     this.addButton.setAttr('title', t('todo.add'));
     this.addInput.disabled = this.busy || !appHasDailyNotesPluginLoaded();
     this.addButton.disabled = this.addInput.disabled;
-    this.day = this.today();
-    const day = this.day;
-    const { todoStartHeading: start, todoEndHeading: end, todoShowCompleted: showCompleted } = settings;
+    const day = this.today();
+    if (this.day !== day) this.completedVisibility = null;
+    this.day = day;
+    const { todoStartHeading: start, todoEndHeading: end } = settings;
+    const showCompleted = this.showCompleted();
     try {
       const available = appHasDailyNotesPluginLoaded();
       const file = available ? getDailyNote(moment(), getAllDailyNotes()) : null;
@@ -224,7 +226,7 @@ export class TodayTodos extends Component {
       if (this.closed || generation !== this.generation) return;
       const todos = parseDailyTodos(content, settings);
       const snapshot = JSON.stringify([this.day, file?.path, todos, start, end, showCompleted, settings.todoIncludeTimelineTasks,
-        settings.targetHeading, settings.headingLevel, settings.timestampPattern, settings.language, available, this.busy, this.visibilitySaving]);
+        settings.targetHeading, settings.headingLevel, settings.timestampPattern, settings.language, available, this.busy]);
       if (snapshot === this.snapshot) return;
       this.snapshot = snapshot;
       const remaining = todos.filter(todo => !todo.completed).length;

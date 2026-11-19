@@ -154,11 +154,7 @@ function fixture(t, content, overrides = {}) {
     if (state.editor) fn({ view: new host.MarkdownView(host.file, state.editor) });
   };
   state.taskChanges = 0;
-  state.preferenceSaves = 0;
-  const component = new TodayTodos({ vault, workspace }, parent, () => settings, () => { state.taskChanges++; }, async () => {
-    state.preferenceSaves++;
-    if (state.savePreferences) await state.savePreferences();
-  });
+  const component = new TodayTodos({ vault, workspace }, parent, () => settings, () => { state.taskChanges++; });
   t.after(() => component.unload());
   const boxes = () => parent.querySelectorAll('.jp-todo-checkbox');
   const root = () => parent.children[0];
@@ -451,60 +447,58 @@ test('a journal row rendered before disabling inclusion cannot update the source
   assert.equal(f.boxes().length, 0);
 });
 
-test('eye shortcut persists the shared completed setting, restores hidden tasks and preserves the composer draft', async t => {
-  const f = fixture(t, '## Planning\n- [x] finished\n## Journal\n- [x] 08:00 finished journal', { todoIncludeTimelineTasks: true });
+test('eye shortcut temporarily reveals completed tasks without changing settings or notifying timeline', async t => {
+  const source = '## Planning\n- [x] finished\n## Journal\n- [x] 08:00 finished journal';
+  const f = fixture(t, source, { todoIncludeTimelineTasks: true });
   f.component.load(); await settle();
-  assert.equal(f.boxes().length, 0);
   f.parent.querySelectorAll('.jp-todo-add-toggle')[0].dispatch('click');
   f.parent.querySelectorAll('.jp-todo-add-input')[0].value = 'unsaved draft';
-  let eye = f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0];
-  assert.equal(eye.attr['aria-pressed'], 'false');
-  assert.equal(eye.attr.title, 'Show today’s completed tasks');
-  eye.dispatch('click'); await settle();
-  assert.equal(f.settings.todoShowCompleted, true);
-  assert.equal(f.state.preferenceSaves, 1);
+  const before = JSON.stringify(f.settings);
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
   assert.equal(f.boxes().length, 2);
-  assert.equal(f.parent.querySelectorAll('.jp-todo-count')[0].text, '0');
+  assert.equal(JSON.stringify(f.settings), before);
+  assert.equal(f.state.taskChanges, 0);
+  assert.equal(f.state.processes, 0);
   assert.equal(f.parent.querySelectorAll('.jp-todo-add-input')[0].value, 'unsaved draft');
   assert.equal(f.parent.querySelectorAll('.jp-todo-add-form')[0].hidden, false);
-  eye = f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0];
-  assert.equal(eye.disabled, false);
-  assert.equal(eye.attr['aria-pressed'], 'true');
-  eye.dispatch('click'); await settle();
-  assert.equal(f.settings.todoShowCompleted, false);
-  assert.equal(f.state.preferenceSaves, 2);
+  assert.equal(f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].attr['aria-pressed'], 'true');
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 2, 'ordinary refresh preserves the temporary choice');
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
   assert.equal(f.boxes().length, 0);
-  assert.equal(f.state.processes, 0);
+  assert.equal(JSON.stringify(f.settings), before);
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
+  f.component.unload();
+  const reopened = fixture(t, source, { todoIncludeTimelineTasks: true });
+  reopened.component.load(); await settle();
+  assert.equal(reopened.boxes().length, 0, 'a new card restores the persisted default');
 });
 
-test('a failed eye setting save restores visibility and remains retryable', async t => {
-  t.mock.method(console, 'error', () => {});
-  const f = fixture(t, '## Planning\n- [x] finished\n## Journal');
-  f.state.savePreferences = async () => { throw new Error('disk unavailable'); };
+test('a temporary hide leaves the default enabled and a changed default clears the override', async t => {
+  const f = fixture(t, '## Planning\n- [x] finished\n## Journal', { todoShowCompleted: true });
   f.component.load(); await settle();
-  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
-  assert.equal(f.settings.todoShowCompleted, false);
-  assert.equal(f.boxes().length, 0);
-  assert.equal(host.notices.length, 1);
-  assert.equal(f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].disabled, false);
-  f.state.savePreferences = async () => {};
-  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
-  assert.equal(f.settings.todoShowCompleted, true);
   assert.equal(f.boxes().length, 1);
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 0);
+  assert.equal(f.settings.todoShowCompleted, true);
+  f.settings.todoShowCompleted = false;
+  f.component.refreshNow(); await settle();
+  f.settings.todoShowCompleted = true;
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 1, 'changing the default takes effect without an old override');
 });
 
-test('eye shortcut ignores repeated clicks while saving', async t => {
-  const f = fixture(t, note);
-  const saving = deferred();
-  f.state.savePreferences = () => saving.promise;
+test('disabling and reopening the TODO module restores its configured default', async t => {
+  const f = fixture(t, '## Planning\n- [x] finished\n## Journal');
   f.component.load(); await settle();
-  const eye = f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0];
-  eye.dispatch('click'); eye.dispatch('click'); await settle();
-  assert.equal(f.state.preferenceSaves, 1);
-  assert.equal(f.settings.todoShowCompleted, true);
-  assert.equal(f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].disabled, true);
-  saving.resolve(); await settle();
-  assert.equal(f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].disabled, false);
+  f.parent.querySelectorAll('.jp-todo-visibility-toggle')[0].dispatch('click'); await settle();
+  assert.equal(f.boxes().length, 1);
+  f.settings.todoEnabled = false;
+  f.component.refreshNow(); await settle();
+  f.settings.todoEnabled = true;
+  f.component.refreshNow(); await settle();
+  assert.equal(f.boxes().length, 0);
+  assert.equal(f.settings.todoShowCompleted, false);
 });
 
 test('an older pending refresh cannot replace the latest settings render', async t => {
